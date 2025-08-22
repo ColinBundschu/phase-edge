@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 [project.scripts]
 pe-db-ping = "phaseedge.cli.db:main"
 pe-db-info = "phaseedge.cli.db_info:main"
+pe-db-reset = "phaseedge.cli.db_reset:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

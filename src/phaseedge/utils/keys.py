@@ -1,6 +1,6 @@
 import hashlib
 import json
-from typing import Dict, List, Tuple, Any
+from typing import Any
 import numpy as np
 from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
@@ -23,10 +23,10 @@ def compute_set_id(
     # identity always includes either conv_cell fingerprint or prototype+params
     conv_fingerprint: str | None,
     prototype: str | None,
-    prototype_params: Dict[str, Any] | None,
-    supercell_diag: Tuple[int, int, int],
+    prototype_params: dict[str, Any] | None,
+    supercell_diag: tuple[int, int, int],
     replace_element: str,
-    compositions: List[Dict[str, float]],
+    compositions: list[dict[str, float]],
     seed: int,
     algo_version: str = "randgen-2",
 ) -> str:

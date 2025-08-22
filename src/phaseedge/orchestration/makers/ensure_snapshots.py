@@ -1,9 +1,10 @@
-from typing import Dict, Tuple, Any
-from datetime import datetime
+from typing import TypedDict, Any
+import datetime
 from pathlib import Path
+
 from jobflow import job  # type: ignore[reportPrivateImportUsage]
 from ase.atoms import Atoms
-from pymatgen.io.ase import AseAtomsAdaptor
+from ase.io import write as ase_write
 
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.science.prototypes import make_prototype, PrototypeName
@@ -20,6 +21,12 @@ from phaseedge.storage.store import (
 )
 
 
+class EnsureSnapshotsResult(TypedDict):
+    set_id: str
+    count: int
+    added: int
+
+
 @job
 def ensure_snapshots_job(
     *,
@@ -28,23 +35,26 @@ def ensure_snapshots_job(
 
     # Option B: build prototype on the fly (MVP: rocksalt MgO)
     prototype: PrototypeName | None = None,
-    prototype_params: Dict[str, Any] | None = None,   # e.g., {"a": 4.3, "cubic": True}
+    prototype_params: dict[str, Any] | None = None,  # e.g., {"a": 4.3, "cubic": True}
 
-    supercell_diag: Tuple[int, int, int],
+    supercell_diag: tuple[int, int, int],
     replace_element: str,
-    composition: Dict[str, float],   # one composition per set (simplest)
+    composition: dict[str, float],  # one composition per set (simplest)
     seed: int,
     target_count: int,
     outdir: str | None = None,
     algo_version: str = "randgen-2",
     max_attempts_per_index: int = 10,
-) -> Dict:
+) -> EnsureSnapshotsResult:
     """
-    Ensure the snapshot set has at least `target_count` items. The set identity
-    includes either an explicit input cell fingerprint OR the prototype+params.
+    Ensure the snapshot set has at least `target_count` items.
+
+    Identity includes either an explicit input cell fingerprint OR the
+    (prototype, prototype_params). Deterministic per-index RNG makes the set
+    expandable and reproducible.
     """
-    # build or validate conv_cell
-    proto_used: Dict[str, Any] | None = None
+    # Build or validate conv_cell
+    proto_used: dict[str, Any] | None = None
     if conv_cell is not None and prototype is not None:
         raise ValueError("Provide either conv_cell OR prototype(+params), not both.")
 
@@ -57,7 +67,7 @@ def ensure_snapshots_job(
 
     conv_fp = fingerprint_conv_cell(conv_cell)
 
-    # identity
+    # Compute identity (set_id)
     set_id = compute_set_id(
         conv_fingerprint=None if proto_used else conv_fp,
         prototype=(proto_used["name"] if proto_used else None),
@@ -69,7 +79,7 @@ def ensure_snapshots_job(
         algo_version=algo_version,
     )
 
-    # header upsert
+    # Header upsert (idempotent)
     header = {
         "set_id": set_id,
         "seed": seed,
@@ -77,7 +87,7 @@ def ensure_snapshots_job(
         "replace_element": replace_element,
         "supercell_diag": supercell_diag,
         "algo_version": algo_version,
-        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "conv_fingerprint": conv_fp if proto_used is None else None,
         "prototype": (proto_used["name"] if proto_used else None),
         "prototype_params": (proto_used["params"] if proto_used else None),
@@ -107,9 +117,8 @@ def ensure_snapshots_job(
 
             path = None
             if outp:
-                pmg = AseAtomsAdaptor.get_structure(snapshot)  # type: ignore[arg-type]
                 path = str((outp / f"{ok}.poscar").resolve())
-                pmg.to(fmt="poscar", filename=path)
+                ase_write(path, snapshot, format="vasp", direct=True, vasp5=True, sort=True)
 
             doc = {
                 "set_id": set_id,
@@ -120,12 +129,17 @@ def ensure_snapshots_job(
                 # helpful provenance:
                 "prototype": header["prototype"],
                 "prototype_params": header["prototype_params"],
+                # denormalized convenience fields for ad-hoc queries:
+                "supercell_diag": supercell_diag,
+                "replace_element": replace_element,
             }
             if insert_snapshot_unique(doc):
                 added += 1
                 break
         else:
-            raise RuntimeError(f"Could not create unique snapshot for index {idx} after {max_attempts_per_index} attempts")
+            raise RuntimeError(
+                f"Could not create unique snapshot for index {idx} after {max_attempts_per_index} attempts"
+            )
 
     new_total = count_by_set(set_id)
     return {"set_id": set_id, "count": new_total, "added": added}

@@ -1,5 +1,4 @@
 import os
-from typing import Dict, Iterable, Tuple
 from urllib.parse import quote_plus
 
 from pymongo import MongoClient, ASCENDING
@@ -85,12 +84,12 @@ def _ensure_indexes(db: Database) -> None:
 # Public helpers (unchanged API)
 # -------------------------
 
-def upsert_snapshot_set(doc: Dict) -> None:
+def upsert_snapshot_set(doc: dict) -> None:
     db = db_rw()
     db.snapshot_sets.update_one({"set_id": doc["set_id"]}, {"$setOnInsert": doc}, upsert=True)
 
 
-def insert_snapshot_unique(doc: Dict) -> bool:
+def insert_snapshot_unique(doc: dict) -> bool:
     """
     Insert a snapshot with unique (set_id, index) and unique occ_key.
     Returns True if inserted, False if duplicate prevented insert.
@@ -108,7 +107,7 @@ def count_by_set(set_id: str) -> int:
     return db.snapshots.count_documents({"set_id": set_id})
 
 
-def list_by_set(set_id: str, fields: Tuple[str, ...] = ("occ_key", "index", "path")) -> list[Dict]:
+def list_by_set(set_id: str, fields: tuple[str, ...] = ("occ_key", "index", "path")) -> list[dict]:
     db = db_ro()
     proj = {f: 1 for f in fields}
     proj["_id"] = 0
