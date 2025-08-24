@@ -1,45 +1,49 @@
-import math
-from numpy.random import Generator
+from __future__ import annotations
+
+from typing import Dict, Tuple
+import numpy as np
 from ase.atoms import Atoms
 
-
 def make_one_snapshot(
-    conv_cell: Atoms,
-    supercell_diag: tuple[int, int, int],
     *,
+    conv_cell: Atoms,
+    supercell_diag: Tuple[int, int, int],
     replace_element: str,
-    composition: dict[str, float],
-    rng: Generator,
+    counts: Dict[str, int],
+    rng: np.random.Generator,
 ) -> Atoms:
     """
-    Generate one random snapshot by assigning the `replace_element` sites
-    in the replicated rock-salt prototype to species according to `composition`.
+    Build a supercell, then replace exactly N_i sites on the target sublattice
+    according to integer counts. Deterministic under the provided RNG.
 
-    Deterministic for a given RNG state.
+    - conv_cell: primitive/conv cell ASE Atoms
+    - supercell_diag: (nx, ny, nz)
+    - replace_element: species in conv_cell whose sites are replaceable (e.g., "Mg")
+    - counts: e.g. {"Co": 76, "Fe": 32} (MUST sum to number of replaceable sites in the supercell)
     """
-    proto = conv_cell * supercell_diag
-    repl_idx = [i for i, at in enumerate(proto) if at.symbol == replace_element]
-    n_replace = len(repl_idx)
+    sc = conv_cell.repeat(supercell_diag)
 
-    if not math.isclose(sum(composition.values()), 1.0, abs_tol=1e-6):
-        raise ValueError(f"Fractions must sum to 1; got {composition}")
+    symbols = np.array(sc.get_chemical_symbols())
+    # indices on the replaceable sublattice
+    target_idx = np.where(symbols == replace_element)[0]
+    n_sites = int(target_idx.size)
 
-    # target integer counts (rounded), then adjust to hit exact total
-    counts = {el: round(frac * n_replace) for el, frac in composition.items()}
-    delta = n_replace - sum(counts.values())
-    if delta:
-        keys = list(counts)
-        for k in range(abs(delta)):
-            counts[keys[k % len(keys)]] += int(math.copysign(1, delta))
+    total = sum(int(v) for v in counts.values())
+    if total != n_sites:
+        raise ValueError(
+            f"Counts must sum to replacement sublattice size: got {total}, expected {n_sites}"
+        )
 
-    # random assignment via permutation
-    rng.shuffle(repl_idx)
-    snapshot = proto.copy()
+    # deterministic assignment: permute indices, then slice by exact counts
+    perm = rng.permutation(n_sites)
     start = 0
-    for el, n_el in counts.items():
-        end = start + n_el
-        idx_slice = repl_idx[start:end]
-        snapshot.symbols[idx_slice] = el
-        start = end
+    for elem, n in sorted(counts.items()):  # sort for stable order
+        n = int(n)
+        if n < 0:
+            raise ValueError(f"Negative count for {elem}: {n}")
+        idx_slice = target_idx[perm[start:start + n]]
+        symbols[idx_slice] = elem
+        start += n
 
-    return snapshot
+    sc.set_chemical_symbols(symbols.tolist())
+    return sc

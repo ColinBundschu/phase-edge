@@ -1,20 +1,53 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, TypedDict
+import json
+import hashlib
 
-from jobflow import job, Flow
+from jobflow.core.flow import Flow
+from jobflow.core.job import job
+from jobflow.managers.fireworks import flow_to_workflow
 from pymatgen.core import Structure
-from pymatgen.io.ase import AseAtomsAdaptor
-
-from ase.atoms import Atoms
 from atomate2.forcefields.jobs import ForceFieldRelaxMaker
 
-from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.utils.keys import compute_set_id, fingerprint_conv_cell, rng_for_index, occ_key_for_atoms
-from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.storage import store
+from phaseedge.utils.keys import fingerprint_conv_cell
+from phaseedge.science.prototypes import make_prototype
+from phaseedge.orchestration.makers.random_config import (
+    RandomConfigSpec,
+    make_random_config,
+)
 
+# ---- helpers (counts-based set_id) -------------------------------------------------
+
+def _hash_dict_stable(d: dict[str, Any]) -> str:
+    s = json.dumps(d, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+def compute_set_id_counts(
+    *,
+    conv_fingerprint: str | None,
+    prototype: str | None,
+    prototype_params: dict[str, Any] | None,
+    supercell_diag: tuple[int, int, int],
+    replace_element: str,
+    counts: dict[str, int],
+    seed: int,
+    algo_version: str = "randgen-2-counts-1",
+) -> str:
+    payload = {
+        "algo": algo_version,
+        "conv_fingerprint": conv_fingerprint,
+        "prototype": prototype,
+        "prototype_params": prototype_params,
+        "supercell_diag": list(supercell_diag),
+        "replace_element": replace_element,
+        "counts": counts,
+        "seed": seed,
+    }
+    return _hash_dict_stable(payload)
+
+# ---- storage types -----------------------------------------------------------------
 
 class MaceStoredResult(TypedDict, total=False):
     set_id: str
@@ -27,69 +60,20 @@ class MaceStoredResult(TypedDict, total=False):
     final_formula: str | None
     details: dict[str, Any]
 
-
 def _mace_coll():
     return store.db_rw()["mace_relax"]
-
 
 def _calc_key(set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str) -> dict[str, Any]:
     return {"set_id": set_id, "occ_key": occ_key, "model": model, "relax_cell": relax_cell, "dtype": dtype}
 
-
 def lookup_mace_result(set_id: str, occ_key: str, *, model: str, relax_cell: bool, dtype: str) -> MaceStoredResult | None:
     return _mace_coll().find_one(_calc_key(set_id, occ_key, model, relax_cell, dtype))  # type: ignore[return-value]
-
 
 def upsert_mace_result(doc: MaceStoredResult) -> None:
     key = _calc_key(doc["set_id"], doc["occ_key"], doc["model"], doc["relax_cell"], doc["dtype"])
     _mace_coll().update_one(key, {"$set": doc}, upsert=True)
 
-
-@dataclass
-class RandomConfigSpec:
-    # inputs that define the snapshot set + which index to generate
-    conv_cell: Atoms | None
-    prototype: PrototypeName | None
-    prototype_params: dict[str, Any] | None
-    supercell_diag: tuple[int, int, int]
-    replace_element: str
-    composition: dict[str, float]
-    seed: int
-    index: int  # which snapshot index in the set to generate
-    attempt: int = 0  # usually 0; bump only if collision forces a retry
-
-
-@job
-def make_random_config(spec: RandomConfigSpec) -> dict[str, Any]:
-    """
-    Deterministically generate ONE random configuration + metadata.
-    """
-    if (spec.conv_cell is None) == (spec.prototype is None):
-        raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
-
-    conv_cell = spec.conv_cell or make_prototype(spec.prototype, **(spec.prototype_params or {}))
-    set_id = compute_set_id(
-        conv_fingerprint=None if spec.prototype else fingerprint_conv_cell(conv_cell),
-        prototype=(spec.prototype if spec.prototype else None),
-        prototype_params=(spec.prototype_params if spec.prototype_params else None),
-        supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
-        compositions=[spec.composition],
-        seed=spec.seed,
-        algo_version="randgen-2",
-    )
-    rng = rng_for_index(set_id, spec.index, spec.attempt)
-    snapshot = make_one_snapshot(
-        conv_cell=conv_cell,
-        supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
-        composition=spec.composition,
-        rng=rng,
-    )
-    occ_key = occ_key_for_atoms(snapshot)
-    structure = AseAtomsAdaptor.get_structure(snapshot)  # pmg Structure
-    return {"structure": structure, "set_id": set_id, "occ_key": occ_key}
-
+# ---- jobs --------------------------------------------------------------------------
 
 @job
 def store_mace_result(
@@ -102,29 +86,71 @@ def store_mace_result(
 ) -> MaceStoredResult:
     """
     Persist a minimal, queryable record from the FF relax result.
-    We try a few common shapes for atomate2 FF outputs.
+    Robust to various Atomate2 return shapes.
     """
     energy: float | None = None
     final_formula: str | None = None
     details: dict[str, Any] = {}
 
-    # Try to extract energy + final structure robustly:
-    # 1) result is a Structure with .energy
+    def _from_structure(s: Structure):
+        e = getattr(s, "energy", None)
+        return e, s.composition.reduced_formula, {"n_sites": len(s)}
+
+    # 1) Direct Structure
     if isinstance(result, Structure):
-        energy = getattr(result, "energy", None)
-        final_formula = result.composition.reduced_formula
-        details["n_sites"] = len(result)
-    # 2) dict-like with fields
+        energy, final_formula, info = _from_structure(result)
+        details.update(info)
+
+    # 2) Mapping/dict (may contain 'structure' OR 'output.final_structure')
     elif isinstance(result, dict):
-        if "structure" in result and isinstance(result["structure"], Structure):
-            s: Structure = result["structure"]
-            energy = getattr(s, "energy", result.get("energy", None))
+        out = result.get("output", {}) or {}
+        s = out.get("final_structure") or result.get("final_structure") or result.get("structure")
+        if isinstance(s, dict):
+            try:
+                s = Structure.from_dict(s)
+            except Exception:
+                s = None
+        if isinstance(s, Structure):
+            energy = out.get("final_energy") or out.get("energy") or getattr(s, "energy", None)
             final_formula = s.composition.reduced_formula
             details["n_sites"] = len(s)
         else:
-            energy = result.get("energy", None)
-            final_formula = result.get("final_formula", None)
+            energy = out.get("final_energy") or out.get("energy") or result.get("energy")
+            final_formula = result.get("final_formula")
             details["keys"] = list(result.keys())
+
+    # 3) TaskDocument-like object (e.g., ForceFieldTaskDocument)
+    else:
+        out = getattr(result, "output", None)
+        s_top = getattr(result, "structure", None)
+        s_out = getattr(out, "final_structure", None) if out is not None else None
+        s = s_out or s_top
+        if isinstance(s, Structure):
+            energy = (getattr(out, "final_energy", None) if out is not None else None) \
+                     or (getattr(out, "energy", None) if out is not None else None) \
+                     or getattr(s, "energy", None)
+            final_formula = s.composition.reduced_formula
+            details["n_sites"] = len(s)
+        if (energy is None or final_formula is None) and hasattr(result, "as_dict"):
+            try:
+                rd = result.as_dict()
+                outd = rd.get("output", {}) or {}
+                sd = outd.get("final_structure") or rd.get("structure") or rd.get("final_structure")
+                if isinstance(sd, dict):
+                    try:
+                        s = Structure.from_dict(sd)
+                    except Exception:
+                        s = None
+                if isinstance(s, Structure):
+                    energy = outd.get("final_energy") or outd.get("energy") or getattr(s, "energy", energy)
+                    final_formula = s.composition.reduced_formula
+                    details["n_sites"] = len(s)
+                else:
+                    energy = outd.get("final_energy") or outd.get("energy") or energy
+                details.setdefault("result_type", rd.get("@class"))
+            except Exception:
+                pass
+        details.setdefault("result_type", details.get("result_type", str(type(result))))
 
     doc: MaceStoredResult = {
         "set_id": set_id,
@@ -140,52 +166,43 @@ def store_mace_result(
     upsert_mace_result(doc)
     return doc
 
+# ---- builder -----------------------------------------------------------------------
 
-def make_mace_relax_flow(
+def make_mace_relax_workflow(
     *,
-    # snapshot spec (deterministic)
-    snapshot: RandomConfigSpec,
-    # MACE/relax settings (be sure to keep in calc key!)
+    snapshot: RandomConfigSpec,            # uses counts internally
     model: str = "MACE-MPA-0",
     relax_cell: bool = True,
     dtype: str = "float64",
-    # FireWorks routing
     category: str = "gpu",
-) -> Flow:
+):
     """
-    Returns a Flow: [make_random_config] -> [ForceFieldRelax] -> [store_mace_result],
-    with FW category injected on every Firework.
+    Build Flow [make_random_config] -> [ForceFieldRelax] -> [store_mace_result],
+    convert once to FireWorks Workflow, and inject _category on every Firework.
     """
-    # Pre-submit idempotency check: skip building the FF relax if cached
-    cached = lookup_mace_result(
-        set_id=compute_set_id(
-            conv_fingerprint=None if snapshot.prototype else fingerprint_conv_cell(
-                snapshot.conv_cell or make_prototype(snapshot.prototype, **(snapshot.prototype_params or {}))
-            ),
-            prototype=(snapshot.prototype if snapshot.prototype else None),
-            prototype_params=(snapshot.prototype_params if snapshot.prototype_params else None),
-            supercell_diag=snapshot.supercell_diag,
-            replace_element=snapshot.replace_element,
-            compositions=[snapshot.composition],
-            seed=snapshot.seed,
-            algo_version="randgen-2",
+    # Advisory quick lookup (occ_key unknown here)
+    _ = compute_set_id_counts(
+        conv_fingerprint=None if snapshot.prototype else fingerprint_conv_cell(
+            snapshot.conv_cell or make_prototype(snapshot.prototype, **(snapshot.prototype_params or {}))
         ),
-        occ_key="__DEFER__",  # we don’t know occ_key until we generate; do a second lookup in the store step
-        model=model, relax_cell=relax_cell, dtype=dtype,
+        prototype=(snapshot.prototype if snapshot.prototype else None),
+        prototype_params=(snapshot.prototype_params if snapshot.prototype_params else None),
+        supercell_diag=snapshot.supercell_diag,
+        replace_element=snapshot.replace_element,
+        counts=snapshot.counts,
+        seed=snapshot.seed,
     )
-    # The above quick lookup can’t finish without occ_key; we’ll do the real skip in submit-time code (see script).
-    # We still build the flow; the submitter will decide to submit or skip entirely.
 
     j_gen = make_random_config(snapshot)
+    j_gen.name = "generate_random_config"
 
     maker = ForceFieldRelaxMaker(
         force_field_name=model,
         relax_cell=relax_cell,
-        # If you tried calculator_kwargs in your env to force float64, keep it:
         calculator_kwargs={"default_dtype": dtype},
-        # you can pass relax_kwargs={"steps": 300, "fmax": 0.02} if needed
     )
     j_relax = maker.make(j_gen.output["structure"])
+    j_relax.name = f"mace_relax[{model}]"
 
     j_store = store_mace_result(
         j_gen.output["set_id"],
@@ -195,12 +212,12 @@ def make_mace_relax_flow(
         dtype,
         result=j_relax.output,
     )
+    j_store.name = "store_mace_result"
 
     flow = Flow([j_gen, j_relax, j_store], name="Random→MACE relax")
-
-    # Inject FW category so only GPU workers pick it up
-    for fw in flow_to_workflow(flow).fws:
-        fw.spec["_category"] = category
-
-    # Return the Jobflow Flow (the caller will convert to FW Workflow when submitting)
-    return flow
+    wf = flow_to_workflow(flow)
+    for fw in wf.fws:
+        spec = dict(fw.spec or {})
+        spec["_category"] = category
+        fw.spec = spec
+    return wf

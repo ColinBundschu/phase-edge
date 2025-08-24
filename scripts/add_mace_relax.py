@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from jobflow import Flow  # type: ignore[reportPrivateImportUsage]
+from jobflow.core.flow import Flow
 from fireworks import LaunchPad
 from jobflow.managers.fireworks import flow_to_workflow
 from pymatgen.core import Structure
@@ -30,12 +30,12 @@ def load_structure(
         if path.suffix.lower() in {".vasp", ".poscar"} or path.name.upper() in {"POSCAR", "CONTCAR"}:
             return Structure.from_file(str(path))
         atoms = ase_read(str(path))
-        return AseAtomsAdaptor.get_structure(atoms)
+        return AseAtomsAdaptor.get_structure(atoms) # pyright: ignore[reportArgumentType]
 
     if prototype is None:
         raise ValueError("Provide either --structure or --prototype.")
     atoms = make_prototype(prototype, **(prototype_params or {}))
-    return AseAtomsAdaptor.get_structure(atoms)
+    return AseAtomsAdaptor.get_structure(atoms) # pyright: ignore[reportArgumentType]
 
 
 def main() -> None:
