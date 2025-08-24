@@ -1,9 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-import json
-import hashlib
-
 from monty.json import MSONable
 from jobflow.core.job import job
 from ase.atoms import Atoms
@@ -16,39 +13,9 @@ from phaseedge.utils.keys import (
     fingerprint_conv_cell,
     rng_for_index,
     occ_key_for_atoms,
+    compute_set_id_counts
 )
 
-# ---- helpers (counts-based set_id) -------------------------------------------------
-
-def _hash_dict_stable(d: dict[str, Any]) -> str:
-    # stable JSON and sha256
-    s = json.dumps(d, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
-
-def compute_set_id_counts(
-    *,
-    conv_fingerprint: str | None,
-    prototype: PrototypeName | None,
-    prototype_params: dict[str, Any] | None,
-    supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
-    seed: int,
-    algo_version: str = "randgen-2-counts-1",
-) -> str:
-    payload = {
-        "algo": algo_version,
-        "conv_fingerprint": conv_fingerprint,
-        "prototype": prototype,
-        "prototype_params": prototype_params,
-        "supercell_diag": list(supercell_diag),
-        "replace_element": replace_element,
-        "counts": counts,  # exact integers only
-        "seed": seed,      # set-level seed; index/attempt handled downstream
-    }
-    return _hash_dict_stable(payload)
-
-# ---- spec + job --------------------------------------------------------------------
 
 @dataclass
 class RandomConfigSpec(MSONable):
