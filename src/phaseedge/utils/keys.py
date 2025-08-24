@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import json
 from typing import Any
@@ -8,6 +10,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 
 def fingerprint_conv_cell(conv_cell: Atoms) -> str:
+    # Pylance sometimes mismatches Atoms types; runtime is fine.
     pmg = AseAtomsAdaptor.get_structure(conv_cell)  # type: ignore[arg-type]
     payload = {
         "lattice": np.asarray(pmg.lattice.matrix).round(10).tolist(),
@@ -18,7 +21,7 @@ def fingerprint_conv_cell(conv_cell: Atoms) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def compute_set_id(
+def compute_set_id_counts(
     *,
     # identity always includes either conv_cell fingerprint or prototype+params
     conv_fingerprint: str | None,
@@ -26,17 +29,20 @@ def compute_set_id(
     prototype_params: dict[str, Any] | None,
     supercell_diag: tuple[int, int, int],
     replace_element: str,
-    compositions: list[dict[str, float]],
+    counts: dict[str, int],
     seed: int,
-    algo_version: str = "randgen-2",
+    algo_version: str = "randgen-2-counts-1",
 ) -> str:
     """
-    Deterministic identity for a logical (expandable) snapshot sequence.
+    Deterministic identity for a logical (expandable) snapshot sequence using integer counts.
 
     Exactly one of (conv_fingerprint) or (prototype, prototype_params) must be provided.
     """
     if (conv_fingerprint is None) == (prototype is None):
         raise ValueError("Provide exactly one of conv_fingerprint or prototype(+params).")
+
+    # Stable, sorted counts to avoid dict-order nondeterminism
+    counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
 
     payload = {
         "conv": conv_fingerprint,
@@ -44,7 +50,7 @@ def compute_set_id(
         "proto_params": prototype_params or {},
         "diag": supercell_diag,
         "replace": replace_element,
-        "comps": compositions,
+        "counts": counts_sorted,
         "seed": seed,
         "algo": algo_version,
     }

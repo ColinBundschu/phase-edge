@@ -13,7 +13,7 @@ Mode = Literal["phaseedge", "fw", "both", "all"]
 def _drop_phaseedge_collections() -> None:
     db = store.db_rw()
     names = set(db.list_collection_names())
-    for col in ("snapshots", "snapshot_sets"):
+    for col in ("mace_relax",):
         if col in names:
             db[col].drop()
             print(f"[drop] {db.name}.{col}")
@@ -24,8 +24,7 @@ def _drop_phaseedge_collections() -> None:
 def _reset_fireworks(launchpad_yaml: str) -> None:
     from fireworks import LaunchPad  # local import to be safe
     lp = LaunchPad.from_file(launchpad_yaml)
-    lp.reset(password=None, require_password=False)  # does the reset
-    # robust across FW versions
+    lp.reset(password=None, require_password=False)
     dbname = getattr(lp, "name", getattr(lp, "fw_name", "<unknown>"))
     print(f"[fw] reset FireWorks collections in DB='{dbname}'")
 
@@ -42,8 +41,7 @@ def _print_counts() -> None:
     db = store.db_rw()
     names = set(db.list_collection_names())
     cols = [
-        "snapshots",
-        "snapshot_sets",
+        "mace_relax",
         "fireworks",
         "workflows",
         "launches",
@@ -72,7 +70,7 @@ def main() -> None:
         choices=["phaseedge", "fw", "both", "all"],
         default="both",
         help=(
-            "phaseedge: drop only {snapshots,snapshot_sets}; "
+            "phaseedge: drop only {mace_relax}; "
             "fw: FireWorks reset; "
             "both: do both (default); "
             "all: DROP ENTIRE DATABASE (no FW state survives)."

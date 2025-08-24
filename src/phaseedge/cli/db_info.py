@@ -1,74 +1,97 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
-from collections import Counter
-from typing import Iterable
+from statistics import mean
+from collections import Counter, defaultdict
+from typing import Any
 
 from phaseedge.storage import store
 
 
-def _fmt_comp(d: dict[str, float]) -> str:
-    # stable key order for readability
-    return ",".join(f"{k}:{d[k]:.3f}" for k in sorted(d))
-
-
-def _missing_indices(existing: Iterable[int], total: int) -> list[int]:
-    have = set(existing)
-    return [i for i in range(total) if i not in have]
+def _fmt_counts(d: dict[str, int] | None) -> str:
+    if not d:
+        return "<none>"
+    return ",".join(f"{k}:{d[k]}" for k in sorted(d))
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Show info about a PhaseEdge snapshot set")
+    p = argparse.ArgumentParser(
+        description="Show info about PhaseEdge MACE relax results for a set_id"
+    )
     p.add_argument("--set-id", required=True, help="set_id to inspect")
     p.add_argument("--limit", type=int, default=5, help="show up to N example docs")
     args = p.parse_args()
 
     db = store.db_ro()
+    coll = db["mace_relax"]
 
-    # header (if present)
-    header = db.snapshot_sets.find_one({"set_id": args.set_id}, {"_id": 0})
-    if not header:
-        print("No snapshot_set found for set_id:", args.set_id)
+    # Fetch all docs for this set_id (projection keeps output readable)
+    cursor = coll.find(
+        {"set_id": args.set_id},
+        {
+            "_id": 0,
+            "set_id": 1,
+            "occ_key": 1,
+            "model": 1,
+            "relax_cell": 1,
+            "dtype": 1,
+            "energy": 1,
+            "final_formula": 1,
+            "details": 1,
+            "success": 1,
+        },
+    )
+
+    docs = list(cursor)
+    if not docs:
+        print("No MACE relax docs found for set_id:", args.set_id)
         raise SystemExit(1)
 
-    print("== Snapshot Set ==")
+    print("== MACE Relax Results ==")
     print(" set_id         :", args.set_id)
-    print(" seed           :", header.get("seed"))
-    print(" replace_element:", header.get("replace_element"))
-    print(" supercell_diag :", header.get("supercell_diag"))
-    print(" algo_version   :", header.get("algo_version"))
-    comps = header.get("compositions") or []
-    if comps:
-        print(" compositions   :", "; ".join(_fmt_comp(c) for c in comps))
-    print(" created_at     :", header.get("created_at"))
+    print(" total docs     :", len(docs))
 
-    # count + composition summary
-    total = store.count_by_set(args.set_id)
-    print("\n== Snapshots ==")
-    print(" count          :", total)
+    # Simple group-by summary on calc-key fields
+    by_key = Counter((d.get("model"), d.get("relax_cell"), d.get("dtype")) for d in docs)
+    print("\n by (model, relax_cell, dtype):")
+    for k, n in by_key.most_common():
+        model, relax_cell, dtype = k
+        print(f"  ({model}, {relax_cell}, {dtype}) -> {n}")
 
-    cursor = db.snapshots.find({"set_id": args.set_id}, {"_id": 0, "index": 1, "occ_key": 1, "composition": 1})
-    idxs, examples, comp_counter = [], [], Counter()
-    for i, doc in enumerate(cursor):
-        idxs.append(doc["index"])
-        # normalize comp keys order before counting
-        comp_counter[_fmt_comp(doc["composition"])] += 1
-        if i < args.limit:
-            examples.append(doc)
+    # Energies and sizes (when available)
+    energies = [d["energy"] for d in docs if isinstance(d.get("energy"), (int, float))]
+    sizes = []
+    for d in docs:
+        det = d.get("details") or {}
+        ns = det.get("n_sites")
+        if isinstance(ns, int):
+            sizes.append(ns)
 
-    if examples:
-        print(f"\n first {len(examples)} example(s):")
-        for d in examples:
-            print("  - index:", d["index"], "occ_key:", d["occ_key"], "comp:", _fmt_comp(d["composition"]))
+    if energies:
+        print("\n energy stats   :",
+              f"min={min(energies):.6f}, max={max(energies):.6f}, mean={mean(energies):.6f}")
+    else:
+        print("\n energy stats   : <none>")
 
-    # gaps (if any)
-    if total > 0:
-        miss = _missing_indices(idxs, total)
-        if miss:
-            print("\n missing indices:", miss[:20], ("…" if len(miss) > 20 else ""))
-        else:
-            print("\n missing indices: none")
+    if sizes:
+        by_n = Counter(sizes)
+        print(" n_sites dist   :", ", ".join(f"{k}:{v}" for k, v in sorted(by_n.items())))
+    else:
+        print(" n_sites dist   : <none>")
 
-    # composition distribution
-    if comp_counter:
-        print("\n composition distribution:")
-        for comp, n in comp_counter.most_common():
-            print(f"  {comp} -> {n}")
+    # Show a few examples
+    print(f"\n first {min(args.limit, len(docs))} example(s):")
+    for d in docs[: args.limit]:
+        print(
+            "  - occ_key:", d.get("occ_key"),
+            "model:", d.get("model"),
+            "relax_cell:", d.get("relax_cell"),
+            "dtype:", d.get("dtype"),
+            "energy:", d.get("energy"),
+            "formula:", d.get("final_formula"),
+        )
+
+
+if __name__ == "__main__":
+    main()
