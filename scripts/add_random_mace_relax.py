@@ -10,7 +10,7 @@ from ase.io import read as ase_read
 from phaseedge.orchestration.flows.mace_relax import (
     make_mace_relax_workflow,
 )
-from phaseedge.orchestration.makers.random_config import RandomConfigSpec
+from phaseedge.orchestration.jobs.random_config import RandomConfigSpec
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.utils.keys import (
@@ -18,7 +18,7 @@ from phaseedge.utils.keys import (
     occ_key_for_atoms,
     rng_for_index,
 )
-from phaseedge.orchestration.flows.mace_relax import compute_set_id_counts  # counts-based
+from phaseedge.utils.keys import compute_set_id_counts  # counts-based
 
 # ---- CLI --------------------------------------------------------------------------
 
@@ -83,7 +83,7 @@ def main():
 
     # set_id (counts-based) + precompute occ_key for explicit preview
     set_id = compute_set_id_counts(
-        conv_fingerprint=None if proto else fingerprint_conv_cell(conv),
+        conv_fingerprint=None if proto else fingerprint_conv_cell(conv), # pyright: ignore[reportArgumentType]
         prototype=proto,
         prototype_params=proto_params,
         supercell_diag=tuple(args.supercell),
@@ -93,7 +93,7 @@ def main():
     )
     rng = rng_for_index(set_id, args.index, 0)
     snapshot = make_one_snapshot(
-        conv_cell=conv,
+        conv_cell=conv, # pyright: ignore[reportArgumentType]
         supercell_diag=tuple(args.supercell),
         replace_element=args.replace_element,
         counts=counts,
@@ -103,7 +103,7 @@ def main():
 
     # Build spec
     spec = RandomConfigSpec(
-        conv_cell=None if proto else conv,
+        conv_cell=None if proto else conv, # pyright: ignore[reportArgumentType]
         prototype=proto,
         prototype_params=proto_params,
         supercell_diag=tuple(args.supercell),

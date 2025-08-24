@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,7 +67,7 @@ class RandomConfigSpec(MSONable):
     def as_dict(self) -> dict[str, Any]:
         conv_struct_dict = None
         if self.conv_cell is not None:
-            conv_struct = AseAtomsAdaptor.get_structure(self.conv_cell)
+            conv_struct = AseAtomsAdaptor.get_structure(self.conv_cell) # pyright: ignore[reportArgumentType]
             conv_struct_dict = conv_struct.as_dict()
         return {
             "@module": type(self).__module__,
@@ -92,7 +90,7 @@ class RandomConfigSpec(MSONable):
             struct = Structure.from_dict(d["conv_cell_structure"])
             conv_cell = AseAtomsAdaptor.get_atoms(struct)
         return cls(
-            conv_cell=conv_cell,
+            conv_cell=conv_cell, # pyright: ignore[reportArgumentType]
             prototype=d.get("prototype"),
             prototype_params=d.get("prototype_params"),
             supercell_diag=tuple(d["supercell_diag"]),
@@ -109,10 +107,15 @@ def make_random_config(spec: RandomConfigSpec) -> dict[str, Any]:
     Deterministically generate ONE random configuration + metadata.
     Uses exact integer counts (no fractions).
     """
-    if (spec.conv_cell is None) == (spec.prototype is None):
-        raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
 
-    conv_cell = spec.conv_cell or make_prototype(spec.prototype, **(spec.prototype_params or {}))
+    if spec.prototype is not None:
+        if spec.conv_cell is not None:
+            raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
+        conv_cell = make_prototype(spec.prototype, **(spec.prototype_params or {}))
+    elif spec.conv_cell is not None:
+        conv_cell = spec.conv_cell
+    else:
+        raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
 
     set_id = compute_set_id_counts(
         conv_fingerprint=None if spec.prototype else fingerprint_conv_cell(conv_cell),
@@ -135,6 +138,6 @@ def make_random_config(spec: RandomConfigSpec) -> dict[str, Any]:
     )
 
     occ_key = occ_key_for_atoms(snapshot)
-    structure = AseAtomsAdaptor.get_structure(snapshot)  # pmg Structure
+    structure = AseAtomsAdaptor.get_structure(snapshot) # pyright: ignore[reportArgumentType]
 
     return {"structure": structure, "set_id": set_id, "occ_key": occ_key}

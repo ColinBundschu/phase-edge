@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from jobflow.core.job import Job
 from jobflow.core.flow import Flow
 from fireworks import LaunchPad
 from jobflow.managers.fireworks import flow_to_workflow
@@ -60,7 +61,7 @@ def main() -> None:
         steps=args.max_steps,  # add "fmax": 0.02 if desired
         calculator_kwargs={"default_dtype": "float64"}
     )
-    job_or_flow = maker.make(structure)
+    job_or_flow = cast(Job, maker.make(structure))
     flow = job_or_flow if isinstance(job_or_flow, Flow) else Flow([job_or_flow])
 
     # Convert to FireWorks Workflow first…
