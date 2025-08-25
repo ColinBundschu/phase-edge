@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from monty.json import MSONable
 from jobflow.core.job import job
@@ -13,9 +13,13 @@ from phaseedge.utils.keys import (
     fingerprint_conv_cell,
     rng_for_index,
     occ_key_for_atoms,
-    compute_set_id_counts
+    compute_set_id_counts,
 )
 
+class RandomConfigResult(TypedDict):
+    structure: Structure
+    set_id: str
+    occ_key: str
 
 @dataclass
 class RandomConfigSpec(MSONable):
@@ -25,7 +29,7 @@ class RandomConfigSpec(MSONable):
     prototype_params: dict[str, Any] | None
     supercell_diag: tuple[int, int, int]
     replace_element: str
-    counts: dict[str, int]          # <-- integers, not fractions
+    counts: dict[str, int]          # integers, not fractions
     seed: int
     index: int                      # which snapshot index in the set to generate
     attempt: int = 0                # bump only if collision forces a retry
@@ -69,16 +73,15 @@ class RandomConfigSpec(MSONable):
         )
 
 @job
-def make_random_config(spec: RandomConfigSpec) -> dict[str, Any]:
+def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
     """
     Deterministically generate ONE random configuration + metadata.
     Uses exact integer counts (no fractions).
     """
-
     if spec.prototype is not None:
         if spec.conv_cell is not None:
             raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
-        conv_cell = make_prototype(spec.prototype, **(spec.prototype_params or {}))
+        conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
     elif spec.conv_cell is not None:
         conv_cell = spec.conv_cell
     else:
@@ -93,7 +96,7 @@ def make_random_config(spec: RandomConfigSpec) -> dict[str, Any]:
         counts=spec.counts,
         seed=spec.seed,
     )
-    
+
     rng = rng_for_index(set_id, spec.index, spec.attempt)
 
     snapshot = make_one_snapshot(
