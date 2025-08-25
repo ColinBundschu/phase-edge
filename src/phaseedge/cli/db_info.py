@@ -1,10 +1,6 @@
-#!/usr/bin/env python3
-from __future__ import annotations
-
 import argparse
 from statistics import mean
-from collections import Counter, defaultdict
-from typing import Any
+from collections import Counter
 
 from phaseedge.storage import store
 
