@@ -10,7 +10,6 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.utils.keys import (
-    fingerprint_conv_cell,
     rng_for_index,
     occ_key_for_atoms,
     compute_set_id_counts,
@@ -24,9 +23,8 @@ class RandomConfigResult(TypedDict):
 @dataclass
 class RandomConfigSpec(MSONable):
     # inputs that define the snapshot set + which index to generate
-    conv_cell: Atoms | None
-    prototype: PrototypeName | None
-    prototype_params: dict[str, Any] | None
+    prototype: PrototypeName
+    prototype_params: dict[str, Any]
     supercell_diag: tuple[int, int, int]
     replace_element: str
     counts: dict[str, int]          # integers, not fractions
@@ -36,14 +34,9 @@ class RandomConfigSpec(MSONable):
 
     # monty JSON hooks
     def as_dict(self) -> dict[str, Any]:
-        conv_struct_dict = None
-        if self.conv_cell is not None:
-            conv_struct = AseAtomsAdaptor.get_structure(self.conv_cell) # pyright: ignore[reportArgumentType]
-            conv_struct_dict = conv_struct.as_dict()
         return {
             "@module": type(self).__module__,
             "@class": type(self).__name__,
-            "conv_cell_structure": conv_struct_dict,
             "prototype": self.prototype,
             "prototype_params": self.prototype_params,
             "supercell_diag": list(self.supercell_diag),
@@ -56,14 +49,9 @@ class RandomConfigSpec(MSONable):
 
     @classmethod
     def from_dict(cls, d: dict) -> "RandomConfigSpec":
-        conv_cell = None
-        if d.get("conv_cell_structure") is not None:
-            struct = Structure.from_dict(d["conv_cell_structure"])
-            conv_cell = AseAtomsAdaptor.get_atoms(struct)
         return cls(
-            conv_cell=conv_cell, # pyright: ignore[reportArgumentType]
-            prototype=d.get("prototype"),
-            prototype_params=d.get("prototype_params"),
+            prototype=d["prototype"],
+            prototype_params=d["prototype_params"],
             supercell_diag=tuple(d["supercell_diag"]),
             replace_element=d["replace_element"],
             counts={k: int(v) for k, v in (d.get("counts") or {}).items()},
@@ -78,18 +66,9 @@ def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
     Deterministically generate ONE random configuration + metadata.
     Uses exact integer counts (no fractions).
     """
-    if spec.prototype is not None:
-        if spec.conv_cell is not None:
-            raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
-        conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
-    elif spec.conv_cell is not None:
-        conv_cell = spec.conv_cell
-    else:
-        raise ValueError("Provide exactly one of conv_cell OR prototype(+params).")
-
+    conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
     set_id = compute_set_id_counts(
-        conv_fingerprint=None if spec.prototype else fingerprint_conv_cell(conv_cell),
-        prototype=spec.prototype if spec.prototype else None,
+        prototype=spec.prototype,
         prototype_params=spec.prototype_params if spec.prototype_params else None,
         supercell_diag=spec.supercell_diag,
         replace_element=spec.replace_element,

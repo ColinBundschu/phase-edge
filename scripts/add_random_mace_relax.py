@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse
-import json
-import hashlib
 
 from fireworks import LaunchPad
 from ase.io import read as ase_read
+import numpy as np
 
 from phaseedge.orchestration.flows.mace_relax import (
     make_mace_relax_workflow,
@@ -14,7 +13,6 @@ from phaseedge.orchestration.jobs.random_config import RandomConfigSpec
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.utils.keys import (
-    fingerprint_conv_cell,
     occ_key_for_atoms,
     rng_for_index,
 )
@@ -39,7 +37,6 @@ def main():
     # Snapshot identity
     p.add_argument("--prototype", choices=["rocksalt"])
     p.add_argument("--a", type=float, help="Prototype lattice param if using --prototype (e.g., 4.3).")
-    p.add_argument("--conv-poscar", help="Alternative: path to a primitive POSCAR for explicit conv_cell.")
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
     p.add_argument("--replace-element", required=True)
     p.add_argument("--counts", required=True, help="Exact counts per species on target sublattice, e.g. 'Co:76,Fe:32'")
@@ -57,25 +54,14 @@ def main():
 
     counts = _parse_counts_arg(args.counts)
 
-    # Build conv_cell deterministically for pre-check
-    if (args.conv_poscar is None) == (args.prototype is None):
-        raise SystemExit("Provide exactly one of --conv-poscar or --prototype")
-
-    if args.conv_poscar:
-        conv = ase_read(args.conv_poscar)
-        proto = None
-        proto_params = None
-    else:
-        if not args.a:
-            raise SystemExit("--a is required with --prototype")
-        conv = make_prototype(args.prototype, a=args.a)
-        proto = args.prototype
-        proto_params = {"a": args.a}
+    if not args.a:
+        raise SystemExit("--a is required")
+    conv = make_prototype(args.prototype, a=args.a)
+    proto = args.prototype
+    proto_params = {"a": args.a}
 
     # Validate counts against replacement sublattice size
-    from ase.atoms import Atoms  # for type
     sc = conv.repeat(tuple(args.supercell))
-    import numpy as np
     n_sites = int(np.sum(np.array(sc.get_chemical_symbols()) == args.replace_element))
     total = sum(int(v) for v in counts.values())
     if total != n_sites:
@@ -83,7 +69,6 @@ def main():
 
     # set_id (counts-based) + precompute occ_key for explicit preview
     set_id = compute_set_id_counts(
-        conv_fingerprint=None if proto else fingerprint_conv_cell(conv), # pyright: ignore[reportArgumentType]
         prototype=proto,
         prototype_params=proto_params,
         supercell_diag=tuple(args.supercell),
@@ -103,7 +88,6 @@ def main():
 
     # Build spec
     spec = RandomConfigSpec(
-        conv_cell=None if proto else conv, # pyright: ignore[reportArgumentType]
         prototype=proto,
         prototype_params=proto_params,
         supercell_diag=tuple(args.supercell),
