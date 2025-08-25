@@ -1,5 +1,3 @@
-from typing import Dict, Tuple
-
 import numpy as np
 from ase.atoms import Atoms
 
@@ -7,9 +5,9 @@ from ase.atoms import Atoms
 def validate_counts_for_sublattice(
     *,
     conv_cell: Atoms,
-    supercell_diag: Tuple[int, int, int],
+    supercell_diag: tuple[int, int, int],
     replace_element: str,
-    counts: Dict[str, int],
+    counts: dict[str, int],
 ) -> int:
     """
     Validate that the integer counts sum to the number of replaceable sites
@@ -46,9 +44,9 @@ def validate_counts_for_sublattice(
 def make_one_snapshot(
     *,
     conv_cell: Atoms,
-    supercell_diag: Tuple[int, int, int],
+    supercell_diag: tuple[int, int, int],
     replace_element: str,
-    counts: Dict[str, int],
+    counts: dict[str, int],
     rng: np.random.Generator,
 ) -> Atoms:
     """

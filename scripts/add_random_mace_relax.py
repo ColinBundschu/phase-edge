@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 import argparse
-from typing import Dict
 
 from fireworks import LaunchPad
 
@@ -13,9 +10,9 @@ from phaseedge.science.random_configs import validate_counts_for_sublattice
 from phaseedge.utils.keys import compute_set_id_counts
 
 
-def _parse_counts_arg(s: str) -> Dict[str, int]:
+def _parse_counts_arg(s: str) -> dict[str, int]:
     """Parse --counts 'Co:76,Fe:32' -> {'Co': 76, 'Fe': 32}."""
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for kv in s.split(","):
         k, v = kv.split(":")
         out[k.strip()] = int(v)

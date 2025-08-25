@@ -1,0 +1,195 @@
+from typing import Any, Mapping, Sequence, TypedDict, cast
+
+import numpy as np
+from jobflow.core.job import job
+from pymatgen.core import Structure
+from ase.atoms import Atoms
+
+from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.ce_training import (
+    BasisSpec,
+    Regularization,
+    build_disordered_primitive,
+    build_subspace,
+    featurize_structures,
+    fit_linear_model,
+    predict_from_features,
+    compute_stats,
+    assemble_ce,
+)
+from phaseedge.storage.ce_store import CEStats
+
+__all__ = ["train_ce"]
+
+
+class _TrainOutput(TypedDict):
+    payload: Mapping[str, Any]
+    stats: CEStats
+
+
+def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
+    """
+    Accepts a sequence of pymatgen Structures or dicts (Monty-serialized) and
+    returns a list of Structures. Raises with a clear error if conversion fails.
+    """
+    out: list[Structure] = []
+    for i, s in enumerate(structures):
+        if isinstance(s, Structure):
+            out.append(s)
+        elif isinstance(s, Mapping):
+            try:
+                out.append(Structure.from_dict(cast(Mapping[str, Any], s)))
+            except Exception as exc:
+                raise ValueError(f"structures[{i}] could not be converted from dict to Structure") from exc
+        else:
+            raise TypeError(f"structures[{i}] has unsupported type: {type(s)!r}")
+    return out
+
+
+def _n_replace_sites_from_prototype(
+    prototype: str,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+    replace_element: str,
+) -> int:
+    """
+    Count replaceable sites per supercell deterministically from the prototype.
+    This is invariant to relaxation and guarantees per-site normalization is stable.
+    """
+    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
+    n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
+    if n_per_prim <= 0:
+        raise ValueError(
+            f"Prototype has no sites for replace_element='{replace_element}'."
+        )
+    nx, ny, nz = supercell_diag
+    return int(n_per_prim) * int(nx) * int(ny) * int(nz)
+
+
+def _infer_allowed_species(
+    conv_cell: Atoms, replace_element: str, structures: Sequence[Structure]
+) -> list[str]:
+    """
+    Allowed cation species on the replaceable sublattice inferred from training data.
+    - Exclude anions from the prototype (e.g., 'O' in rocksalt).
+    - Do NOT force-include `replace_element`; include only species actually observed
+      on that sublattice in the training data (e.g., 'Fe','Mn').
+    """
+    # Heuristic anion set: anything in the prototype that is NOT the cation label
+    anion_symbols = {at.symbol for at in conv_cell if at.symbol != replace_element}  # type: ignore[attr-defined]
+
+    seen: set[str] = set()
+    for s in structures:
+        for site in s.sites:
+            # tolerate either Specie or string-y specie records
+            sym = getattr(getattr(site, "specie", None), "symbol", None)
+            if not isinstance(sym, str):
+                sym = str(getattr(site, "specie", ""))
+            if sym and sym not in anion_symbols:
+                seen.add(sym)
+
+    if not seen:
+        raise ValueError(
+            "Could not infer allowed species from training structures; got empty set "
+            "(did energies/structures come from the expected binary cation sublattice?)."
+        )
+    return sorted(seen)
+
+
+@job
+def train_ce(
+    *,
+    # training data
+    structures: Sequence[Structure | Mapping[str, Any]],
+    energies: Sequence[float],  # total energies (eV) for the supercell
+    # prototype-only system identity (needed to build subspace)
+    prototype: str,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+    replace_element: str,
+    # CE config
+    basis_spec: Mapping[str, Any],
+    regularization: Mapping[str, Any],
+    extra_hyperparams: Mapping[str, Any],
+) -> _TrainOutput:
+    """
+    Train a per-site Cluster Expansion model natively (no disorder dependency).
+
+    Steps:
+      1) Convert total energies -> per-site targets using prototype-based site count.
+      2) Build a disordered primitive from the prototype with allowed species inferred from data.
+      3) Build a ClusterSubspace (smol) from BasisSpec cutoffs.
+      4) Featurize all supercells via StructureWrangler (stable site mapping).
+      5) Fit linear model (OLS/ridge/lasso/elasticnet) with intercept = 0.
+      6) Compute per-site fit stats on training set.
+      7) Return ce.as_dict() payload + stats (per-site).
+    """
+    # -------- basic validation --------
+    if not structures:
+        raise ValueError("No structures provided.")
+    if len(structures) != len(energies):
+        raise ValueError(f"structures and energies length mismatch: {len(structures)} vs {len(energies)}")
+
+    try:
+        nx, ny, nz = map(int, supercell_diag)
+        supercell_diag = (nx, ny, nz)
+    except Exception as exc:
+        raise ValueError(f"supercell_diag must be a length-3 tuple of ints; got {supercell_diag!r}") from exc
+
+    # Convert any Monty-serialized dicts into real Structures
+    structures_pm: list[Structure] = _ensure_structures(structures)
+
+    # -------- 1) per-site targets via constant site count from prototype --------
+    n_sites = _n_replace_sites_from_prototype(
+        prototype=prototype,
+        prototype_params=prototype_params,
+        supercell_diag=supercell_diag,
+        replace_element=replace_element,
+    )
+    if n_sites <= 0:
+        raise ValueError("Computed zero replaceable sites from prototype (unexpected).")
+    y_site = [float(E) / float(n_sites) for E in energies]
+
+    # -------- 2) prototype conv cell + allowed species inference --------
+    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
+    allowed_species = _infer_allowed_species(conv_cell, replace_element, structures_pm)
+    primitive_cfg = build_disordered_primitive(
+        conv_cell=conv_cell, replace_element=replace_element, allowed_species=allowed_species
+    )
+
+    # -------- 3) subspace (BasisSpec will coerce cutoffs; build_subspace re-coerces defensively) --------
+    basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
+    subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
+
+    # -------- 4) featurization --------
+    wrangler, X = featurize_structures(
+        subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag
+    )
+    if X.size == 0 or X.shape[1] == 0:
+        raise ValueError(
+            "Feature matrix is empty (no clusters generated). "
+            "Try increasing cutoffs or adjusting the basis specification."
+        )
+    if X.shape[0] != len(y_site):
+        raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_site)}.")
+
+    # -------- 5) fit linear model on per-site targets --------
+    y = np.asarray(y_site, dtype=np.float64)
+    reg = Regularization(**cast(Mapping[str, Any], regularization))
+    coefs = fit_linear_model(X, y, reg)
+
+    # -------- 6) predictions + stats (per-site) --------
+    y_pred = predict_from_features(X, coefs).tolist()
+    stats_site = compute_stats(y_site, y_pred)
+
+    # -------- 7) assemble CE and payload --------
+    ce = assemble_ce(subspace, coefs)
+    if hasattr(ce, "as_dict"):
+        try:
+            payload = cast(Mapping[str, Any], ce.as_dict())  # type: ignore[call-arg]
+        except Exception:
+            payload = {"repr": repr(ce)}
+    else:
+        payload = {"repr": repr(ce)}
+
+    return {"payload": payload, "stats": cast(CEStats, stats_site)}
