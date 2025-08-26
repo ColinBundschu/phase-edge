@@ -1,6 +1,6 @@
 import hashlib
 import json
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 import numpy as np
 from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
@@ -55,15 +55,16 @@ def occ_key_for_atoms(snapshot: Atoms) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
 
-# ---- CE key (counts-based, deterministic) ------------------------------------------
+
+# ---- Canonicalization helpers --------------------------------------------------------
 
 def _json_canon(obj: Any) -> Any:
     """
     Canonicalize common Python containers for stable hashing:
     - dicts: sort keys recursively
-    - tuples: convert to lists
-    - numpy arrays: convert to (nested) lists if they sneak in
-    - other objects: leave as-is (assuming they are JSON-serializable or simple scalars)
+    - lists/tuples: convert tuples to lists and recurse
+    - numpy arrays: convert to (nested) lists
+    - everything else: return as-is
     """
     try:
         import numpy as _np  # local import to avoid hard dependency at import time
@@ -73,10 +74,58 @@ def _json_canon(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _json_canon(obj[k]) for k in sorted(obj)}
     if isinstance(obj, (list, tuple)):
-        return [ _json_canon(x) for x in obj ]
+        return [_json_canon(x) for x in obj]
     if _np is not None and isinstance(obj, _np.ndarray):
         return _json_canon(obj.tolist())
     return obj
+
+
+def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
+    """
+    Return a dict[str, int] with sorted keys and coerced integer values.
+    """
+    return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
+
+
+def _canon_indices(elem: Mapping[str, Any]) -> list[int]:
+    """
+    From a mixture element, produce a canonical indices list.
+    If 'indices' is present, use sorted unique ints.
+    Else, require 'K' and return [0..K-1].
+    """
+    if "indices" in elem and elem["indices"] is not None:
+        idx = [int(x) for x in cast(Sequence[Any], elem["indices"])]
+        return sorted(dict.fromkeys(idx))  # unique + sorted
+    K = int(elem.get("K", 0))
+    if K <= 0:
+        raise ValueError(f"Mixture element missing valid K/indices: {elem!r}")
+    return [int(i) for i in range(K)]
+
+
+def canonical_mixture_signature(mix: Sequence[Mapping[str, Any]]) -> str:
+    """
+    Canonical, order-insensitive JSON string describing a mixture.
+    Each element contributes: {counts (sorted), seed (int), indices (sorted list)}.
+    Elements are sorted by (counts_json, seed, indices_json) to remove order sensitivity.
+    """
+    normalized: list[dict[str, Any]] = []
+    for elem in mix:
+        cnts = canonical_counts(elem.get("counts", {}))
+        seed = int(elem.get("seed", 0))
+        indices = _canon_indices(elem)
+        normalized.append({"counts": cnts, "seed": seed, "indices": indices})
+
+    # Sort elements deterministically
+    def _key(e: Mapping[str, Any]) -> tuple[str, int, str]:
+        c = json.dumps(e["counts"], sort_keys=True, separators=(",", ":"))
+        i = json.dumps(e["indices"], sort_keys=True, separators=(",", ":"))
+        return (c, int(e["seed"]), i)
+
+    normalized_sorted = sorted(normalized, key=_key)
+    return json.dumps(normalized_sorted, sort_keys=True, separators=(",", ":"))
+
+
+# ---- CE key (counts-based, deterministic) -------------------------------------------
 
 def compute_ce_key(
     *,
@@ -100,30 +149,13 @@ def compute_ce_key(
     extra_hyperparams: Mapping[str, Any] | None = None,
 ) -> str:
     """
-    Deterministic key for a CE trained on an EXACT set of snapshots.
-
-    Identity includes:
-      - system (prototype+params) + supercell + replace rule
-      - exact integer counts, seed, algo_version, and the exact list of indices
-      - relax engine (model/relax_cell/dtype)
-      - CE hyperparameters (basis_spec, regularization, and any extra knobs)
-
-    Returns a SHA256 hex digest over a canonically-ordered JSON payload.
-
-    Notes:
-      * counts are sorted by species key to avoid dict-order nondeterminism.
-      * indices are sorted to avoid order sensitivity (membership defines identity).
-      * all mappings are recursively key-sorted via _json_canon.
-      * NO normalized ratios—composition identity is exact integer counts.
+    Deterministic key for a CE trained on an EXACT set of snapshots (single composition).
     """
-    # Stable, integer-only counts (sorted by species)
     counts_sorted: dict[str, int] = {k: int(counts[k]) for k in sorted(counts)}
-
-    # Stable indices list (membership only; order-insensitive)
     indices_sorted: list[int] = sorted(int(i) for i in indices)
 
     payload = {
-        "kind": "ce_key@counts",  # explicit tag for future-proofing
+        "kind": "ce_key@counts",
         "system": {
             "prototype": prototype,
             "proto_params": _json_canon(prototype_params),
@@ -148,6 +180,64 @@ def compute_ce_key(
         },
     }
 
-    import json, hashlib
+    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def compute_ce_key_mixture(
+    *,
+    prototype: str,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+    replace_element: str,
+    # --- mixture: each element has counts, and either indices[] or K, plus seed
+    mixture: Sequence[Mapping[str, Any]],
+    algo_version: str = "randgen-3-mix-1",
+    # --- relax/engine identity
+    model: str,
+    relax_cell: bool,
+    dtype: str,
+    # --- CE hyperparameters (all knobs that distinguish models)
+    basis_spec: Mapping[str, Any],
+    regularization: Mapping[str, Any] | None = None,
+    extra_hyperparams: Mapping[str, Any] | None = None,
+) -> str:
+    """
+    Deterministic key for a CE trained on a union of snapshot families (mixture of compositions).
+
+    Identity includes:
+      - system (prototype+params) + supercell + replace rule
+      - mixture signature (order-insensitive):
+          list of {counts (sorted), seed (int), indices (sorted list)}
+      - relax engine (model/relax_cell/dtype)
+      - CE hyperparameters (basis_spec, regularization, extra)
+      - algo_version for the sampler family
+    """
+    mix_sig = canonical_mixture_signature(mixture)
+
+    payload = {
+        "kind": "ce_key@mixture",
+        "system": {
+            "prototype": prototype,
+            "proto_params": _json_canon(prototype_params),
+            "supercell": list(supercell_diag),
+            "replace": replace_element,
+        },
+        "sampling": {
+            "mixture_sig": mix_sig,
+            "algo": algo_version,
+        },
+        "engine": {
+            "model": model,
+            "relax_cell": bool(relax_cell),
+            "dtype": dtype,
+        },
+        "hyperparams": {
+            "basis": _json_canon(basis_spec),
+            "regularization": _json_canon(regularization or {}),
+            "extra": _json_canon(extra_hyperparams or {}),
+        },
+    }
+
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

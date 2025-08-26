@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 import argparse
+from typing import Any
 
 from fireworks import LaunchPad
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.orchestration.jobs.check_or_schedule_ce import (
-    CEEnsureSpec,
+    CEEnsureMixtureSpec,
     check_or_schedule_ce,
 )
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattice
-from phaseedge.utils.keys import compute_ce_key
+from phaseedge.utils.keys import compute_ce_key_mixture
 
 
 def _parse_counts_arg(s: str) -> dict[str, int]:
-    """Parse --counts 'Co:76,Fe:32' -> {'Co': 76, 'Fe': 32} (whitespace-tolerant)."""
+    """Parse 'Co:76,Fe:32' -> {'Co': 76, 'Fe': 32} (whitespace-tolerant)."""
     out: dict[str, int] = {}
     for kv in s.split(","):
         kv = kv.strip()
@@ -37,7 +38,7 @@ def _parse_counts_arg(s: str) -> dict[str, int]:
 
 
 def _parse_cutoffs_arg(s: str) -> dict[int, float]:
-    """Parse --cutoffs '1:100,2:10,3:8,4:6' -> {1:100.0,2:10.0,3:8.0,4:6.0}."""
+    """Parse '1:100,2:10,3:8,4:6' -> {1:100.0,2:10.0,3:8.0,4:6.0}."""
     out: dict[int, float] = {}
     for kv in s.split(","):
         kv = kv.strip()
@@ -52,9 +53,36 @@ def _parse_cutoffs_arg(s: str) -> dict[int, float]:
     return out
 
 
+def _parse_mix_item(s: str) -> dict[str, Any]:
+    """
+    Parse one --mix item like:
+      "counts=Fe:54,Mn:46;K=50;seed=123"
+    Keys: counts (required), K (required), seed (optional).
+    """
+    item: dict[str, Any] = {}
+    parts = [p.strip() for p in s.split(";") if p.strip()]
+    for p in parts:
+        if "=" not in p:
+            raise ValueError(f"Bad --mix token '{p}' (expected key=value)")
+        k, v = p.split("=", 1)
+        k = k.strip().lower()
+        v = v.strip()
+        if k == "counts":
+            item["counts"] = _parse_counts_arg(v)
+        elif k == "k":
+            item["K"] = int(v)
+        elif k == "seed":
+            item["seed"] = int(v)
+        else:
+            raise ValueError(f"Unknown key '{k}' in --mix item")
+    if "counts" not in item or "K" not in item:
+        raise ValueError("Each --mix item must include counts=... and K=...")
+    return item
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Ensure a CE (deterministic snapshots → MACE relax cache → train CE → store)."
+        description="Ensure a CE over a mixture of compositions (deterministic snapshots → MACE relax cache → train CE → store)."
     )
     p.add_argument("--launchpad", required=True)
 
@@ -63,9 +91,17 @@ def main() -> None:
     p.add_argument("--a", required=True, type=float, help="Prototype lattice parameter (e.g., 4.3).")
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
     p.add_argument("--replace-element", required=True)
-    p.add_argument("--counts", required=True, help="Exact counts per species on target sublattice, e.g. 'Co:76,Fe:32'")
-    p.add_argument("--seed", type=int, required=True)
-    p.add_argument("--K", type=int, required=True, help="Exact number of snapshots (indices 0..K-1)")
+
+    # Mixture input (new). You can repeat --mix multiple times.
+    # Example:
+    #   --mix "counts=Co:100;K=2"
+    #   --mix "counts=Co:75,Mn:25;K=50;seed=200"
+    p.add_argument("--mix", action="append", default=[], help="Mixture element: 'counts=...;K=...;seed=...'")
+
+    # Back-compat single-composition flags (used only if --mix not supplied)
+    p.add_argument("--counts", help="Exact counts per species, e.g. 'Co:76,Fe:24'")
+    p.add_argument("--seed", type=int, help="Global/default seed (and seed for single-composition mode)")
+    p.add_argument("--K", type=int, help="Exact number of snapshots (indices 0..K-1) for single-composition mode")
 
     # Relax/engine for training energies
     p.add_argument("--model", default="MACE-MPA-0")
@@ -87,29 +123,42 @@ def main() -> None:
     p.add_argument("--category", default="gpu")
 
     args = p.parse_args()
-    counts = _parse_counts_arg(args.counts)
     cutoffs = _parse_cutoffs_arg(args.cutoffs)
-    indices = list(range(int(args.K)))
 
-    # Optional early validation: counts match replaceable sites
+    # Build mixture (either from --mix items, or from legacy single-composition flags)
+    mixture: list[dict[str, Any]]
+    if args.mix:
+        mixture = [_parse_mix_item(s) for s in args.mix]
+        if args.seed is None:
+            # if not given, choose a stable default seed (e.g., 0) for the default_seed param
+            default_seed = 0
+        else:
+            default_seed = int(args.seed)
+    else:
+        if args.counts is None or args.seed is None or args.K is None:
+            raise SystemExit("When --mix is not used, you must provide --counts, --seed, and --K.")
+        mixture = [{"counts": _parse_counts_arg(args.counts), "K": int(args.K), "seed": int(args.seed)}]
+        default_seed = int(args.seed)
+
+    # Optional early validation: counts match replaceable sites for each mixture element
     conv = make_prototype(args.prototype, a=args.a)
-    _ = validate_counts_for_sublattice(
-        conv_cell=conv,
-        supercell_diag=tuple(args.supercell),
-        replace_element=args.replace_element,
-        counts=counts,
-    )
+    for idx, elem in enumerate(mixture):
+        cts = dict(elem["counts"])
+        validate_counts_for_sublattice(
+            conv_cell=conv,
+            supercell_diag=tuple(args.supercell),
+            replace_element=args.replace_element,
+            counts=cts,
+        )
 
-    # Compute CE key now so you can grep/track this run
-    ce_key = compute_ce_key(
+    # Compute CE key (mixture-aware) now so you can grep/track this run
+    ce_key = compute_ce_key_mixture(
         prototype=args.prototype,
         prototype_params={"a": args.a},
         supercell_diag=tuple(args.supercell),
         replace_element=args.replace_element,
-        counts=counts,
-        seed=int(args.seed),
-        indices=indices,
-        algo_version="randgen-2-counts-1",
+        mixture=mixture,
+        algo_version="randgen-3-mix-1",
         model=args.model,
         relax_cell=args.relax_cell,
         dtype=args.dtype,
@@ -118,15 +167,14 @@ def main() -> None:
         extra_hyperparams={},
     )
 
-    # Build the idempotent ensure job
-    spec = CEEnsureSpec(
+    # Build the idempotent ensure job (mixture spec)
+    spec = CEEnsureMixtureSpec(
         prototype=args.prototype,
         prototype_params={"a": args.a},
         supercell_diag=tuple(args.supercell),
         replace_element=args.replace_element,
-        counts=counts,
-        seed=int(args.seed),
-        K=int(args.K),
+        mixture=mixture,
+        default_seed=default_seed,
         model=args.model,
         relax_cell=args.relax_cell,
         dtype=args.dtype,
@@ -140,7 +188,7 @@ def main() -> None:
     j.name = "ensure_ce"
     j.metadata = {**(j.metadata or {}), "_category": args.category}
 
-    flow = Flow([j], name="Ensure CE")
+    flow = Flow([j], name="Ensure CE (mixture)")
     wf = flow_to_workflow(flow)
     # belt & suspenders category tagging
     for fw in wf.fws:
@@ -156,7 +204,7 @@ def main() -> None:
             "a": args.a,
             "supercell": tuple(args.supercell),
             "replace_element": args.replace_element,
-            "K": args.K,
+            "mixture": mixture,
             "model": args.model,
             "relax_cell": args.relax_cell,
             "dtype": args.dtype,

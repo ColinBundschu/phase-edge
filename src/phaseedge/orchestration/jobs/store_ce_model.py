@@ -1,7 +1,6 @@
 from typing import Any, Mapping, Sequence, TypedDict, cast
 
 from jobflow.core.job import job
-from phaseedge.storage.ce_store import CEStats
 from phaseedge.storage import store
 
 
@@ -14,7 +13,7 @@ class _StoredCE(TypedDict, total=False):
     train_refs: Sequence[Mapping[str, Any]]
     dataset_hash: str
     payload: Mapping[str, Any]
-    stats: CEStats
+    stats: Mapping[str, Any]  # now flexible: in_sample / five_fold_cv / by_composition
     success: bool
 
 
@@ -53,10 +52,10 @@ def store_ce_model(
     train_refs: Sequence[Mapping[str, Any]],
     dataset_hash: str,
     payload: Any,          # may be a dict or a ClusterExpansion object
-    stats: CEStats,
+    stats: Mapping[str, Any],
 ) -> _StoredCE:
     """
-    Idempotently persist a trained CE.
+    Idempotently persist a trained CE (mixture-friendly).
     If a doc with ce_key exists, we overwrite fields (upsert semantics).
     Returns the stored document from DB.
     """
@@ -69,12 +68,12 @@ def store_ce_model(
         "train_refs": list(train_refs),
         "dataset_hash": str(dataset_hash),
         "payload": _payload_to_dict(payload),
-        "stats": cast(CEStats, stats),
+        "stats": dict(stats),
         "success": True,
     }
 
     coll = _ce_coll()
     coll.update_one({"ce_key": ce_key}, {"$set": doc}, upsert=True)
     stored = coll.find_one({"ce_key": ce_key}) or doc
-    # type: ignore[return-value] – Pyright can’t see Mongo types
+    # type: ignore[return-value] – Mongo runtime types
     return cast(_StoredCE, stored)

@@ -26,6 +26,7 @@ __all__ = ["train_ce"]
 class TrainStats(TypedDict):
     in_sample: CEStats
     five_fold_cv: CEStats
+    by_composition: dict[str, Mapping[str, CEStats]]  # {"Co:75,Mn:25": {"in_sample": ..., "five_fold_cv": ...}, ...}
 
 
 class _TrainOutput(TypedDict):
@@ -102,6 +103,32 @@ def _infer_allowed_species(
     return sorted(seen)
 
 
+def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
+    """
+    Stable signature like 'Co:75,Mn:25' counting ONLY the allowed cations.
+    Missing species are included as zero to keep keys comparable.
+    """
+    counts: dict[str, int] = {el: 0 for el in allowed_species}
+    for site in s.sites:
+        sym = getattr(getattr(site, "specie", None), "symbol", None)
+        if not isinstance(sym, str):
+            sym = str(getattr(site, "specie", ""))
+        if sym in counts:
+            counts[sym] += 1
+    # sort by species name for stability
+    parts = [f"{el}:{int(counts[el])}" for el in sorted(counts)]
+    return ",".join(parts)
+
+
+def _stats_for_group(idxs: Sequence[int], y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
+    if not idxs:
+        # shouldn't happen; return zeros with n=0 to be safe
+        return cast(CEStats, {"n": 0, "mae_per_site": 0.0, "rmse_per_site": 0.0, "max_abs_per_site": 0.0})
+    yt = [y_true[i] for i in idxs]
+    yp = [y_pred[i] for i in idxs]
+    return cast(CEStats, compute_stats(yt, yp))
+
+
 @job
 def train_ce(
     *,
@@ -121,11 +148,10 @@ def train_ce(
     cv_seed: int | None = None,
 ) -> _TrainOutput:
     """
-    Train a per-site Cluster Expansion model and return both in-sample and 5-fold-CV stats.
-
-    - Features/subspace are built once from the full structure set (no target leakage).
-    - CV uses KFold(shuffle=True, random_state=cv_seed) with k = min(5, n) and
-      falls back to in-sample stats if n < 2.
+    Train a per-site Cluster Expansion model and return:
+      - overall in-sample stats
+      - stitched 5-fold-CV stats
+      - per-composition breakdown for both
     """
     # -------- basic validation --------
     if not structures:
@@ -176,14 +202,25 @@ def train_ce(
     if X.shape[0] != len(y_site):
         raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_site)}.")
 
+    # -------- group membership by composition signature --------
+    comp_to_indices: dict[str, list[int]] = {}
+    for i, s in enumerate(structures_pm):
+        sig = _composition_signature(s, allowed_species)
+        comp_to_indices.setdefault(sig, []).append(i)
+
     # -------- 5) fit linear model on full set (in-sample) --------
     y = np.asarray(y_site, dtype=np.float64)
     reg = Regularization(**cast(Mapping[str, Any], regularization))
     coefs = fit_linear_model(X, y, reg)
 
-    # in-sample stats
+    # in-sample stats (overall)
     y_pred_in = predict_from_features(X, coefs).tolist()
     stats_in = compute_stats(y_site, y_pred_in)
+
+    # per-composition in-sample
+    by_comp_in: dict[str, CEStats] = {}
+    for sig, idxs in comp_to_indices.items():
+        by_comp_in[sig] = _stats_for_group(idxs, y_site, y_pred_in)
 
     # -------- 6) 5-fold CV (stitched oof predictions) --------
     n = X.shape[0]
@@ -199,9 +236,15 @@ def train_ce(
         if np.isnan(y_pred_oof).any():
             y_pred_oof = np.where(np.isnan(y_pred_oof), np.asarray(y_pred_in, dtype=np.float64), y_pred_oof)
         stats_cv = compute_stats(y_site, y_pred_oof.tolist())
+        # per-composition CV
+        by_comp_cv: dict[str, CEStats] = {}
+        y_oof_list = y_pred_oof.tolist()
+        for sig, idxs in comp_to_indices.items():
+            by_comp_cv[sig] = _stats_for_group(idxs, y_site, y_oof_list)
     else:
         # Not enough samples for CV; mirror in-sample
         stats_cv = stats_in
+        by_comp_cv = by_comp_in
 
     # -------- 7) assemble CE and payload --------
     ce = assemble_ce(subspace, coefs)
@@ -215,5 +258,12 @@ def train_ce(
 
     return {
         "payload": payload,
-        "stats": {"in_sample": cast(CEStats, stats_in), "five_fold_cv": cast(CEStats, stats_cv)},
+        "stats": {
+            "in_sample": cast(CEStats, stats_in),
+            "five_fold_cv": cast(CEStats, stats_cv),
+            "by_composition": {
+                sig: {"in_sample": cast(CEStats, by_comp_in[sig]), "five_fold_cv": cast(CEStats, by_comp_cv[sig])}
+                for sig in sorted(comp_to_indices)
+            },
+        },
     }
