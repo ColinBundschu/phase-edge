@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Mapping, Sequence, cast, TypedDict
 
 from jobflow.core.flow import Flow
 from jobflow.core.job import job, Job
@@ -10,16 +8,36 @@ from phaseedge.orchestration.jobs.decide_relax import check_or_schedule_relax
 
 __all__ = ["make_ensure_snapshots_flow"]
 
-@job
-def _gather_occ_keys(set_id: str, results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """
-    Barrier: depend on each relax/store result, then emit the ordered occ_keys.
 
-    `results` are outputs of `check_or_schedule_relax`:
-      - cache-hit: the stored doc directly
-      - cache-miss: replaced by [relax -> store], so this ref waits for store
+class GatheredSnapshots(TypedDict):
+    set_id: str
+    occ_keys: list[str]
+
+
+@job
+def _gather_occ_keys(*, set_id: str, results: list[dict[str, Any] | None]) -> GatheredSnapshots:
     """
-    occ_keys = [cast(str, r["occ_key"]) for r in results]
+    Validate per-index results and gather their occ_keys into order, returning
+    a payload that downstream jobs can consume (including the set_id that
+    identifies this snapshot family).
+    """
+    bad_idxs: list[int] = []
+    occ_keys: list[str] = []
+
+    for i, r in enumerate(results):
+        if not isinstance(r, dict) or "occ_key" not in r:
+            bad_idxs.append(i)
+            continue
+        occ_keys.append(cast(str, r["occ_key"]))
+
+    if bad_idxs:
+        raise ValueError(
+            "gather_occ_keys: Missing or invalid results at indices "
+            f"{bad_idxs}. Upstream jobs likely returned None or a payload "
+            "without 'occ_key'. Ensure decide_relax/store_mace_result always return "
+            "{'occ_key': ..., ...}."
+        )
+
     return {"set_id": set_id, "occ_keys": occ_keys}
 
 
@@ -49,7 +67,7 @@ def make_ensure_snapshots_flow(
     decide_outputs = []
     jobs: list[Job] = []
 
-    first_set_id_ref = None
+    first_set_id_ref: Any | None = None
 
     for idx in indices:
         spec = RandomConfigSpec(
@@ -71,7 +89,7 @@ def make_ensure_snapshots_flow(
 
         j_decide = check_or_schedule_relax(
             set_id=j_gen.output["set_id"],
-            occ_key=j_gen.output["occ_key"],  # harmless input; the decision uses DB anyway
+            occ_key=j_gen.output["occ_key"],
             structure=j_gen.output["structure"],
             model=model,
             relax_cell=relax_cell,
@@ -82,7 +100,7 @@ def make_ensure_snapshots_flow(
         j_decide.metadata = {**(j_decide.metadata or {}), "_category": category}
 
         jobs.extend([j_gen, j_decide])
-        decide_outputs.append(j_decide.output)  # barrier: reference each result doc
+        decide_outputs.append(j_decide.output)  # dependency barrier
 
     assert first_set_id_ref is not None, "indices must be non-empty"
 
