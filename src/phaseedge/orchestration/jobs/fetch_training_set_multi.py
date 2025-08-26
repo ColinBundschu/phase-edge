@@ -76,6 +76,10 @@ def fetch_training_set_multi(
     # Build prototype conventional cell once; validate each group's counts against it.
     conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
 
+    # Make a strictly-typed supercell diag (avoid tuple[int, ...] gripes)
+    sx, sy, sz = map(int, supercell_diag)
+    sc_diag: tuple[int, int, int] = (sx, sy, sz)
+
     structures: list[Structure] = []
     energies: list[float] = []
     train_refs: list[CETrainRef] = []
@@ -88,7 +92,6 @@ def fetch_training_set_multi(
         set_id = cast(str, g.get("set_id"))
         occ_keys = cast(Sequence[str], g.get("occ_keys"))
         counts = {str(k): int(v) for k, v in dict(g.get("counts", {})).items()}
-        seed = int(g.get("seed", 0))
 
         if not set_id or not isinstance(set_id, str):
             raise ValueError(f"group[{gi}] missing valid 'set_id'.")
@@ -96,10 +99,11 @@ def fetch_training_set_multi(
             raise ValueError(f"group[{gi}] 'occ_keys' must be a list[str].")
         if not counts:
             raise ValueError(f"group[{gi}] missing or empty 'counts'.")
+
         # Validate counts vs prototype/supercell (arity-agnostic)
         validate_counts_for_sublattice(
             conv_cell=conv,
-            supercell_diag=tuple(map(int, supercell_diag)),
+            supercell_diag=sc_diag,
             replace_element=replace_element,
             counts=counts,
         )
@@ -109,7 +113,7 @@ def fetch_training_set_multi(
             rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
             snap = make_one_snapshot(
                 conv_cell=conv,
-                supercell_diag=tuple(map(int, supercell_diag)),
+                supercell_diag=sc_diag,
                 replace_element=replace_element,
                 counts=counts,
                 rng=rng,
