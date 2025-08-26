@@ -20,7 +20,6 @@ def compute_set_id_counts(
     """
     Deterministic identity for a logical (expandable) snapshot sequence using integer counts.
     """
-    # Stable, sorted counts to avoid dict-order nondeterminism
     counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
 
     payload = {
@@ -59,15 +58,8 @@ def occ_key_for_atoms(snapshot: Atoms) -> str:
 # ---- Canonicalization helpers --------------------------------------------------------
 
 def _json_canon(obj: Any) -> Any:
-    """
-    Canonicalize common Python containers for stable hashing:
-    - dicts: sort keys recursively
-    - lists/tuples: convert tuples to lists and recurse
-    - numpy arrays: convert to (nested) lists
-    - everything else: return as-is
-    """
     try:
-        import numpy as _np  # local import to avoid hard dependency at import time
+        import numpy as _np
     except Exception:  # pragma: no cover
         _np = None
 
@@ -81,21 +73,13 @@ def _json_canon(obj: Any) -> Any:
 
 
 def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
-    """
-    Return a dict[str, int] with sorted keys and coerced integer values.
-    """
     return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
 
 
 def _canon_indices(elem: Mapping[str, Any]) -> list[int]:
-    """
-    From a mixture element, produce a canonical indices list.
-    If 'indices' is present, use sorted unique ints.
-    Else, require 'K' and return [0..K-1].
-    """
     if "indices" in elem and elem["indices"] is not None:
         idx = [int(x) for x in cast(Sequence[Any], elem["indices"])]
-        return sorted(dict.fromkeys(idx))  # unique + sorted
+        return sorted(dict.fromkeys(idx))
     K = int(elem.get("K", 0))
     if K <= 0:
         raise ValueError(f"Mixture element missing valid K/indices: {elem!r}")
@@ -103,11 +87,6 @@ def _canon_indices(elem: Mapping[str, Any]) -> list[int]:
 
 
 def canonical_mixture_signature(mix: Sequence[Mapping[str, Any]]) -> str:
-    """
-    Canonical, order-insensitive JSON string describing a mixture.
-    Each element contributes: {counts (sorted), seed (int), indices (sorted list)}.
-    Elements are sorted by (counts_json, seed, indices_json) to remove order sensitivity.
-    """
     normalized: list[dict[str, Any]] = []
     for elem in mix:
         cnts = canonical_counts(elem.get("counts", {}))
@@ -115,7 +94,6 @@ def canonical_mixture_signature(mix: Sequence[Mapping[str, Any]]) -> str:
         indices = _canon_indices(elem)
         normalized.append({"counts": cnts, "seed": seed, "indices": indices})
 
-    # Sort elements deterministically
     def _key(e: Mapping[str, Any]) -> tuple[str, int, str]:
         c = json.dumps(e["counts"], sort_keys=True, separators=(",", ":"))
         i = json.dumps(e["indices"], sort_keys=True, separators=(",", ":"))
@@ -132,25 +110,18 @@ def compute_ce_key(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    # sublattice definition / replacement rule (keep consistent with snapshot generation)
     replace_element: str,
-    # --- composition / sampling (EXACT COUNTS; NO RATIOS)
     counts: Mapping[str, int],
     seed: int,
-    indices: Sequence[int],            # exact membership, e.g. [0,1,...,K-1]
+    indices: Sequence[int],
     algo_version: str = "randgen-2-counts-1",
-    # --- relax/engine identity
     model: str,
     relax_cell: bool,
     dtype: str,
-    # --- CE hyperparameters (all knobs that distinguish models)
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None = None,
     extra_hyperparams: Mapping[str, Any] | None = None,
 ) -> str:
-    """
-    Deterministic key for a CE trained on an EXACT set of snapshots (single composition).
-    """
     counts_sorted: dict[str, int] = {k: int(counts[k]) for k in sorted(counts)}
     indices_sorted: list[int] = sorted(int(i) for i in indices)
 
@@ -168,11 +139,7 @@ def compute_ce_key(
             "algo": algo_version,
             "indices": indices_sorted,
         },
-        "engine": {
-            "model": model,
-            "relax_cell": bool(relax_cell),
-            "dtype": dtype,
-        },
+        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
         "hyperparams": {
             "basis": _json_canon(basis_spec),
             "regularization": _json_canon(regularization or {}),
@@ -190,28 +157,19 @@ def compute_ce_key_mixture(
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     replace_element: str,
-    # --- mixture: each element has counts, and either indices[] or K, plus seed
     mixture: Sequence[Mapping[str, Any]],
     algo_version: str = "randgen-3-mix-1",
-    # --- relax/engine identity
     model: str,
     relax_cell: bool,
     dtype: str,
-    # --- CE hyperparameters (all knobs that distinguish models)
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None = None,
     extra_hyperparams: Mapping[str, Any] | None = None,
+    weighting: Mapping[str, Any] | None = None,
 ) -> str:
     """
     Deterministic key for a CE trained on a union of snapshot families (mixture of compositions).
-
-    Identity includes:
-      - system (prototype+params) + supercell + replace rule
-      - mixture signature (order-insensitive):
-          list of {counts (sorted), seed (int), indices (sorted list)}
-      - relax engine (model/relax_cell/dtype)
-      - CE hyperparameters (basis_spec, regularization, extra)
-      - algo_version for the sampler family
+    Identity includes system, mixture signature, engine, hyperparams (including weighting), and algo_version.
     """
     mix_sig = canonical_mixture_signature(mixture)
 
@@ -223,19 +181,13 @@ def compute_ce_key_mixture(
             "supercell": list(supercell_diag),
             "replace": replace_element,
         },
-        "sampling": {
-            "mixture_sig": mix_sig,
-            "algo": algo_version,
-        },
-        "engine": {
-            "model": model,
-            "relax_cell": bool(relax_cell),
-            "dtype": dtype,
-        },
+        "sampling": {"mixture_sig": mix_sig, "algo": algo_version},
+        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
         "hyperparams": {
             "basis": _json_canon(basis_spec),
             "regularization": _json_canon(regularization or {}),
             "extra": _json_canon(extra_hyperparams or {}),
+            "weighting": _json_canon(weighting or {}),
         },
     }
 

@@ -11,7 +11,7 @@ from phaseedge.orchestration.flows.ensure_snapshots_multi import make_ensure_sna
 from phaseedge.orchestration.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.orchestration.jobs.train_ce import train_ce
 from phaseedge.orchestration.jobs.store_ce_model import store_ce_model
-from phaseedge.utils.keys import compute_ce_key_mixture  # we'll add this next
+from phaseedge.utils.keys import compute_ce_key_mixture
 
 
 # --------------------------------------------------------------------------------------
@@ -38,6 +38,7 @@ class CEEnsureMixtureSpec(MSONable):
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
     extra_hyperparams: Mapping[str, Any] | None = None
+    weighting: Mapping[str, Any] | None = None
 
     # --- scheduling
     category: str = "gpu"  # FireWorks category tag
@@ -66,6 +67,7 @@ class CEEnsureMixtureSpec(MSONable):
             "basis_spec": dict(self.basis_spec),
             "regularization": dict(self.regularization or {}),
             "extra_hyperparams": dict(self.extra_hyperparams or {}),
+            "weighting": dict(self.weighting or {}),
             "category": self.category,
         }
 
@@ -94,6 +96,7 @@ class CEEnsureMixtureSpec(MSONable):
             basis_spec=dict(d.get("basis_spec", {})),
             regularization=dict(d.get("regularization", {})),
             extra_hyperparams=dict(d.get("extra_hyperparams", {})),
+            weighting=dict(d.get("weighting", {})) or None,
             category=str(d.get("category", "gpu")),
         )
 
@@ -139,6 +142,7 @@ def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
         regularization=dict(spec.regularization or {}),
         extra_hyperparams=dict(spec.extra_hyperparams or {}),
         algo_version=algo,
+        weighting=dict(spec.weighting or {}),
     )
 
     # 2) Cache check: if CE exists, short-circuit
@@ -191,6 +195,7 @@ def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
             regularization=dict(spec.regularization or {}),
             extra_hyperparams=dict(spec.extra_hyperparams or {}),
             cv_seed=int(spec.default_seed),
+            weighting=dict(spec.weighting or {}),
         ),
     )
     j_train.name = "train_ce"
@@ -220,6 +225,7 @@ def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
                 "basis_spec": dict(spec.basis_spec),
                 "regularization": dict(spec.regularization or {}),
                 "extra": dict(spec.extra_hyperparams or {}),
+                "weighting": dict(spec.weighting or {}),
             },
             train_refs=j_fetch.output["train_refs"],
             dataset_hash=j_fetch.output["dataset_hash"],

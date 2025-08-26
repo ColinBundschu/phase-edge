@@ -35,17 +35,13 @@ class _TrainOutput(TypedDict):
 
 
 def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
-    """
-    Accepts a sequence of pymatgen Structures or dicts (Monty-serialized) and
-    returns a list of Structures. Raises with a clear error if conversion fails.
-    """
     out: list[Structure] = []
     for i, s in enumerate(structures):
         if isinstance(s, Structure):
             out.append(s)
         elif isinstance(s, Mapping):
             try:
-                sd = cast(dict[str, Any], dict(s))  # concrete dict for Pylance
+                sd = cast(dict[str, Any], dict(s))
                 out.append(Structure.from_dict(sd))
             except Exception as exc:
                 raise ValueError(f"structures[{i}] could not be converted from dict to Structure") from exc
@@ -60,16 +56,10 @@ def _n_replace_sites_from_prototype(
     supercell_diag: tuple[int, int, int],
     replace_element: str,
 ) -> int:
-    """
-    Count replaceable sites per supercell deterministically from the prototype.
-    This is invariant to relaxation and guarantees per-site normalization is stable.
-    """
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
     if n_per_prim <= 0:
-        raise ValueError(
-            f"Prototype has no sites for replace_element='{replace_element}'."
-        )
+        raise ValueError(f"Prototype has no sites for replace_element='{replace_element}'.")
     nx, ny, nz = supercell_diag
     return int(n_per_prim) * int(nx) * int(ny) * int(nz)
 
@@ -77,15 +67,7 @@ def _n_replace_sites_from_prototype(
 def _infer_allowed_species(
     conv_cell: Atoms, replace_element: str, structures: Sequence[Structure]
 ) -> list[str]:
-    """
-    Allowed cation species on the replaceable sublattice inferred from training data.
-    - Exclude anions from the prototype (e.g., 'O' in rocksalt).
-    - Do NOT force-include `replace_element`; include only species actually observed
-      on that sublattice in the training data (e.g., 'Fe','Mn').
-    """
-    # Heuristic anion set: anything in the prototype that is NOT the cation label
     anion_symbols = {at.symbol for at in conv_cell if at.symbol != replace_element}  # type: ignore[attr-defined]
-
     seen: set[str] = set()
     for s in structures:
         for site in s.sites:
@@ -94,20 +76,15 @@ def _infer_allowed_species(
                 sym = str(getattr(site, "specie", ""))
             if sym and sym not in anion_symbols:
                 seen.add(sym)
-
     if not seen:
         raise ValueError(
             "Could not infer allowed species from training structures; got empty set "
-            "(did energies/structures come from the expected binary cation sublattice?)."
+            "(did energies/structures come from the expected cation sublattice?)."
         )
     return sorted(seen)
 
 
 def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
-    """
-    Stable signature like 'Co:75,Mn:25' counting ONLY the allowed cations.
-    Missing species are included as zero to keep keys comparable.
-    """
     counts: dict[str, int] = {el: 0 for el in allowed_species}
     for site in s.sites:
         sym = getattr(getattr(site, "specie", None), "symbol", None)
@@ -115,18 +92,50 @@ def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
             sym = str(getattr(site, "specie", ""))
         if sym in counts:
             counts[sym] += 1
-    # sort by species name for stability
     parts = [f"{el}:{int(counts[el])}" for el in sorted(counts)]
     return ",".join(parts)
 
 
 def _stats_for_group(idxs: Sequence[int], y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
     if not idxs:
-        # shouldn't happen; return zeros with n=0 to be safe
         return cast(CEStats, {"n": 0, "mae_per_site": 0.0, "rmse_per_site": 0.0, "max_abs_per_site": 0.0})
     yt = [y_true[i] for i in idxs]
     yp = [y_pred[i] for i in idxs]
     return cast(CEStats, compute_stats(yt, yp))
+
+
+def _build_sample_weights(
+    comp_to_indices: Mapping[str, Sequence[int]],
+    n_total: int,
+    weighting: Mapping[str, Any] | None,
+) -> np.ndarray:
+    """
+    Build per-sample weights. Scheme: inverse group count with exponent alpha,
+    then normalize so mean weight = 1 across all samples.
+      w_i = (1 / n_g) ** alpha ;  scale by c = N / sum(w)  → mean(w) = 1
+    """
+    w = np.ones(n_total, dtype=np.float64)
+    if not weighting:
+        return w
+
+    scheme = str(weighting.get("scheme", "")).lower()
+    alpha = float(weighting.get("alpha", 1.0))
+
+    if scheme in ("inv_count", "inverse_count", "balanced_by_composition", "balance_by_comp"):
+        # assign base weights per-group
+        for idxs in comp_to_indices.values():
+            n_g = max(1, len(idxs))
+            base = (1.0 / float(n_g)) ** alpha
+            for i in idxs:
+                w[int(i)] = base
+        # normalize to mean 1
+        s = float(w.sum())
+        if s > 0:
+            w *= (n_total / s)
+        return w
+
+    # Unknown scheme -> default to uniform
+    return w
 
 
 @job
@@ -144,14 +153,17 @@ def train_ce(
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
     extra_hyperparams: Mapping[str, Any],
+    # weighting
+    weighting: Mapping[str, Any] | None = None,  # <-- NEW
     # CV config
     cv_seed: int | None = None,
 ) -> _TrainOutput:
     """
     Train a per-site Cluster Expansion model and return:
-      - overall in-sample stats
-      - stitched 5-fold-CV stats
+      - overall in-sample stats (unweighted metrics)
+      - stitched 5-fold-CV stats (unweighted metrics)
       - per-composition breakdown for both
+    Weighted fitting is implemented via pre-scaling: X *= sqrt(w), y *= sqrt(w).
     """
     # -------- basic validation --------
     if not structures:
@@ -191,9 +203,7 @@ def train_ce(
     subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
 
     # -------- 4) featurization (build once; re-used across CV folds) --------
-    wrangler, X = featurize_structures(
-        subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag
-    )
+    _, X = featurize_structures(subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag)
     if X.size == 0 or X.shape[1] == 0:
         raise ValueError(
             "Feature matrix is empty (no clusters generated). "
@@ -208,12 +218,19 @@ def train_ce(
         sig = _composition_signature(s, allowed_species)
         comp_to_indices.setdefault(sig, []).append(i)
 
-    # -------- 5) fit linear model on full set (in-sample) --------
+    # -------- weights (per-sample) --------
+    n = X.shape[0]
     y = np.asarray(y_site, dtype=np.float64)
-    reg = Regularization(**cast(Mapping[str, Any], regularization))
-    coefs = fit_linear_model(X, y, reg)
+    w = _build_sample_weights(comp_to_indices, n_total=n, weighting=weighting)
+    sqrt_w = np.sqrt(w, dtype=np.float64)
 
-    # in-sample stats (overall)
+    # -------- 5) fit linear model on full set (in-sample, weighted) --------
+    Xw = X * sqrt_w[:, None]
+    yw = y * sqrt_w
+    reg = Regularization(**cast(Mapping[str, Any], regularization))
+    coefs = fit_linear_model(Xw, yw, reg)
+
+    # in-sample stats (overall; unweighted metrics on original targets)
     y_pred_in = predict_from_features(X, coefs).tolist()
     stats_in = compute_stats(y_site, y_pred_in)
 
@@ -222,17 +239,20 @@ def train_ce(
     for sig, idxs in comp_to_indices.items():
         by_comp_in[sig] = _stats_for_group(idxs, y_site, y_pred_in)
 
-    # -------- 6) 5-fold CV (stitched oof predictions) --------
-    n = X.shape[0]
+    # -------- 6) 5-fold CV (stitched oof predictions; weighted fits) --------
     k_splits = min(5, n)
     if k_splits >= 2:
         kf = KFold(n_splits=k_splits, shuffle=True, random_state=int(cv_seed) if cv_seed is not None else None)
         y_pred_oof = np.empty(n, dtype=np.float64)
         y_pred_oof[:] = np.nan
         for train_idx, test_idx in kf.split(X):
-            coefs_fold = fit_linear_model(X[train_idx], y[train_idx], reg)
+            # weighted fit on training fold only
+            sw_tr = sqrt_w[train_idx]
+            X_tr = X[train_idx] * sw_tr[:, None]
+            y_tr = y[train_idx] * sw_tr
+            coefs_fold = fit_linear_model(X_tr, y_tr, reg)
+            # predict on raw test features (unscaled)
             y_pred_oof[test_idx] = predict_from_features(X[test_idx], coefs_fold)
-        # If any row was never tested (shouldn't happen), fall back to in-sample for those rows
         if np.isnan(y_pred_oof).any():
             y_pred_oof = np.where(np.isnan(y_pred_oof), np.asarray(y_pred_in, dtype=np.float64), y_pred_oof)
         stats_cv = compute_stats(y_site, y_pred_oof.tolist())
@@ -242,7 +262,6 @@ def train_ce(
         for sig, idxs in comp_to_indices.items():
             by_comp_cv[sig] = _stats_for_group(idxs, y_site, y_oof_list)
     else:
-        # Not enough samples for CV; mirror in-sample
         stats_cv = stats_in
         by_comp_cv = by_comp_in
 

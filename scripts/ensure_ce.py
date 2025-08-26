@@ -119,6 +119,12 @@ def main() -> None:
     p.add_argument("--alpha", type=float, default=1e-6, help="Regularization strength (ignored for OLS)")
     p.add_argument("--l1-ratio", type=float, default=0.5, help="ElasticNet l1_ratio (ignored otherwise)")
 
+    # Weighting controls
+    p.add_argument("--balance-by-comp", action="store_true",
+                   help="Reweight samples inversely by composition count (mean weight normalized to 1).")
+    p.add_argument("--weight-alpha", type=float, default=1.0,
+                   help="Exponent alpha for inverse-count weighting (w ~ n_g^(-alpha)). Default: 1.0")
+
     # Routing
     p.add_argument("--category", default="gpu")
 
@@ -130,7 +136,6 @@ def main() -> None:
     if args.mix:
         mixture = [_parse_mix_item(s) for s in args.mix]
         if args.seed is None:
-            # if not given, choose a stable default seed (e.g., 0) for the default_seed param
             default_seed = 0
         else:
             default_seed = int(args.seed)
@@ -151,6 +156,11 @@ def main() -> None:
             counts=cts,
         )
 
+    # Weighting config payload
+    weighting: dict[str, Any] | None = (
+        {"scheme": "inv_count", "alpha": float(args.weight_alpha)} if args.balance_by_comp else None
+    )
+
     # Compute CE key (mixture-aware) now so you can grep/track this run
     ce_key = compute_ce_key_mixture(
         prototype=args.prototype,
@@ -165,6 +175,7 @@ def main() -> None:
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
         extra_hyperparams={},
+        weighting=weighting,
     )
 
     # Build the idempotent ensure job (mixture spec)
@@ -182,6 +193,7 @@ def main() -> None:
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
         extra_hyperparams={},
         category=args.category,
+        weighting=weighting,
     )
 
     j = check_or_schedule_ce(spec)
@@ -213,6 +225,7 @@ def main() -> None:
             "reg_type": args.reg_type,
             "alpha": args.alpha,
             "l1_ratio": args.l1_ratio,
+            "weighting": weighting,
             "category": args.category,
         }
     )
