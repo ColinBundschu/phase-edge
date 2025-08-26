@@ -74,7 +74,7 @@ def build_disordered_primitive(
     disordered: dict[Element, float] = {Element(el): frac for el in allowed_species}
 
     # Replace the prototype cation with the disordered site space
-    prim_cfg.replace_species({Element(replace_element): disordered})
+    prim_cfg.replace_species({Element(replace_element): disordered}) # pyright: ignore[reportArgumentType]
     return prim_cfg
 
 

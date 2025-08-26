@@ -47,7 +47,7 @@ def check_or_schedule_relax(
     relax_cell: bool,
     dtype: str,
     category: str,
-) -> RelaxResult:
+) -> RelaxResult | Response:
     """
     If result exists for (set_id, occ_key, model, relax_cell, dtype): return it.
     Otherwise replace this job with [ForceFieldRelax -> store_mace_result -> _finish_relax_record]

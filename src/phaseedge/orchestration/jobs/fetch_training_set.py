@@ -6,7 +6,7 @@ from jobflow.core.job import job
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.orchestration.jobs.store_mace_result import lookup_mace_result
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
@@ -52,20 +52,12 @@ def fetch_training_set(
     Reconstruct the EXACT snapshots (by index), verify occ_keys match,
     and fetch their relaxed energies from the cache. Fail loudly if anything
     is missing or inconsistent.
-
-    Returns:
-      {
-        "structures": list[Structure],
-        "energies": list[float],
-        "train_refs": list[CETrainRef],
-        "dataset_hash": str,
-      }
     """
     if len(indices) != len(occ_keys):
         raise ValueError(f"Length mismatch: indices={len(indices)} vs occ_keys={len(occ_keys)}")
 
     # 1) Deterministically rebuild snapshots + verify occ_keys
-    conv = make_prototype(prototype, **dict(prototype_params))
+    conv = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))  # <- cast fixes Pylance
     structures: list[Structure] = []
     occ_keys_rebuilt: list[str] = []
     for i, ok in zip(indices, occ_keys):
@@ -84,7 +76,7 @@ def fetch_training_set(
                 f"occ_key mismatch at index={i}: expected {ok}, rebuilt {ok2}. "
                 "This indicates a change in snapshot generation or inputs."
             )
-        pmg = AseAtomsAdaptor.get_structure(snapshot)  # pyright: ignore[reportArgumentType]
+        pmg = AseAtomsAdaptor.get_structure(snapshot) # pyright: ignore[reportArgumentType]
         structures.append(pmg)
         occ_keys_rebuilt.append(ok2)
 
@@ -125,10 +117,7 @@ def fetch_training_set(
 
     if problems:
         details = "; ".join(f"{p['occ_key']}={p['status']}" for p in problems)
-        raise RuntimeError(
-            "Training set incomplete or invalid. "
-            "Missing/failed items: " + details
-        )
+        raise RuntimeError("Training set incomplete or invalid. Missing/failed items: " + details)
 
     # 3) Canonical dataset hash (sorted by occ_key)
     ds_hash = _dataset_hash(list(zip(occ_keys_rebuilt, energies)))

@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Mapping, cast, Final
-from monty.json import MSONable
 
+from monty.json import MSONable
 from jobflow.core.job import Response, job, Job
+from jobflow.core.flow import Flow
 
 from phaseedge.utils.keys import compute_ce_key, compute_set_id_counts
 from phaseedge.storage.ce_store import lookup_ce_by_key
@@ -10,6 +11,7 @@ from phaseedge.orchestration.flows.ensure_snapshots import make_ensure_snapshots
 from phaseedge.orchestration.jobs.fetch_training_set import fetch_training_set
 from phaseedge.orchestration.jobs.train_ce import train_ce
 from phaseedge.orchestration.jobs.store_ce_model import store_ce_model
+from phaseedge.science.prototypes import PrototypeName  # for a surgical cast
 
 
 # --------------------------------------------------------------------------------------
@@ -88,16 +90,16 @@ class CEEnsureSpec(MSONable):
 # --------------------------------------------------------------------------------------
 
 @job
-def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
+def check_or_schedule_ce(spec: CEEnsureSpec) -> Any:
     """
     Idempotent CE training:
       - Compute ce_key (counts-based, exact membership).
       - If a CE already exists for ce_key, return it.
-      - Otherwise REPLACE this job with:
+      - Otherwise REPLACE this job with a single Flow:
          [ensure_snapshots(K)] -> fetch_training_set -> train_ce -> store_ce_model
     """
     proto_name = cast(str, spec.prototype)
-    proto_params = spec.prototype_params
+    proto_params = dict(spec.prototype_params)  # normalize Mapping -> dict for typed helpers
 
     # 1) exact membership indices
     indices: list[int] = [int(i) for i in range(int(spec.K))]
@@ -127,9 +129,9 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
-        basis_spec=spec.basis_spec,
-        regularization=spec.regularization or {},
-        extra_hyperparams=spec.extra_hyperparams or {},
+        basis_spec=dict(spec.basis_spec),
+        regularization=dict(spec.regularization or {}),
+        extra_hyperparams=dict(spec.extra_hyperparams or {}),
     )
 
     # 4) Cache check: if CE exists, short-circuit
@@ -139,7 +141,7 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
 
     # 5) Not found: ensure exact snapshots (barriered) and wire remaining jobs.
     f_ensure, j_gather = make_ensure_snapshots_flow(
-        prototype=proto_name,
+        prototype=cast(PrototypeName, proto_name),  # surgical cast; keep dataclass as str
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
         replace_element=spec.replace_element,
@@ -183,9 +185,9 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
             prototype_params=proto_params,
             supercell_diag=spec.supercell_diag,
             replace_element=spec.replace_element,
-            basis_spec=spec.basis_spec,
-            regularization=spec.regularization or {},
-            extra_hyperparams=spec.extra_hyperparams or {},
+            basis_spec=dict(spec.basis_spec),
+            regularization=dict(spec.regularization or {}),
+            extra_hyperparams=dict(spec.extra_hyperparams or {}),
         ),
     )
     j_train.name = "train_ce"
@@ -214,9 +216,9 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
                 "dtype": spec.dtype,
             },
             hyperparams={
-                "basis_spec": spec.basis_spec,
-                "regularization": spec.regularization or {},
-                "extra": spec.extra_hyperparams or {},
+                "basis_spec": dict(spec.basis_spec),
+                "regularization": dict(spec.regularization or {}),
+                "extra": dict(spec.extra_hyperparams or {}),
             },
             train_refs=j_fetch.output["train_refs"],
             dataset_hash=j_fetch.output["dataset_hash"],
@@ -227,5 +229,8 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Mapping[str, Any]:
     j_store.name = "store_ce_model"
     j_store.metadata = {**(j_store.metadata or {}), "_category": spec.category}
 
-    # Replace this decision job with the full chain.
-    return Response(replace=[f_ensure, j_fetch, j_train, j_store])
+    # Combine into a single Flow so Pylance is happy with Response.replace
+    end_to_end = Flow([f_ensure, j_fetch, j_train, j_store], name="Ensure CE (barriered)")
+
+    # Replace this decision job with the full chain; alias our output to the stored doc
+    return Response(replace=end_to_end, output=j_store.output)

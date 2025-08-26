@@ -5,7 +5,7 @@ from jobflow.core.job import job
 from pymatgen.core import Structure
 from ase.atoms import Atoms
 
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.ce_training import (
     BasisSpec,
     Regularization,
@@ -38,7 +38,8 @@ def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> l
             out.append(s)
         elif isinstance(s, Mapping):
             try:
-                out.append(Structure.from_dict(cast(Mapping[str, Any], s)))
+                sd = cast(dict[str, Any], dict(s))  # concrete dict for Pylance
+                out.append(Structure.from_dict(sd))
             except Exception as exc:
                 raise ValueError(f"structures[{i}] could not be converted from dict to Structure") from exc
         else:
@@ -56,7 +57,7 @@ def _n_replace_sites_from_prototype(
     Count replaceable sites per supercell deterministically from the prototype.
     This is invariant to relaxation and guarantees per-site normalization is stable.
     """
-    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
+    conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
     if n_per_prim <= 0:
         raise ValueError(
@@ -114,15 +115,6 @@ def train_ce(
 ) -> _TrainOutput:
     """
     Train a per-site Cluster Expansion model natively (no disorder dependency).
-
-    Steps:
-      1) Convert total energies -> per-site targets using prototype-based site count.
-      2) Build a disordered primitive from the prototype with allowed species inferred from data.
-      3) Build a ClusterSubspace (smol) from BasisSpec cutoffs.
-      4) Featurize all supercells via StructureWrangler (stable site mapping).
-      5) Fit linear model (OLS/ridge/lasso/elasticnet) with intercept = 0.
-      6) Compute per-site fit stats on training set.
-      7) Return ce.as_dict() payload + stats (per-site).
     """
     # -------- basic validation --------
     if not structures:
@@ -151,13 +143,13 @@ def train_ce(
     y_site = [float(E) / float(n_sites) for E in energies]
 
     # -------- 2) prototype conv cell + allowed species inference --------
-    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
+    conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     allowed_species = _infer_allowed_species(conv_cell, replace_element, structures_pm)
     primitive_cfg = build_disordered_primitive(
         conv_cell=conv_cell, replace_element=replace_element, allowed_species=allowed_species
     )
 
-    # -------- 3) subspace (BasisSpec will coerce cutoffs; build_subspace re-coerces defensively) --------
+    # -------- 3) subspace --------
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
     subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
 

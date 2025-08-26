@@ -5,6 +5,7 @@ from jobflow.core.job import job, Job
 
 from phaseedge.orchestration.jobs.random_config import RandomConfigSpec, make_random_config
 from phaseedge.orchestration.jobs.decide_relax import check_or_schedule_relax
+from phaseedge.science.prototypes import PrototypeName  # <-- add this
 
 __all__ = ["make_ensure_snapshots_flow"]
 
@@ -43,7 +44,7 @@ def _gather_occ_keys(*, set_id: str, results: list[dict[str, Any] | None]) -> Ga
 
 def make_ensure_snapshots_flow(
     *,
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     replace_element: str,
@@ -73,7 +74,7 @@ def make_ensure_snapshots_flow(
         spec = RandomConfigSpec(
             prototype=prototype,
             prototype_params=dict(prototype_params),
-            supercell_diag=tuple(supercell_diag),
+            supercell_diag=supercell_diag,
             replace_element=replace_element,
             counts=dict(counts),
             seed=int(seed),
@@ -104,7 +105,7 @@ def make_ensure_snapshots_flow(
 
     assert first_set_id_ref is not None, "indices must be non-empty"
 
-    j_gather = _gather_occ_keys(set_id=first_set_id_ref, results=decide_outputs)
+    j_gather = _gather_occ_keys(set_id=cast(str, first_set_id_ref), results=decide_outputs)  # cast for Pylance
     j_gather.name = "gather_occ_keys"
     j_gather.metadata = {**(j_gather.metadata or {}), "_category": category}
 
