@@ -4,6 +4,7 @@ import numpy as np
 from jobflow.core.job import job
 from pymatgen.core import Structure
 from ase.atoms import Atoms
+from sklearn.model_selection import KFold
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.ce_training import (
@@ -22,9 +23,14 @@ from phaseedge.storage.ce_store import CEStats
 __all__ = ["train_ce"]
 
 
+class TrainStats(TypedDict):
+    in_sample: CEStats
+    five_fold_cv: CEStats
+
+
 class _TrainOutput(TypedDict):
     payload: Mapping[str, Any]
-    stats: CEStats
+    stats: TrainStats
 
 
 def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
@@ -82,7 +88,6 @@ def _infer_allowed_species(
     seen: set[str] = set()
     for s in structures:
         for site in s.sites:
-            # tolerate either Specie or string-y specie records
             sym = getattr(getattr(site, "specie", None), "symbol", None)
             if not isinstance(sym, str):
                 sym = str(getattr(site, "specie", ""))
@@ -112,9 +117,15 @@ def train_ce(
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
     extra_hyperparams: Mapping[str, Any],
+    # CV config
+    cv_seed: int | None = None,
 ) -> _TrainOutput:
     """
-    Train a per-site Cluster Expansion model natively (no disorder dependency).
+    Train a per-site Cluster Expansion model and return both in-sample and 5-fold-CV stats.
+
+    - Features/subspace are built once from the full structure set (no target leakage).
+    - CV uses KFold(shuffle=True, random_state=cv_seed) with k = min(5, n) and
+      falls back to in-sample stats if n < 2.
     """
     # -------- basic validation --------
     if not structures:
@@ -153,7 +164,7 @@ def train_ce(
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
     subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
 
-    # -------- 4) featurization --------
+    # -------- 4) featurization (build once; re-used across CV folds) --------
     wrangler, X = featurize_structures(
         subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag
     )
@@ -165,14 +176,32 @@ def train_ce(
     if X.shape[0] != len(y_site):
         raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_site)}.")
 
-    # -------- 5) fit linear model on per-site targets --------
+    # -------- 5) fit linear model on full set (in-sample) --------
     y = np.asarray(y_site, dtype=np.float64)
     reg = Regularization(**cast(Mapping[str, Any], regularization))
     coefs = fit_linear_model(X, y, reg)
 
-    # -------- 6) predictions + stats (per-site) --------
-    y_pred = predict_from_features(X, coefs).tolist()
-    stats_site = compute_stats(y_site, y_pred)
+    # in-sample stats
+    y_pred_in = predict_from_features(X, coefs).tolist()
+    stats_in = compute_stats(y_site, y_pred_in)
+
+    # -------- 6) 5-fold CV (stitched oof predictions) --------
+    n = X.shape[0]
+    k_splits = min(5, n)
+    if k_splits >= 2:
+        kf = KFold(n_splits=k_splits, shuffle=True, random_state=int(cv_seed) if cv_seed is not None else None)
+        y_pred_oof = np.empty(n, dtype=np.float64)
+        y_pred_oof[:] = np.nan
+        for train_idx, test_idx in kf.split(X):
+            coefs_fold = fit_linear_model(X[train_idx], y[train_idx], reg)
+            y_pred_oof[test_idx] = predict_from_features(X[test_idx], coefs_fold)
+        # If any row was never tested (shouldn't happen), fall back to in-sample for those rows
+        if np.isnan(y_pred_oof).any():
+            y_pred_oof = np.where(np.isnan(y_pred_oof), np.asarray(y_pred_in, dtype=np.float64), y_pred_oof)
+        stats_cv = compute_stats(y_site, y_pred_oof.tolist())
+    else:
+        # Not enough samples for CV; mirror in-sample
+        stats_cv = stats_in
 
     # -------- 7) assemble CE and payload --------
     ce = assemble_ce(subspace, coefs)
@@ -184,4 +213,7 @@ def train_ce(
     else:
         payload = {"repr": repr(ce)}
 
-    return {"payload": payload, "stats": cast(CEStats, stats_site)}
+    return {
+        "payload": payload,
+        "stats": {"in_sample": cast(CEStats, stats_in), "five_fold_cv": cast(CEStats, stats_cv)},
+    }

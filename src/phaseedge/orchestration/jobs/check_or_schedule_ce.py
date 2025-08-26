@@ -188,6 +188,7 @@ def check_or_schedule_ce(spec: CEEnsureSpec) -> Any:
             basis_spec=dict(spec.basis_spec),
             regularization=dict(spec.regularization or {}),
             extra_hyperparams=dict(spec.extra_hyperparams or {}),
+            cv_seed=int(spec.seed),
         ),
     )
     j_train.name = "train_ce"
