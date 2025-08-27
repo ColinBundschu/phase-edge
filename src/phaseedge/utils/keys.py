@@ -193,3 +193,29 @@ def compute_ce_key_mixture(
 
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def compute_wl_run_key(
+    *,
+    ce_key: str,
+    composition: Mapping[str, float],
+    steps: int,
+    bin_size: float,
+    n_samples: int,
+    seed: int | None,
+    algo_version: str = "wl-1",
+) -> str:
+    """Deterministic key for a Wang–Landau sampling run."""
+    comp_sorted = {k: float(composition[k]) for k in sorted(composition)}
+    payload = {
+        "kind": "wl_run",
+        "ce_key": ce_key,
+        "composition": comp_sorted,
+        "steps": int(steps),
+        "bin_size": float(bin_size),
+        "n_samples": int(n_samples),
+        "seed": seed,
+        "algo": algo_version,
+    }
+    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
