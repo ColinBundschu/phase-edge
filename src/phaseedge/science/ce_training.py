@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 from pymatgen.core import Element, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-from sklearn.metrics import mean_squared_error, max_error
+from sklearn.metrics import mean_squared_error
 
 from smol.cofe import ClusterExpansion, ClusterSubspace, StructureWrangler
 from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -170,7 +170,7 @@ def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> FitStats:
     abs_err = [abs(a - b) for a, b in zip(y_true, y_pred)]
     mae = float(sum(abs_err) / n)
     rmse = float(mean_squared_error(y_true, y_pred) ** 0.5)
-    mex = float(max_error(y_true, y_pred))
+    mex = float(max(abs_err))
     return {"n": n, "mae_per_site": mae, "rmse_per_site": rmse, "max_abs_per_site": mex}
 
 
