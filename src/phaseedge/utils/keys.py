@@ -194,28 +194,81 @@ def compute_ce_key_mixture(
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
+# --- Wang–Landau keys -------------------------------------------------------------
 
-def compute_wl_run_key(
+from typing import Optional
+
+def _round_float(x: float, ndigits: int = 12) -> float:
+    # 12 significant digits is a good balance: stable, but not overly lossy.
+    return float(f"{x:.{ndigits}g}")
+
+def _canon_num(v: Any, ndigits: int = 12) -> Any:
+    if isinstance(v, float):
+        return _round_float(v, ndigits)
+    if isinstance(v, (list, tuple)):
+        return [_canon_num(x, ndigits) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _canon_num(v[k], ndigits) for k in sorted(v)}
+    return v
+
+def canonical_float_map(m: Optional[Mapping[str, Any]], ndigits: int = 12) -> dict[str, float]:
+    if not m:
+        return {}
+    out: dict[str, float] = {}
+    for k in sorted(m):
+        v = m[k]
+        if isinstance(v, (int, float)):
+            out[str(k)] = _round_float(float(v), ndigits)
+        else:
+            raise TypeError(f"Non-numeric value for key '{k}' in float map: {v!r}")
+    return out
+
+def compute_wl_key(
     *,
     ce_key: str,
-    composition: Mapping[str, float],
+    bin_width: float,
     steps: int,
-    bin_size: float,
-    n_samples: int,
-    seed: int | None,
-    algo_version: str = "wl-1",
+    step_type: str,
+    ensemble: str,  # "canonical" | "semi_grand"
+    composition: Optional[Mapping[str, float]] = None,          # canonical
+    chemical_potentials: Optional[Mapping[str, float]] = None,  # semi_grand
+    check_period: int,
+    update_period: int,
+    seed: int,
+    grid_anchor: float = 0.0,
+    algo_version: str = "wl-grid-v1",   # bump if the PUBLIC CONTRACT changes
 ) -> str:
-    """Deterministic key for a Wang–Landau sampling run."""
-    comp_sorted = {k: float(composition[k]) for k in sorted(composition)}
+    """
+    Idempotent identity for a WL run based ONLY on the public contract:
+    CE identity, ensemble spec, binning contract, MC schedule, and seed.
+    NO derived window, NO pilot params, NO internal hacks included.
+    """
+    if ensemble not in ("canonical", "semi_grand"):
+        raise ValueError(f"Invalid ensemble: {ensemble!r}")
+
+    comp_canon = canonical_float_map(composition) if composition else {}
+    mu_canon   = canonical_float_map(chemical_potentials) if chemical_potentials else {}
+
     payload = {
-        "kind": "wl_run",
-        "ce_key": ce_key,
-        "composition": comp_sorted,
-        "steps": int(steps),
-        "bin_size": float(bin_size),
-        "n_samples": int(n_samples),
-        "seed": seed,
+        "kind": "wl_key",
         "algo": algo_version,
+        "ce_key": str(ce_key),
+        "ensemble": {
+            "type": ensemble,
+            "composition": comp_canon,           # empty if not used
+            "chemical_potentials": mu_canon,     # empty if not used
+        },
+        "grid": {
+            "anchor": _round_float(grid_anchor),
+            "bin_width": _round_float(float(bin_width)),
+        },
+        "mc": {
+            "step_type": str(step_type),
+            "steps": int(steps),
+            "check_period": int(check_period),
+            "update_period": int(update_period),
+            "seed": int(seed),
+        },
     }
-    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
+    blob = json.dumps(_json_canon(_canon_num(payload)), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
