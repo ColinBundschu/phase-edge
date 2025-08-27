@@ -5,7 +5,7 @@ from jobflow.core.job import job, Job
 
 from phaseedge.orchestration.jobs.random_config import RandomConfigSpec, make_random_config
 from phaseedge.orchestration.jobs.decide_relax import check_or_schedule_relax
-from phaseedge.science.prototypes import PrototypeName  # <-- add this
+from phaseedge.science.prototypes import PrototypeName
 
 __all__ = ["make_ensure_snapshots_flow"]
 
