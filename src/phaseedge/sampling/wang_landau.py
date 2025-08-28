@@ -76,8 +76,13 @@ def _pilot_enthalpies(
         supercell_diag=cast(Tuple[int, int, int], tuple(supercell_diag)),
     )
     coefs = np.asarray(getattr(ce, "parameters", getattr(ce, "coefs")))
-    H = predict_from_features(X, coefs)  # eV per supercell (canonical)
-    return np.asarray(H, dtype=float)
+    H_raw = predict_from_features(X, coefs)  # typically eV per *primitive cell*
+
+    # Scale to eV per supercell so units match E0 and WL kernel
+    sc_matrix = np.diag(cast(Sequence[int], supercell_diag))
+    ensemble = Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
+    H_supercell = np.asarray(H_raw, dtype=float) * ensemble.processor.size
+    return H_supercell
 
 
 def _initial_occupancy_from_counts(
@@ -120,7 +125,6 @@ def _initial_occupancy_from_counts(
     ensemble = Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
 
     proc = ensemble.processor
-    # Explicit encoded occupancy for parity with disorder
     occ = proc.cluster_subspace.occupancy_from_structure(struct, encode=True)
     occ = np.asarray(occ, dtype=np.int32)
 
@@ -150,34 +154,15 @@ def run_wl(spec: WLSamplerSpec) -> WLResult:
     # Starting energy (eV per supercell) from CE
     E0 = float(np.dot(ensemble.compute_feature_vector(occ), ensemble.natural_parameters))
 
-    # Pilot window using *exact same counts* as WL run
+    # Pilot window using *exact same counts* as WL run (now guaranteed eV/supercell)
     H_pilot = _pilot_enthalpies(
         doc,
         n=spec.pilot_samples,
         rng=rng,
         counts_required=spec.composition_counts,
     )
-
-    # ---- Unit alignment: make sure pilot stats match supercell units ----
-    n_prim = int(getattr(ensemble.processor, "size", 1))  # number of primitive cells in the supercell
-    mu_raw = float(np.median(H_pilot))
-    sigma_raw = float(np.std(H_pilot))
-
-    mu: float
-    sigma: float
-    if mu_raw != 0.0:
-        ratio = E0 / mu_raw
-        if abs(ratio - n_prim) < 0.2 * max(1, n_prim):  # ~20% tolerance
-            H_pilot = H_pilot * n_prim
-            mu = mu_raw * n_prim
-            sigma = sigma_raw * n_prim
-        else:
-            mu = mu_raw
-            sigma = sigma_raw
-    else:
-        mu = mu_raw
-        sigma = sigma_raw
-
+    mu = float(np.median(H_pilot))
+    sigma = float(np.std(H_pilot))
     if sigma <= 0:
         sigma = spec.bin_width or 1e-3
 
@@ -221,7 +206,7 @@ def run_wl(spec: WLSamplerSpec) -> WLResult:
     hist_all = np.asarray(sampler.samples.get_trace_value("histogram")[-1], dtype=int)
     ent_all  = np.asarray(sampler.samples.get_trace_value("entropy")[-1], dtype=float)
 
-    # Capture the modification-factor trace using the EXACT key used in disorder
+    # Modification-factor trace (exact key used in disorder)
     mod_factor_trace = sampler.samples.get_trace_value("mod_factor")
     mod_factor_trace = [float(x) for x in mod_factor_trace]  # ensure JSON serializable
 
