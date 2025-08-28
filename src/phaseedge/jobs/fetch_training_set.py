@@ -8,7 +8,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.orchestration.jobs.store_mace_result import lookup_mace_result
+from phaseedge.jobs.store_mace_result import lookup_mace_result
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 
 

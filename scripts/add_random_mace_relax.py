@@ -3,8 +3,8 @@ import argparse
 
 from fireworks import LaunchPad
 
-from phaseedge.orchestration.flows.mace_relax import make_mace_relax_workflow
-from phaseedge.orchestration.jobs.random_config import RandomConfigSpec
+from phaseedge.flows.mace_relax import make_mace_relax_workflow
+from phaseedge.jobs.random_config import RandomConfigSpec
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattice
 from phaseedge.utils.keys import compute_set_id_counts

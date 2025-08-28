@@ -1,6 +1,4 @@
-from __future__ import annotations
 from typing import Any, Mapping
-import numpy as np
 from phaseedge.storage import store
 
 def _coll():

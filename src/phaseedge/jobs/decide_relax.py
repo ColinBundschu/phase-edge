@@ -5,7 +5,7 @@ from atomate2.forcefields.jobs import ForceFieldRelaxMaker
 from pymatgen.core import Structure
 
 # pull both the lookup helper and the store job from the same module
-from phaseedge.orchestration.jobs.store_mace_result import (
+from phaseedge.jobs.store_mace_result import (
     lookup_mace_result,
     store_mace_result,
 )

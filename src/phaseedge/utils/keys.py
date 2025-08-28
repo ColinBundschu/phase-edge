@@ -17,9 +17,7 @@ def compute_set_id_counts(
     seed: int,
     algo_version: str = "randgen-2-counts-1",
 ) -> str:
-    """
-    Deterministic identity for a logical (expandable) snapshot sequence using integer counts.
-    """
+    """Deterministic identity for a logical (expandable) snapshot sequence using integer counts."""
     counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
 
     payload = {
@@ -73,6 +71,7 @@ def _json_canon(obj: Any) -> Any:
 
 
 def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
+    """CE-style canonicalization: sort keys and cast values to int (no zero/neg checks)."""
     return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
 
 
@@ -194,13 +193,13 @@ def compute_ce_key_mixture(
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
-# --- Wang–Landau keys -------------------------------------------------------------
 
-from typing import Optional
+# --- Wang–Landau keys (COUNTS-ONLY, canonical) ---------------------------------------
 
 def _round_float(x: float, ndigits: int = 12) -> float:
     # 12 significant digits is a good balance: stable, but not overly lossy.
     return float(f"{x:.{ndigits}g}")
+
 
 def _canon_num(v: Any, ndigits: int = 12) -> Any:
     if isinstance(v, float):
@@ -211,17 +210,6 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
         return {str(k): _canon_num(v[k], ndigits) for k in sorted(v)}
     return v
 
-def canonical_float_map(m: Optional[Mapping[str, Any]], ndigits: int = 12) -> dict[str, float]:
-    if not m:
-        return {}
-    out: dict[str, float] = {}
-    for k in sorted(m):
-        v = m[k]
-        if isinstance(v, (int, float)):
-            out[str(k)] = _round_float(float(v), ndigits)
-        else:
-            raise TypeError(f"Non-numeric value for key '{k}' in float map: {v!r}")
-    return out
 
 def compute_wl_key(
     *,
@@ -229,34 +217,31 @@ def compute_wl_key(
     bin_width: float,
     steps: int,
     step_type: str,
-    ensemble: str,  # "canonical" | "semi_grand"
-    composition: Optional[Mapping[str, float]] = None,          # canonical
-    chemical_potentials: Optional[Mapping[str, float]] = None,  # semi_grand
+    composition_counts: Mapping[str, int],
     check_period: int,
     update_period: int,
     seed: int,
     grid_anchor: float = 0.0,
-    algo_version: str = "wl-grid-v1",   # bump if the PUBLIC CONTRACT changes
+    algo_version: str = "wl-grid-v1",
 ) -> str:
     """
-    Idempotent identity for a WL run based ONLY on the public contract:
-    CE identity, ensemble spec, binning contract, MC schedule, and seed.
-    NO derived window, NO pilot params, NO internal hacks included.
+    Idempotent identity for a canonical WL run based ONLY on the public contract:
+    CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule, and seed.
+    Zero-count species are stripped; at least one positive count is required.
     """
-    if ensemble not in ("canonical", "semi_grand"):
-        raise ValueError(f"Invalid ensemble: {ensemble!r}")
-
-    comp_canon = canonical_float_map(composition) if composition else {}
-    mu_canon   = canonical_float_map(chemical_potentials) if chemical_potentials else {}
+    # Canonicalize counts identically to CE, then apply zero guardrail
+    comp_counts = canonical_counts(composition_counts)
+    comp_counts = {k: int(v) for k, v in comp_counts.items() if int(v) != 0}
+    if not comp_counts:
+        raise ValueError("composition_counts must include at least one species with a positive count.")
 
     payload = {
         "kind": "wl_key",
         "algo": algo_version,
         "ce_key": str(ce_key),
         "ensemble": {
-            "type": ensemble,
-            "composition": comp_canon,           # empty if not used
-            "chemical_potentials": mu_canon,     # empty if not used
+            "type": "canonical",
+            "composition_counts": comp_counts,
         },
         "grid": {
             "anchor": _round_float(grid_anchor),

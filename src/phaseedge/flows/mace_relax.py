@@ -1,8 +1,8 @@
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
-from phaseedge.orchestration.jobs.random_config import RandomConfigSpec, make_random_config
-from phaseedge.orchestration.jobs.decide_relax import check_or_schedule_relax
+from phaseedge.jobs.random_config import RandomConfigSpec, make_random_config
+from phaseedge.jobs.decide_relax import check_or_schedule_relax
 
 def make_mace_relax_workflow(
     *,
