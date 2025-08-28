@@ -120,7 +120,8 @@ def _initial_occupancy_from_counts(
     ensemble = Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
 
     proc = ensemble.processor
-    occ = proc.occupancy_from_structure(struct)
+    # Explicit encoded occupancy for parity with disorder
+    occ = proc.cluster_subspace.occupancy_from_structure(struct, encode=True)
     occ = np.asarray(occ, dtype=np.int32)
 
     n_sites = getattr(proc, "num_sites", occ.shape[0])
@@ -156,14 +157,42 @@ def run_wl(spec: WLSamplerSpec) -> WLResult:
         rng=rng,
         counts_required=spec.composition_counts,
     )
-    mu = float(np.median(H_pilot))
-    st = float(np.std(H_pilot))
-    sigma = st if st > 0 else (spec.bin_width or 1e-3)
+
+    # ---- Unit alignment: make sure pilot stats match supercell units ----
+    n_prim = int(getattr(ensemble.processor, "size", 1))  # number of primitive cells in the supercell
+    mu_raw = float(np.median(H_pilot))
+    sigma_raw = float(np.std(H_pilot))
+
+    mu: float
+    sigma: float
+    if mu_raw != 0.0:
+        ratio = E0 / mu_raw
+        if abs(ratio - n_prim) < 0.2 * max(1, n_prim):  # ~20% tolerance
+            H_pilot = H_pilot * n_prim
+            mu = mu_raw * n_prim
+            sigma = sigma_raw * n_prim
+        else:
+            mu = mu_raw
+            sigma = sigma_raw
+    else:
+        mu = mu_raw
+        sigma = sigma_raw
+
+    if sigma <= 0:
+        sigma = spec.bin_width or 1e-3
 
     raw_min = mu - spec.sigma_multiplier * sigma
     raw_max = mu + spec.sigma_multiplier * sigma
     H_min = snap_floor(raw_min, spec.bin_width, ANCHOR)
     H_max = snap_ceil(raw_max, spec.bin_width, ANCHOR)
+
+    # Sanity: ensure we actually have multiple bins
+    n_bins = int(np.floor((H_max - H_min) / float(spec.bin_width) + 1e-12))
+    if n_bins < 2:
+        raise RuntimeError(
+            f"WL window too narrow or mis-binned: bins={n_bins} from "
+            f"[{H_min}, {H_max}) with width={spec.bin_width}"
+        )
 
     # Fail hard if the initial enthalpy is not within the pilot window
     if not (H_min <= E0 < H_max):
@@ -178,19 +207,23 @@ def run_wl(spec: WLSamplerSpec) -> WLResult:
         ensemble,
         kernel_type="Wang-Landau",
         bin_size=spec.bin_width,
-        step_type=spec.step_type,   # "swap"
+        step_type=spec.step_type,   # keep spec behavior; disorder hard-coded "swap"
         flatness=0.8,
         min_enthalpy=H_min,
         max_enthalpy=H_max,
         seeds=[int(spec.seed)],
     )
 
-    # EXACT: your thin_by choice
-    sampler.run(spec.steps, occ, thin_by=spec.steps // 100, progress=False)
+    # Run with your current thin_by policy (≈100 snapshots)
+    sampler.run(spec.steps, occ, thin_by=max(1, spec.steps // 100), progress=False)
 
-    # Pull results ONLY from the SampleContainer (exact disorder style)
+    # Pull results from the SampleContainer
     hist_all = np.asarray(sampler.samples.get_trace_value("histogram")[-1], dtype=int)
     ent_all  = np.asarray(sampler.samples.get_trace_value("entropy")[-1], dtype=float)
+
+    # Capture the modification-factor trace using the EXACT key used in disorder
+    mod_factor_trace = sampler.samples.get_trace_value("mod_factor")
+    mod_factor_trace = [float(x) for x in mod_factor_trace]  # ensure JSON serializable
 
     # Reconstruct levels exactly from our window and bin width
     levels_all = np.arange(H_min, H_max, spec.bin_width, dtype=float)
@@ -222,5 +255,6 @@ def run_wl(spec: WLSamplerSpec) -> WLResult:
             E0=E0,
             pilot_mu=mu,
             pilot_sigma=sigma,
+            mod_factor_trace=mod_factor_trace,
         ),
     )
