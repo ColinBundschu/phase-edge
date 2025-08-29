@@ -13,27 +13,7 @@ from fireworks import LaunchPad
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattice
 from phaseedge.utils.keys import compute_ce_key_mixture
-
-
-def _parse_counts_arg(s: str) -> dict[str, int]:
-    out: dict[str, int] = {}
-    for kv in s.split(","):
-        kv = kv.strip()
-        if not kv:
-            continue
-        if ":" not in kv:
-            raise ValueError(f"Bad counts token '{kv}' (expected 'El:INT').")
-        k, v = kv.split(":", 1)
-        k = k.strip()
-        v = v.strip()
-        if not k:
-            raise ValueError(f"Empty element in counts token '{kv}'.")
-        if k in out:
-            raise ValueError(f"Duplicate element '{k}' in --counts.")
-        out[k] = int(v)
-    if not out:
-        raise ValueError("Empty --counts.")
-    return out
+from phaseedge.cli.common import parse_counts_arg
 
 
 def _parse_cutoffs_arg(s: str) -> dict[int, float]:
@@ -66,7 +46,7 @@ def _parse_mix_item(s: str) -> dict[str, Any]:
         k = k.strip().lower()
         v = v.strip()
         if k == "counts":
-            item["counts"] = _parse_counts_arg(v)
+            item["counts"] = parse_counts_arg(v)
         elif k == "k":
             item["K"] = int(v)
         elif k == "seed":
@@ -136,7 +116,7 @@ def main() -> None:
     else:
         if args.counts is None or args.seed is None or args.K is None:
             raise SystemExit("When --mix is not used, you must provide --counts, --seed, and --K.")
-        mixture = [{"counts": _parse_counts_arg(args.counts), "K": int(args.K), "seed": int(args.seed)}]
+        mixture = [{"counts": parse_counts_arg(args.counts), "K": int(args.K), "seed": int(args.seed)}]
         default_seed = int(args.seed)
 
     # Optional early validation
