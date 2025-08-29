@@ -38,10 +38,6 @@ class WLEnsureSpec(MSONable):
     # Routing (FireWorks category, queue tags, etc.)
     category: str = "gpu"
 
-    # Internal knobs (NOT part of public idempotency contract)
-    pilot_samples: int = 256
-    sigma_multiplier: float = 50.0
-
     # ---- MSONable ----
     def as_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -86,7 +82,7 @@ def ensure_wl(spec: Union[WLEnsureSpec, Mapping[str, Any]]) -> WLEnsureOutcome:
     if existing:
         return WLEnsureOutcome(_id=str(existing["_id"]), wl_key=wl_key, status="cached")
 
-    # Build private runner spec (internal knobs included here; not in wl_key)
+    # Build private runner spec
     run_spec = WLSamplerSpec(
         ce_key=spec.ce_key,
         bin_width=spec.bin_width,
@@ -96,8 +92,6 @@ def ensure_wl(spec: Union[WLEnsureSpec, Mapping[str, Any]]) -> WLEnsureOutcome:
         check_period=spec.check_period,
         update_period=spec.update_period,
         seed=spec.seed,
-        pilot_samples=spec.pilot_samples,
-        sigma_multiplier=spec.sigma_multiplier,
     )
 
     result = run_wl(run_spec)

@@ -194,7 +194,7 @@ def compute_ce_key_mixture(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-# --- Wang–Landau keys (COUNTS-ONLY, canonical) ---------------------------------------
+# --- Wang-Landau keys (COUNTS-ONLY, canonical) ---------------------------------------
 
 def _round_float(x: float, ndigits: int = 12) -> float:
     # 12 significant digits is a good balance: stable, but not overly lossy.

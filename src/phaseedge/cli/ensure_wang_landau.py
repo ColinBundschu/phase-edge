@@ -40,7 +40,7 @@ def _parse_counts_arg(s: str) -> dict[str, int]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pe-wl-run",
-        description="Submit an idempotent Wang–Landau job to FireWorks (counts-only canonical).",
+        description="Submit an idempotent Wang-Landau job to FireWorks (counts-only canonical).",
     )
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
@@ -98,8 +98,6 @@ def main() -> int:
         update_period=int(args.update_period),
         seed=int(args.seed),
         category=str(args.category),
-        pilot_samples=int(args.pilot_samples),
-        sigma_multiplier=float(args.sigma_multiplier),
     )
 
     j = check_or_schedule_wl(spec)
@@ -128,8 +126,6 @@ def main() -> int:
         "update_period": int(args.update_period),
         "seed": int(args.seed),
         "category": str(args.category),
-        "pilot_samples": int(args.pilot_samples),
-        "sigma_multiplier": float(args.sigma_multiplier),
     }
 
     if args.json:

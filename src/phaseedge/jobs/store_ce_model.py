@@ -75,5 +75,4 @@ def store_ce_model(
     coll = _ce_coll()
     coll.update_one({"ce_key": ce_key}, {"$set": doc}, upsert=True)
     stored = coll.find_one({"ce_key": ce_key}) or doc
-    # type: ignore[return-value] – Mongo runtime types
     return cast(_StoredCE, stored)

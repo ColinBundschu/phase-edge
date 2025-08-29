@@ -13,7 +13,7 @@ def to_doc(result) -> dict[str, Any]:
         "levels": result.levels.tolist(),
         "entropy": result.entropy.tolist(),
         "histogram": result.histogram.tolist(),
-        "visited_mask": result.visited_mask.tolist(),
-        "grid": {"anchor": result.grid_anchor, "bin_width": result.bin_width, "window": list(result.window_used)},
+        "bin_indices": result.bin_indices.tolist(),
+        "grid": {"anchor": result.grid_anchor, "bin_width": result.bin_width},
         "meta": dict(result.meta),
     }
