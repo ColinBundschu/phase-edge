@@ -55,10 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--category", default="gpu")
 
-    # Internal dev knobs (do NOT affect wl_key)
-    p.add_argument("--pilot-samples", type=int, default=256)
-    p.add_argument("--sigma-multiplier", type=float, default=50.0)
-
     # Output mode
     p.add_argument("--json", action="store_true", help="Print a machine-readable submission summary.")
     return p

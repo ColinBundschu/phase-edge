@@ -51,7 +51,7 @@ def check_or_schedule_relax(
     """
     If result exists for (set_id, occ_key, model, relax_cell, dtype): return it.
     Otherwise replace this job with [ForceFieldRelax -> store_mace_result -> _finish_relax_record]
-    and alias this job’s output to the finisher’s output, so downstream gather()
+    and alias this job's output to the finisher's output, so downstream gather()
     sees a stable dict with 'occ_key'.
     """
     existing = lookup_mace_result(
