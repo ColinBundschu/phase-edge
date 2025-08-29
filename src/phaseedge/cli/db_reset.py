@@ -4,10 +4,11 @@ import sys
 from phaseedge.storage import store
 
 
-def _drop_phaseedge_collections() -> None:
+def _drop_phaseedge_collections(cols: list[str] | None = None) -> None:
     db = store.db_rw()
     names = set(db.list_collection_names())
-    for col in ("mace_relax",):
+    to_drop = cols if cols is not None else ["mace_relax", "ce_models", "wang_landau"]
+    for col in to_drop:
         if col in names:
             db[col].drop()
             print(f"[drop] {db.name}.{col}")
@@ -36,6 +37,8 @@ def _print_counts() -> None:
     names = set(db.list_collection_names())
     cols = [
         "mace_relax",
+        "ce_models",
+        "wang_landau",
         "fireworks",
         "workflows",
         "launches",
@@ -64,7 +67,7 @@ def main() -> None:
         choices=["phaseedge", "fw", "both", "all"],
         default="both",
         help=(
-            "phaseedge: drop only {mace_relax}; "
+            "phaseedge: drop PhaseEdge collections {mace_relax, ce_models, wang_landau}; "
             "fw: FireWorks reset; "
             "both: do both (default); "
             "all: DROP ENTIRE DATABASE (no FW state survives)."
@@ -80,6 +83,12 @@ def main() -> None:
     )
     p.add_argument(
         "--dry-run", action="store_true", help="Show what would happen and exit."
+    )
+    p.add_argument(
+        "--collections",
+        nargs="+",
+        choices=["mace_relax", "ce_models", "wang_landau"],
+        help="PhaseEdge collections to drop (default: all).",
     )
     args = p.parse_args()
 
@@ -99,11 +108,11 @@ def main() -> None:
         sys.exit(0)
 
     if args.mode == "phaseedge":
-        _drop_phaseedge_collections()
+        _drop_phaseedge_collections(args.collections)
     elif args.mode == "fw":
         _reset_fireworks(args.launchpad)  # type: ignore[arg-type]
     elif args.mode == "both":
-        _drop_phaseedge_collections()
+        _drop_phaseedge_collections(args.collections)
         _reset_fireworks(args.launchpad)  # type: ignore[arg-type]
     elif args.mode == "all":
         # all = drop entire DB (covers FW + PhaseEdge). No FW reset needed.
