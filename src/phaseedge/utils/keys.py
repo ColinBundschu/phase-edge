@@ -104,52 +104,6 @@ def canonical_mixture_signature(mix: Sequence[Mapping[str, Any]]) -> str:
 
 # ---- CE key (counts-based, deterministic) -------------------------------------------
 
-def compute_ce_key(
-    *,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
-    supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: Mapping[str, int],
-    seed: int,
-    indices: Sequence[int],
-    algo_version: str = "randgen-2-counts-1",
-    model: str,
-    relax_cell: bool,
-    dtype: str,
-    basis_spec: Mapping[str, Any],
-    regularization: Mapping[str, Any] | None = None,
-    extra_hyperparams: Mapping[str, Any] | None = None,
-) -> str:
-    counts_sorted: dict[str, int] = {k: int(counts[k]) for k in sorted(counts)}
-    indices_sorted: list[int] = sorted(int(i) for i in indices)
-
-    payload = {
-        "kind": "ce_key@counts",
-        "system": {
-            "prototype": prototype,
-            "proto_params": _json_canon(prototype_params),
-            "supercell": list(supercell_diag),
-            "replace": replace_element,
-        },
-        "sampling": {
-            "counts": counts_sorted,
-            "seed": int(seed),
-            "algo": algo_version,
-            "indices": indices_sorted,
-        },
-        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
-        "hyperparams": {
-            "basis": _json_canon(basis_spec),
-            "regularization": _json_canon(regularization or {}),
-            "extra": _json_canon(extra_hyperparams or {}),
-        },
-    }
-
-    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
 def compute_ce_key_mixture(
     *,
     prototype: str,

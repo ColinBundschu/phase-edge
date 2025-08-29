@@ -5,12 +5,6 @@ from collections import Counter
 from phaseedge.storage import store
 
 
-def _fmt_counts(d: dict[str, int] | None) -> str:
-    if not d:
-        return "<none>"
-    return ",".join(f"{k}:{d[k]}" for k in sorted(d))
-
-
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Show info about PhaseEdge MACE relax results for a set_id"

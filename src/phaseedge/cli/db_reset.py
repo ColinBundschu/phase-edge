@@ -4,8 +4,6 @@ from typing import Literal
 
 from phaseedge.storage import store
 
-Mode = Literal["phaseedge", "fw", "both", "all"]
-
 
 def _drop_phaseedge_collections() -> None:
     db = store.db_rw()
