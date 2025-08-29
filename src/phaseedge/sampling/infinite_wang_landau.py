@@ -13,12 +13,15 @@ Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 
 from functools import partial
 from math import log
-from typing import Callable
+from typing import Callable, Mapping
 
 import numpy as np
 
 from smol.moca.kernel.base import ALL_MCUSHERS, MCKernel
 
+# The infinite array of bins is snapped to a grid where a bin edge falls on 0.
+# This is hard coded into the logic of the class
+ANCHOR: float = 0.0
 
 def _divide(x: float, m: float) -> float:
     """Use to allow Wang-Landau to be pickled (same helper shape as smol)."""
@@ -122,7 +125,7 @@ class InfiniteWangLandau(MCKernel):
         # "Visited" is defined as bins with entropy > 0 (matches smol masking).
         return sorted([b for b, ent in self._entropy_d.items() if ent > 0])
 
-    def _as_array(self, m: dict[int, float | int]) -> np.ndarray:
+    def _as_array(self, m: Mapping[int, float | int]) -> np.ndarray:
         bins = self._sorted_bins()
         return np.asarray([m.get(b, 0) for b in bins])
 
@@ -186,6 +189,8 @@ class InfiniteWangLandau(MCKernel):
         entropy = float(self._entropy_d.get(int(bin_id), 0.0)) if np.isfinite(bin_id) else 0.0
         new_entropy = float(self._entropy_d.get(int(new_bin_id), 0.0))
 
+        # mcusher is initialized by the base __init__; assert for type-checkers.
+        assert self.mcusher is not None, "MCUsher is not initialized"
         log_factor = self.mcusher.compute_log_priori_factor(occupancy, step)
         exponent = entropy - new_entropy + log_factor
         self.trace.accepted = np.array(True if exponent >= 0 else exponent > log(self._rng.random()))
@@ -198,7 +203,7 @@ class InfiniteWangLandau(MCKernel):
         self._current_enthalpy += self.trace.delta_trace.enthalpy
         return occupancy
 
-    def _do_post_step(self):
+    def _do_post_step(self) -> None:
         """Populate histogram/entropy, and update counters accordingly."""
         bin_id = self._get_bin_id(self._current_enthalpy)
 
@@ -231,8 +236,6 @@ class InfiniteWangLandau(MCKernel):
                 self._histogram_d.clear()
                 self._m = self._mod_update(self._m)
 
-        return self.trace
-
     def compute_initial_trace(self, occupancy: np.ndarray):
         """Compute initial values for sample trace given an occupancy."""
         trace = super().compute_initial_trace(occupancy)
@@ -253,4 +256,6 @@ class InfiniteWangLandau(MCKernel):
         enthalpy = float(np.dot(features, self.natural_params))
         self._current_features = features
         self._current_enthalpy = enthalpy
+        # As above, ensure non-None for type-checkers.
+        assert self.mcusher is not None, "MCUsher is not initialized"
         self.mcusher.set_aux_state(occupancy)

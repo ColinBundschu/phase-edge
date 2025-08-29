@@ -13,12 +13,10 @@ from phaseedge.science.random_configs import (
     make_one_snapshot,
     validate_counts_for_sublattice,
 )
-from phaseedge.science.ce_training import featurize_structures, predict_from_features
-from phaseedge.utils.grid import ANCHOR
 
 # Ensure our kernel class is imported/registered with smol's factory
 # (Derived-class discovery requires the class to be imported into memory.)
-from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # noqa: F401
+from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau, ANCHOR
 
 
 # ----------------------------- helpers ------------------------------------ #
