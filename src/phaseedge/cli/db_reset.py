@@ -1,6 +1,5 @@
 import argparse
 import sys
-from typing import Literal
 
 from phaseedge.storage import store
 
