@@ -8,15 +8,7 @@ from phaseedge.jobs.random_config import RandomConfigSpec
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattice
 from phaseedge.utils.keys import compute_set_id_counts
-
-
-def _parse_counts_arg(s: str) -> dict[str, int]:
-    """Parse --counts 'Co:76,Fe:32' -> {'Co': 76, 'Fe': 32}."""
-    out: dict[str, int] = {}
-    for kv in s.split(","):
-        k, v = kv.split(":")
-        out[k.strip()] = int(v)
-    return out
+from phaseedge.cli.common import parse_counts_arg
 
 
 def main() -> None:
@@ -49,7 +41,7 @@ def main() -> None:
     p.add_argument("--category", default="gpu")
 
     args = p.parse_args()
-    counts = _parse_counts_arg(args.counts)
+    counts = parse_counts_arg(args.counts)
 
     # Build the conventional prototype for validation only
     conv = make_prototype(args.prototype, a=args.a)
