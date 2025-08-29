@@ -8,31 +8,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.jobs.check_or_schedule_wl import WLEnsureSpec, check_or_schedule_wl
 from phaseedge.utils.keys import compute_wl_key
-
-
-def _parse_counts_arg(s: str) -> dict[str, int]:
-    """Parse 'Fe:54,Mn:54' -> {'Fe': 54, 'Mn': 54} (whitespace-tolerant)."""
-    out: dict[str, int] = {}
-    for kv in s.split(","):
-        kv = kv.strip()
-        if not kv:
-            continue
-        if ":" not in kv:
-            raise ValueError(f"Bad counts token '{kv}' (expected 'El:INT').")
-        k, v = kv.split(":", 1)
-        k = k.strip()
-        v = v.strip()
-        if not k:
-            raise ValueError(f"Empty element in counts token '{kv}'.")
-        if k in out:
-            raise ValueError(f"Duplicate element '{k}' in --composition-counts.")
-        iv = int(v)
-        if iv < 0:
-            raise ValueError(f"Negative count for '{k}': {iv}")
-        out[k] = iv
-    if not out:
-        raise ValueError("Empty --composition-counts.")
-    return out
+from phaseedge.cli.common import parse_counts_arg
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,7 +40,7 @@ def main() -> int:
     p = build_parser()
     args = p.parse_args()
 
-    composition_counts: Dict[str, int] = _parse_counts_arg(args.composition_counts)
+    composition_counts: Dict[str, int] = parse_counts_arg(args.composition_counts)
 
     # Compute the wl_key up-front (public contract only) so we can print and brand the workflow.
     wl_key: str = compute_wl_key(
