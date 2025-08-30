@@ -13,7 +13,7 @@ Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Any, cast
 
 import numpy as np
 
@@ -326,16 +326,20 @@ class InfiniteWangLandau(MCKernel):
 
     # ---------- RNG state (de)serialization helpers ---------- #
     @staticmethod
-    def _encode_rng_state(st: dict) -> dict:
+    def _encode_rng_state(st: Mapping[str, Any]) -> dict[str, Any]:
         """
         Make NumPy BitGenerator state BSON-safe by converting any unsigned 64-bit
         integers to tagged hex strings. Everything else passes through.
+
+        Returns a dict at the top level (Pylance-friendly).
         """
         INT64_MAX = (1 << 63) - 1
-        def enc(x):
+
+        def enc(x: Any) -> Any:
             import numpy as _np
             if isinstance(x, dict):
-                return {k: enc(v) for k, v in x.items()}
+                # ensure plain dict[str, Any] values
+                return {str(k): enc(v) for k, v in x.items()}
             if isinstance(x, (list, tuple, _np.ndarray)):
                 return [enc(v) for v in _np.asarray(x).tolist()]
             if isinstance(x, (_np.integer, int)):
@@ -345,12 +349,19 @@ class InfiniteWangLandau(MCKernel):
                     return {"__u64__": hex(xi & ((1 << 64) - 1))}
                 return xi
             return x
-        return enc(st)
+
+        # Ensure dict input (Mapping is fine; coerce to dict for encoding)
+        res: Any = enc(dict(st))
+        if not isinstance(res, dict):
+            # Should never happen, but keeps the type-checker honest
+            raise TypeError("Encoded RNG state must be a dict at the top level.")
+        return cast(dict[str, Any], res)
+
 
     @staticmethod
-    def _decode_rng_state(st: dict) -> dict:
-        """Inverse of _encode_rng_state."""
-        def dec(x):
+    def _decode_rng_state(st: Mapping[str, Any]) -> dict[str, Any]:
+        """Inverse of _encode_rng_state. Returns a dict at the top level."""
+        def dec(x: Any) -> Any:
             if isinstance(x, dict):
                 if "__u64__" in x:
                     return int(x["__u64__"], 16)
@@ -358,4 +369,8 @@ class InfiniteWangLandau(MCKernel):
             if isinstance(x, list):
                 return [dec(v) for v in x]
             return x
-        return dec(st)
+
+        res: Any = dec(dict(st))
+        if not isinstance(res, dict):
+            raise TypeError("Decoded RNG state must be a dict at the top level.")
+        return cast(dict[str, Any], res)
