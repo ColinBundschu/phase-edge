@@ -76,6 +76,8 @@ class InfiniteWangLandau(MCKernel):
         self.update_period = int(update_period)
         self._m = float(mod_factor)
         self._bin_size = float(bin_size)
+        self._mod_updates_buf: list[tuple[int, float]] = []  # (steps_counter, new_m)
+        self._mod_updates_buf.append((0, self._m))
 
         if callable(mod_update):
             self._mod_update: Callable[[float], float] = mod_update  # type: ignore[assignment]
@@ -235,6 +237,13 @@ class InfiniteWangLandau(MCKernel):
             if len(histogram) >= 2 and (histogram > self.flatness * histogram.mean()).all():
                 self._histogram_d.clear()
                 self._m = self._mod_update(self._m)
+                self._mod_updates_buf.append((int(self._steps_counter), float(self._m)))
+
+    # expose and clear the buffer; not serialized in state()
+    def pop_mod_updates(self) -> list[tuple[int, float]]:
+        ev = self._mod_updates_buf
+        self._mod_updates_buf = []
+        return ev
 
     def compute_initial_trace(self, occupancy: np.ndarray):
         """Compute initial values for sample trace given an occupancy."""
@@ -259,3 +268,94 @@ class InfiniteWangLandau(MCKernel):
         # As above, ensure non-None for type-checkers.
         assert self.mcusher is not None, "MCUsher is not initialized"
         self.mcusher.set_aux_state(occupancy)
+
+    # -------------------- checkpointing API -------------------- #
+
+    def state(self) -> dict:
+        """Return a JSON-serializable snapshot of the kernel."""
+        bins = self.bin_indices
+        occurrences = np.asarray([self._occurrences_d.get(int(b), 0) for b in bins], dtype=int)
+        mean_feats = np.asarray([self._mean_features_d[int(b)] for b in bins], dtype=float) \
+                     if bins.size else np.empty((0, self._nfeat), dtype=float)
+        return {
+            "version": 1,
+            "bin_indices": bins.tolist(),
+            "entropy": self.entropy.tolist(),
+            "histogram": self.histogram.tolist(),
+            "occurrences": occurrences.tolist(),
+            "mean_features": mean_feats.tolist(),
+            "mod_factor": float(self._m),
+            "steps_counter": int(self._steps_counter),
+            "current_enthalpy": float(self._current_enthalpy),
+            "current_features": np.asarray(self._current_features, dtype=float).tolist(),
+            "rng_state": self._encode_rng_state(self._rng.bit_generator.state),
+            "bin_size": float(self._bin_size),
+        }
+
+    def load_state(self, s: dict) -> None:
+        """Restore kernel from a state() snapshot."""
+        # clear sparse dicts
+        self._entropy_d.clear()
+        self._histogram_d.clear()
+        self._occurrences_d.clear()
+        self._mean_features_d.clear()
+
+        bins = np.asarray(s["bin_indices"], dtype=int)
+        ent = np.asarray(s["entropy"], dtype=float)
+        hist = np.asarray(s["histogram"], dtype=int)
+        occ = np.asarray(s["occurrences"], dtype=int)
+        mfeat = np.asarray(s["mean_features"], dtype=float)
+
+        for i, b in enumerate(bins):
+            bi = int(b)
+            self._entropy_d[bi] = float(ent[i])
+            self._histogram_d[bi] = int(hist[i])
+            self._occurrences_d[bi] = int(occ[i])
+            self._mean_features_d[bi] = mfeat[i].astype(float, copy=False)
+
+        self._m = float(s["mod_factor"])
+        self._steps_counter = int(s["steps_counter"])
+        self._current_enthalpy = float(s["current_enthalpy"])
+        self._current_features = np.asarray(s["current_features"], dtype=float)
+        self._mod_updates_buf: list[tuple[int, float]] = []
+        # restore RNG
+        self._rng.bit_generator.state = self._decode_rng_state(s["rng_state"])
+        # sanity: bin size should match
+        if "bin_size" in s and float(s["bin_size"]) != float(self._bin_size):
+            raise ValueError(f"State bin_size {s['bin_size']} != kernel bin_size {self._bin_size}")
+
+    # ---------- RNG state (de)serialization helpers ---------- #
+    @staticmethod
+    def _encode_rng_state(st: dict) -> dict:
+        """
+        Make NumPy BitGenerator state BSON-safe by converting any unsigned 64-bit
+        integers to tagged hex strings. Everything else passes through.
+        """
+        INT64_MAX = (1 << 63) - 1
+        def enc(x):
+            import numpy as _np
+            if isinstance(x, dict):
+                return {k: enc(v) for k, v in x.items()}
+            if isinstance(x, (list, tuple, _np.ndarray)):
+                return [enc(v) for v in _np.asarray(x).tolist()]
+            if isinstance(x, (_np.integer, int)):
+                xi = int(x)
+                # BSON only supports signed int64; tag larger values.
+                if xi > INT64_MAX or xi < -INT64_MAX - 1:
+                    return {"__u64__": hex(xi & ((1 << 64) - 1))}
+                return xi
+            return x
+        return enc(st)
+
+    @staticmethod
+    def _decode_rng_state(st: dict) -> dict:
+        """Inverse of _encode_rng_state."""
+        def dec(x):
+            if isinstance(x, dict):
+                if "__u64__" in x:
+                    return int(x["__u64__"], 16)
+                return {k: dec(v) for k, v in x.items()}
+            if isinstance(x, list):
+                return [dec(v) for v in x]
+            return x
+        return dec(st)

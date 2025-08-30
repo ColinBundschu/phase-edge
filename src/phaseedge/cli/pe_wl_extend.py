@@ -1,35 +1,47 @@
+# src/phaseedge/cli/pe_wl_extend.py
+from __future__ import annotations
+
 import argparse
 import json
-from typing import Dict
+from typing import Any, Dict
 
 from fireworks import LaunchPad
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
-from phaseedge.jobs.check_or_schedule_wl import WLEnsureSpec, check_or_schedule_wl
+from phaseedge.schemas.wl import WLSamplerSpec
+from phaseedge.jobs.ensure_wl_chunk import WLChunkEnsureSpec, ensure_wl_chunk
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="pe-wl-run",
-        description="Submit an idempotent Wang-Landau job to FireWorks (counts-only canonical).",
+        prog="pe-wl-extend",
+        description="Extend a Wang–Landau chain by N steps (idempotent checkpoint block).",
     )
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
     p.add_argument("--bin-width", required=True, type=float, help="Uniform enthalpy bin width (eV).")
-    p.add_argument("--steps", required=True, type=int, help="Number of WL steps to perform.")
     p.add_argument(
         "--composition-counts",
         required=True,
-        help="Exact counts per species, e.g. 'Fe:54,Mn:54'.",
+        help="Exact counts per species, e.g. 'Fe:54,Mg:54'.",
     )
     p.add_argument("--step-type", default="swap", choices=["swap"], help="MC move type (canonical).")
     p.add_argument("--check-period", type=int, default=5_000)
     p.add_argument("--update-period", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--category", default="gpu")
+    p.add_argument("--category", default="cpu")
+
+    # Extension length for THIS block
+    p.add_argument(
+        "--steps-to-run",
+        dest="steps_to_run",
+        required=True,
+        type=int,
+        help="Number of WL steps to add in this checkpoint block.",
+    )
 
     # Output mode
     p.add_argument("--json", action="store_true", help="Print a machine-readable submission summary.")
@@ -42,11 +54,11 @@ def main() -> int:
 
     composition_counts: Dict[str, int] = parse_counts_arg(args.composition_counts)
 
-    # Compute the wl_key up-front (public contract only) so we can print and brand the workflow.
+    # The wl_key encodes the chain identity (NOT the number of steps). Use steps=0 here.
     wl_key: str = compute_wl_key(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
-        steps=int(args.steps),
+        steps=0,  # important: chain identity independent of total steps
         step_type=str(args.step_type),
         composition_counts=composition_counts,
         check_period=int(args.check_period),
@@ -57,26 +69,30 @@ def main() -> int:
     )
     short = wl_key[:12]
 
-    # Build the idempotent ensure job (FireWorker will short-circuit if wl_key already exists)
-    spec = WLEnsureSpec(
+    # Build run_spec (immutable chain inputs). 'steps' is ignored by the chunk runner.
+    run_spec = WLSamplerSpec(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
-        steps=int(args.steps),
+        steps=0,
         composition_counts=composition_counts,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
         update_period=int(args.update_period),
         seed=int(args.seed),
-        category=str(args.category),
     )
 
-    j = check_or_schedule_wl(spec)
-    j.name = f"ensure_wl::{short}"
+    chunk_spec = WLChunkEnsureSpec(
+        run_spec=run_spec,
+        wl_key=wl_key,
+        steps_to_run=int(args.steps_to_run),
+    )
+
+    j = ensure_wl_chunk(chunk_spec)
+    j.name = f"wl_extend::{short}::+{int(args.steps_to_run):,}"
     j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
 
-    flow = Flow([j], name=f"Ensure WL :: {short}")
+    flow = Flow([j], name=f"WL Extend :: {short} :: +{int(args.steps_to_run):,}")
     wf = flow_to_workflow(flow)
-    # Tag category & wl_key at the FireWorks layer too; brand names for greppability.
     for fw in wf.fws:
         fw.name = f"{fw.name}::{short}"
         fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": wl_key}
@@ -84,27 +100,27 @@ def main() -> int:
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
 
-    payload = {
+    payload: Dict[str, Any] = {
         "submitted_workflow_id": wf_id,
         "wl_key": wl_key,
         "ce_key": args.ce_key,
         "bin_width": float(args.bin_width),
-        "steps": int(args.steps),
         "composition_counts": composition_counts,
         "step_type": str(args.step_type),
         "check_period": int(args.check_period),
         "update_period": int(args.update_period),
         "seed": int(args.seed),
         "category": str(args.category),
+        "steps_to_run": int(args.steps_to_run),
     }
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     else:
-        print("Submitted WL workflow:", wf_id)
+        print("Submitted WL extension workflow:", wf_id)
         print({k: payload[k] for k in (
-            "wl_key", "ce_key", "bin_width", "steps", "composition_counts", "step_type",
-            "check_period", "update_period", "seed", "category"
+            "wl_key", "ce_key", "bin_width", "composition_counts", "step_type",
+            "check_period", "update_period", "seed", "category", "steps_to_run"
         )})
 
     return 0

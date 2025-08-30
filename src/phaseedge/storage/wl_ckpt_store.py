@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+from typing import Any, Mapping, Tuple
+import hashlib
+import json
+
+import numpy as np
+
+from phaseedge.storage import store
+
+
+# ---- Collection + indexes -------------------------------------------------
+
+def _coll():
+    return store.db_rw()["wang_landau_ckpt"]
+
+def ensure_indexes() -> None:
+    """Idempotently create the unique indexes we rely on."""
+    coll = _coll()
+    coll.create_index([("wl_key", 1), ("parent_hash", 1)],
+                      name="uniq_child_per_parent", unique=True)
+    coll.create_index([("wl_key", 1), ("step_end", 1)],
+                      name="uniq_step_end", unique=True)
+    coll.create_index([("wl_key", 1), ("hash", 1)],
+                      name="uniq_hash", unique=True)
+    coll.create_index([("wl_key", 1), ("step_end", -1)],
+                      name="latest_by_steps")
+
+
+# ---- Canonical serialization + hashing -----------------------------------
+
+def _to_list(x: Any) -> Any:
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    if isinstance(x, (np.integer,)):
+        return int(x)
+    if isinstance(x, (np.floating,)):
+        return float(x)
+    if isinstance(x, dict):
+        return {k: _to_list(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_to_list(v) for v in x]
+    return x
+
+def canonical_payload(wl_key: str, step_end: int, chunk_size: int,
+                      state: Mapping[str, Any], occupancy: np.ndarray) -> bytes:
+    """Stable, compact JSON for hashing and replay checks."""
+    payload = {
+        "version": 1,
+        "wl_key": wl_key,
+        "step_end": int(step_end),
+        "chunk_size": int(chunk_size),
+        "state": _to_list(state),
+        "occupancy": _to_list(np.asarray(occupancy, dtype=int)),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+def sha256_hex(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+# ---- Tip I/O --------------------------------------------------------------
+
+def get_tip(wl_key: str) -> Mapping[str, Any] | None:
+    """Return the latest checkpoint for wl_key (or None)."""
+    return _coll().find_one({"wl_key": wl_key}, sort=[("step_end", -1)])
+
+def insert_checkpoint(*, wl_key: str, step_end: int, chunk_size: int,
+                      parent_hash: str, state: Mapping[str, Any],
+                      occupancy: np.ndarray, extra: Mapping[str, Any] | None = None) -> Tuple[str, Mapping[str, Any]]:
+    """Insert an immutable checkpoint. Returns (inserted_id, doc)."""
+    coll = _coll()
+    payload_bytes = canonical_payload(wl_key, step_end, chunk_size, state, occupancy)
+    this_hash = sha256_hex(payload_bytes)
+    doc = {
+        "wl_key": wl_key,
+        "step_end": int(step_end),
+        "chunk_size": int(chunk_size),
+        "parent_hash": parent_hash,
+        "hash": this_hash,
+        "state": _to_list(state),
+        "occupancy": _to_list(np.asarray(occupancy, dtype=int)),
+    }
+    if extra:
+        doc.update(_to_list(extra))
+    res = coll.insert_one(doc)  # relies on unique indexes to enforce linear chain
+    doc["_id"] = str(res.inserted_id)
+    return doc["_id"], doc
