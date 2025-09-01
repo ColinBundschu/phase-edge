@@ -1,27 +1,28 @@
 """
 An "infinite-window" Wang-Landau kernel for multicanonical estimation of the DOS.
 
-This is a minimally edited copy of smol's WangLandau kernel that:
+This is a minimally edited copy of smol's Wang-Landau kernel that:
 - Removes the fixed enthalpy window (min/max).
 - Stores per-bin state sparsely in dicts, creating bins lazily as they are visited.
 - Snaps bins to a global anchor at 0.0 using bin_id = floor(E / bin_size).
 - Exposes the same public properties (levels/entropy/histogram/dos) but only for visited bins.
 - Keeps Wang-Landau logic (flatness check, mod_factor schedule) intact.
+- Can capture up to K UNIQUE occupancy samples per visited bin (K = samples_per_bin; runtime policy).
 
 Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 """
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping, Any, cast
+from typing import Callable, Mapping, Any, cast, Dict, List, Set
 
+import hashlib
 import numpy as np
 
 from smol.moca.kernel.base import ALL_MCUSHERS, MCKernel
 
-# The infinite array of bins is snapped to a grid where a bin edge falls on 0.
-# This is hard coded into the logic of the class
-ANCHOR: float = 0.0
+ANCHOR: float = 0.0  # global grid anchor (baked into the logic of the class)
+
 
 def _divide(x: float, m: float) -> float:
     """Use to allow Wang-Landau to be pickled (same helper shape as smol)."""
@@ -49,6 +50,7 @@ class InfiniteWangLandau(MCKernel):
         update_period: int = 1,
         mod_update: float | Callable[[float], float] | None = None,
         seed: int | None = None,
+        samples_per_bin: int = 0,
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -64,6 +66,7 @@ class InfiniteWangLandau(MCKernel):
             mod_update (float|Callable): If number, divide mod_factor by this each flatness reset;
                                          if callable, arbitrary decreasing schedule.
             seed (int): RNG seed for the kernel.
+            samples_per_bin (int): Runtime policy: capture at most this many UNIQUE occupancy samples per bin.
             *args, **kwargs: forwarded to MCUsher constructor.
         """
         if mod_factor <= 0:
@@ -76,7 +79,7 @@ class InfiniteWangLandau(MCKernel):
         self.update_period = int(update_period)
         self._m = float(mod_factor)
         self._bin_size = float(bin_size)
-        self._mod_updates_buf: list[tuple[int, float]] = []  # (steps_counter, new_m)
+        self._mod_updates_buf: list[tuple[int, float]] = []
         self._mod_updates_buf.append((0, self._m))
 
         if callable(mod_update):
@@ -92,6 +95,14 @@ class InfiniteWangLandau(MCKernel):
         self._histogram_d: dict[int, int] = {}
         self._occurrences_d: dict[int, int] = {}
         self._mean_features_d: dict[int, np.ndarray] = {}
+
+        # Optional sparse capture of occupancy samples per bin (UNIQUE)
+        self._samples_per_bin: int = max(0, int(samples_per_bin))
+        self._bin_samples_d: Dict[int, List[list[int]]] = {}
+        self._bin_sample_hashes_d: Dict[int, Set[str]] = {}  # transient; not serialized
+
+        # Keep the last accepted occupancy so we can record it in _do_post_step
+        self._last_accepted_occupancy: np.ndarray | None = None
 
         # The correct initialization will be handled in set_aux_state.
         self._current_enthalpy: float = np.inf
@@ -110,13 +121,16 @@ class InfiniteWangLandau(MCKernel):
         self.spec.flatness = self.flatness
         self.spec.check_period = self.check_period
         self.spec.update_period = self.update_period
+        self.spec.samples_per_bin = self._samples_per_bin  # runtime policy recorded in spec
 
-        # Additional clean-ups.
+        # Additional clean-ups after base init.
         self._entropy_d.clear()
         self._histogram_d.clear()
         self._occurrences_d.clear()
         self._mean_features_d.clear()
-        self._steps_counter = 0  # Log n_steps elapsed.
+        self._bin_samples_d.clear()
+        self._bin_sample_hashes_d.clear()
+        self._steps_counter = 0
 
     @property
     def bin_size(self) -> float:
@@ -160,7 +174,6 @@ class InfiniteWangLandau(MCKernel):
 
     @property
     def mod_factor(self) -> float:
-        """Current modification factor."""
         return self._m
 
     # -------------------- helpers -------------------- #
@@ -175,6 +188,16 @@ class InfiniteWangLandau(MCKernel):
     def _get_bin_enthalpy(self, bin_id: int) -> float:
         """Representative enthalpy from bin index (aligned to anchor=0.0)."""
         return bin_id * self._bin_size
+
+    @staticmethod
+    def _hash_occupancy_int32(occ: np.ndarray) -> str:
+        """
+        Stable, collision-resistant-ish hash for an int32 occupancy vector.
+        Uses SHA1 of raw bytes (fast enough for K<=O(10) per bin).
+        """
+        # Ensure contiguous int32 view
+        buf = np.asarray(occ, dtype=np.int32, order="C")
+        return hashlib.sha1(buf.tobytes()).hexdigest()
 
     # -------------------- MC step logic -------------------- #
 
@@ -203,6 +226,9 @@ class InfiniteWangLandau(MCKernel):
         occupancy = super()._do_accept_step(occupancy, step)
         self._current_features += self.trace.delta_trace.features
         self._current_enthalpy += self.trace.delta_trace.enthalpy
+
+        # Remember last accepted occupancy for optional per-bin sampling.
+        self._last_accepted_occupancy = occupancy.copy()
         return occupancy
 
     def _do_post_step(self) -> None:
@@ -218,6 +244,29 @@ class InfiniteWangLandau(MCKernel):
             if prev is None:
                 prev = np.zeros_like(self._current_features)
             self._mean_features_d[b] = (self._current_features + total * prev) / (total + 1)
+
+            # optional: capture up to K UNIQUE occupancy samples per bin
+            if self._samples_per_bin > 0 and self._last_accepted_occupancy is not None:
+                lst = self._bin_samples_d.get(b)
+                if lst is None:
+                    lst = []
+                    self._bin_samples_d[b] = lst
+
+                if len(lst) < self._samples_per_bin:
+                    # compute hash and dedupe
+                    h = self._hash_occupancy_int32(self._last_accepted_occupancy)
+                    seen = self._bin_sample_hashes_d.get(b)
+                    if seen is None:
+                        seen = set()
+                        self._bin_sample_hashes_d[b] = seen
+
+                    if h not in seen:
+                        lst.append([int(x) for x in np.asarray(self._last_accepted_occupancy, dtype=int).tolist()])
+                        seen.add(h)
+                        # If we've reached the quota, drop the hash set to free memory
+                        if len(lst) >= self._samples_per_bin:
+                            self._bin_sample_hashes_d.pop(b, None)
+
             # update histogram, entropy and occurrences each update_period steps
             if self._steps_counter % self.update_period == 0:
                 self._entropy_d[b] = float(self._entropy_d.get(b, 0.0) + self._m)
@@ -239,11 +288,18 @@ class InfiniteWangLandau(MCKernel):
                 self._m = self._mod_update(self._m)
                 self._mod_updates_buf.append((int(self._steps_counter), float(self._m)))
 
-    # expose and clear the buffer; not serialized in state()
+    # expose and clear the buffers; not serialized in state()
     def pop_mod_updates(self) -> list[tuple[int, float]]:
         ev = self._mod_updates_buf
         self._mod_updates_buf = []
         return ev
+
+    def pop_bin_samples(self) -> Dict[int, List[list[int]]]:
+        """Return and clear the per-bin UNIQUE occupancy snapshots captured since last call."""
+        out = self._bin_samples_d
+        self._bin_samples_d = {}
+        self._bin_sample_hashes_d = {}  # drop dedupe state on drain
+        return out
 
     def compute_initial_trace(self, occupancy: np.ndarray):
         """Compute initial values for sample trace given an occupancy."""
@@ -290,15 +346,17 @@ class InfiniteWangLandau(MCKernel):
             "current_features": np.asarray(self._current_features, dtype=float).tolist(),
             "rng_state": self._encode_rng_state(self._rng.bit_generator.state),
             "bin_size": float(self._bin_size),
+            # NOTE: bin samples are drained via pop_bin_samples(), not serialized here.
         }
 
     def load_state(self, s: dict) -> None:
         """Restore kernel from a state() snapshot."""
-        # clear sparse dicts
         self._entropy_d.clear()
         self._histogram_d.clear()
         self._occurrences_d.clear()
         self._mean_features_d.clear()
+        self._bin_samples_d.clear()       # safe
+        self._bin_sample_hashes_d.clear() # safe
 
         bins = np.asarray(s["bin_indices"], dtype=int)
         ent = np.asarray(s["entropy"], dtype=float)
@@ -317,7 +375,7 @@ class InfiniteWangLandau(MCKernel):
         self._steps_counter = int(s["steps_counter"])
         self._current_enthalpy = float(s["current_enthalpy"])
         self._current_features = np.asarray(s["current_features"], dtype=float)
-        self._mod_updates_buf: list[tuple[int, float]] = []
+        self._mod_updates_buf = []
         # restore RNG
         self._rng.bit_generator.state = self._decode_rng_state(s["rng_state"])
         # sanity: bin size should match
@@ -338,29 +396,23 @@ class InfiniteWangLandau(MCKernel):
         def enc(x: Any) -> Any:
             import numpy as _np
             if isinstance(x, dict):
-                # ensure plain dict[str, Any] values
                 return {str(k): enc(v) for k, v in x.items()}
             if isinstance(x, (list, tuple, _np.ndarray)):
                 return [enc(v) for v in _np.asarray(x).tolist()]
             if isinstance(x, (_np.integer, int)):
                 xi = int(x)
-                # BSON only supports signed int64; tag larger values.
                 if xi > INT64_MAX or xi < -INT64_MAX - 1:
                     return {"__u64__": hex(xi & ((1 << 64) - 1))}
                 return xi
             return x
 
-        # Ensure dict input (Mapping is fine; coerce to dict for encoding)
         res: Any = enc(dict(st))
         if not isinstance(res, dict):
-            # Should never happen, but keeps the type-checker honest
             raise TypeError("Encoded RNG state must be a dict at the top level.")
         return cast(dict[str, Any], res)
 
-
     @staticmethod
     def _decode_rng_state(st: Mapping[str, Any]) -> dict[str, Any]:
-        """Inverse of _encode_rng_state. Returns a dict at the top level."""
         def dec(x: Any) -> Any:
             if isinstance(x, dict):
                 if "__u64__" in x:
@@ -372,5 +424,5 @@ class InfiniteWangLandau(MCKernel):
 
         res: Any = dec(dict(st))
         if not isinstance(res, dict):
-            raise TypeError("Decoded RNG state must be a dict at the top level.")
+            TypeError("Decoded RNG state must be a dict at the top level.")
         return cast(dict[str, Any], res)

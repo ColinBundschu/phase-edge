@@ -10,10 +10,9 @@ from phaseedge.sampling.wl_chunk_driver import WLChunkSpec, run_wl_chunk
 
 @dataclass(frozen=True)
 class WLChunkEnsureSpec(MSONable):
-    """Job spec to extend a WL chain by steps_to_run."""
+    """Job spec to extend a WL chain using the steps in run_spec."""
     run_spec: WLSamplerSpec
     wl_key: str
-    steps_to_run: int
 
     def as_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -30,8 +29,6 @@ class WLChunkEnsureSpec(MSONable):
 
 @job
 def ensure_wl_chunk(spec: WLChunkEnsureSpec) -> Dict[str, Any]:
-    """Extend the WL chain by steps_to_run, idempotently. Fails if not on tip."""
-    chunk_spec = WLChunkSpec(run_spec=spec.run_spec,
-                             wl_key=spec.wl_key,
-                             steps_to_run=spec.steps_to_run)
+    """Extend the WL chain by run_spec.steps, idempotently. Fails if not on tip."""
+    chunk_spec = WLChunkSpec(run_spec=spec.run_spec, wl_key=spec.wl_key)
     return run_wl_chunk(chunk_spec)

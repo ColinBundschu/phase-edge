@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--check-period", type=int, default=5_000)
     p.add_argument("--update-period", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
+
+    # Capture up to K samples per visited enthalpy bin (0 = disabled)
+    p.add_argument("--samples-per-bin", type=int, default=0,
+                   help="Max snapshots to capture per enthalpy bin (0 disables).")
+
     p.add_argument("--category", default="cpu")
 
     # Extension length for THIS block
@@ -51,11 +56,10 @@ def main() -> int:
 
     composition_counts: Dict[str, int] = parse_counts_arg(args.composition_counts)
 
-    # The wl_key encodes the chain identity (NOT the number of steps). Use steps=0 here.
+    # wl_key encodes chain identity only (no steps, no samples_per_bin).
     wl_key: str = compute_wl_key(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
-        steps=0,  # important: chain identity independent of total steps
         step_type=str(args.step_type),
         composition_counts=composition_counts,
         check_period=int(args.check_period),
@@ -66,23 +70,20 @@ def main() -> int:
     )
     short = wl_key[:12]
 
-    # Build run_spec (immutable chain inputs). 'steps' is ignored by the chunk runner.
+    # Build run_spec. steps & samples_per_bin are runtime policies (non-key).
     run_spec = WLSamplerSpec(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
-        steps=0,
+        steps=int(args.steps_to_run),
         composition_counts=composition_counts,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
         update_period=int(args.update_period),
         seed=int(args.seed),
+        samples_per_bin=int(args.samples_per_bin),
     )
 
-    chunk_spec = WLChunkEnsureSpec(
-        run_spec=run_spec,
-        wl_key=wl_key,
-        steps_to_run=int(args.steps_to_run),
-    )
+    chunk_spec = WLChunkEnsureSpec(run_spec=run_spec, wl_key=wl_key)
 
     j = ensure_wl_chunk(chunk_spec)
     j.name = f"wl_extend::{short}::+{int(args.steps_to_run):,}"
@@ -107,6 +108,7 @@ def main() -> int:
         "check_period": int(args.check_period),
         "update_period": int(args.update_period),
         "seed": int(args.seed),
+        "samples_per_bin": int(args.samples_per_bin),  # transparency
         "category": str(args.category),
         "steps_to_run": int(args.steps_to_run),
     }
@@ -117,7 +119,7 @@ def main() -> int:
         print("Submitted WL extension workflow:", wf_id)
         print({k: payload[k] for k in (
             "wl_key", "ce_key", "bin_width", "composition_counts", "step_type",
-            "check_period", "update_period", "seed", "category", "steps_to_run"
+            "check_period", "update_period", "seed", "samples_per_bin", "category", "steps_to_run"
         )})
 
     return 0

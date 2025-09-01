@@ -19,7 +19,6 @@ def compute_set_id_counts(
 ) -> str:
     """Deterministic identity for a logical (expandable) snapshot sequence using integer counts."""
     counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
-
     payload = {
         "prototype": prototype,
         "proto_params": prototype_params or {},
@@ -60,7 +59,6 @@ def _json_canon(obj: Any) -> Any:
         import numpy as _np
     except Exception:  # pragma: no cover
         _np = None
-
     if isinstance(obj, dict):
         return {k: _json_canon(obj[k]) for k in sorted(obj)}
     if isinstance(obj, (list, tuple)):
@@ -125,7 +123,6 @@ def compute_ce_key_mixture(
     Identity includes system, mixture signature, engine, hyperparams (including weighting), and algo_version.
     """
     mix_sig = canonical_mixture_signature(mixture)
-
     payload = {
         "kind": "ce_key@mixture",
         "system": {
@@ -143,7 +140,6 @@ def compute_ce_key_mixture(
             "weighting": _json_canon(weighting or {}),
         },
     }
-
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
@@ -169,7 +165,6 @@ def compute_wl_key(
     *,
     ce_key: str,
     bin_width: float,
-    steps: int,
     step_type: str,
     composition_counts: Mapping[str, int],
     check_period: int,
@@ -180,10 +175,9 @@ def compute_wl_key(
 ) -> str:
     """
     Idempotent identity for a canonical WL run based ONLY on the public contract:
-    CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule, and seed.
+    CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule (sans steps), and seed.
     Zero-count species are stripped; at least one positive count is required.
     """
-    # Canonicalize counts identically to CE, then apply zero guardrail
     comp_counts = canonical_counts(composition_counts)
     comp_counts = {k: int(v) for k, v in comp_counts.items() if int(v) != 0}
     if not comp_counts:
@@ -203,7 +197,7 @@ def compute_wl_key(
         },
         "mc": {
             "step_type": str(step_type),
-            "steps": int(steps),
+            # NOTE: steps intentionally omitted from identity
             "check_period": int(check_period),
             "update_period": int(update_period),
             "seed": int(seed),
