@@ -5,7 +5,7 @@ from jobflow.core.job import job
 from monty.json import MSONable
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.sampling.chunk_wl_driver import WLChunkSpec, run_wl_chunk
+from phaseedge.sampling.wl_chunk_driver import WLChunkSpec, run_wl_chunk
 
 
 @dataclass(frozen=True)
