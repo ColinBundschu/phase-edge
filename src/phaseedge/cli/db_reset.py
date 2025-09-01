@@ -7,7 +7,7 @@ from phaseedge.storage import store
 def _drop_phaseedge_collections(cols: list[str] | None = None) -> None:
     db = store.db_rw()
     names = set(db.list_collection_names())
-    to_drop = cols if cols is not None else ["mace_relax", "ce_models", "wang_landau"]
+    to_drop = cols if cols is not None else ["mace_relax", "ce_models"]
     for col in to_drop:
         if col in names:
             db[col].drop()
@@ -38,7 +38,6 @@ def _print_counts() -> None:
     cols = [
         "mace_relax",
         "ce_models",
-        "wang_landau",
         "fireworks",
         "workflows",
         "launches",

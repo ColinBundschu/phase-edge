@@ -231,6 +231,7 @@ def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
             dataset_hash=j_fetch.output["dataset_hash"],
             payload=j_train.output["payload"],
             stats=j_train.output["stats"],
+            design_metrics=j_train.output["design_metrics"],
         ),
     )
     j_store.name = "store_ce_model"

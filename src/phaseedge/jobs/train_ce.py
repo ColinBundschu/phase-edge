@@ -18,6 +18,7 @@ from phaseedge.science.ce_training import (
     compute_stats,
     assemble_ce,
 )
+from phaseedge.science.design_metrics import compute_design_metrics, MetricOptions, DesignMetrics
 from phaseedge.storage.ce_store import CEStats
 
 __all__ = ["train_ce"]
@@ -29,9 +30,10 @@ class TrainStats(TypedDict):
     by_composition: dict[str, Mapping[str, CEStats]]  # {"Co:75,Mn:25": {"in_sample": ..., "five_fold_cv": ...}, ...}
 
 
-class _TrainOutput(TypedDict):
+class _TrainOutput(TypedDict, total=False):
     payload: Mapping[str, Any]
     stats: TrainStats
+    design_metrics: DesignMetrics
 
 
 def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
@@ -154,7 +156,7 @@ def train_ce(
     regularization: Mapping[str, Any],
     extra_hyperparams: Mapping[str, Any],
     # weighting
-    weighting: Mapping[str, Any] | None = None,  # <-- NEW
+    weighting: Mapping[str, Any] | None = None,
     # CV config
     cv_seed: int | None = None,
 ) -> _TrainOutput:
@@ -163,6 +165,7 @@ def train_ce(
       - overall in-sample stats (unweighted metrics)
       - stitched 5-fold-CV stats (unweighted metrics)
       - per-composition breakdown for both
+      - design diagnostics of the training feature matrix (with weights applied)
     Weighted fitting is implemented via pre-scaling: X *= sqrt(w), y *= sqrt(w).
     """
     # -------- basic validation --------
@@ -223,6 +226,11 @@ def train_ce(
     y = np.asarray(y_site, dtype=np.float64)
     w = _build_sample_weights(comp_to_indices, n_total=n, weighting=weighting)
     sqrt_w = np.sqrt(w, dtype=np.float64)
+
+    # -------- compute design diagnostics on the same matrix used for fitting --------
+    # We follow the training scheme: apply sqrt(w) row-scaling, then compute SVD/QR-based metrics.
+    # To make comparisons meaningful across runs, we z-score columns BEFORE metrics.
+    design = compute_design_metrics(X=X, w=w, options=MetricOptions(standardize=True, eps=1e-12))
 
     # -------- 5) fit linear model on full set (in-sample, weighted) --------
     Xw = X * sqrt_w[:, None]
@@ -285,4 +293,5 @@ def train_ce(
                 for sig in sorted(comp_to_indices)
             },
         },
+        "design_metrics": design,
     }

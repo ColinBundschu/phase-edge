@@ -13,7 +13,8 @@ class _StoredCE(TypedDict, total=False):
     train_refs: Sequence[Mapping[str, Any]]
     dataset_hash: str
     payload: Mapping[str, Any]
-    stats: Mapping[str, Any]  # now flexible: in_sample / five_fold_cv / by_composition
+    stats: Mapping[str, Any]           # in_sample / five_fold_cv / by_composition
+    design_metrics: Mapping[str, Any]  # design diagnostics for X
     success: bool
 
 
@@ -53,6 +54,7 @@ def store_ce_model(
     dataset_hash: str,
     payload: Any,          # may be a dict or a ClusterExpansion object
     stats: Mapping[str, Any],
+    design_metrics: Mapping[str, Any],
 ) -> _StoredCE:
     """
     Idempotently persist a trained CE (mixture-friendly).
@@ -69,6 +71,7 @@ def store_ce_model(
         "dataset_hash": str(dataset_hash),
         "payload": _payload_to_dict(payload),
         "stats": dict(stats),
+        "design_metrics": dict(design_metrics),
         "success": True,
     }
 
