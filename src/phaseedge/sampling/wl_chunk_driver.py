@@ -159,13 +159,10 @@ def run_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
             parent_hash=parent_hash,
             state=end_state,
             occupancy=occ_last,
-            extra={
-                "mod_updates": mod_updates,
-                # Sparse per-bin samples captured this chunk.
-                # Schema: {"bin_samples": [{"bin": int, "occ": [..]}, ...]}
-                "bin_samples": [{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
-                "samples_per_bin": int(spec.run_spec.samples_per_bin),
-            },
+            # --- first-class top-level metadata ---
+            mod_updates=mod_updates,
+            bin_samples=[{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
+            samples_per_bin=int(spec.run_spec.samples_per_bin),
         )
     except DuplicateKeyError as e:
         raise RuntimeError("Checkpoint insert conflict (not on tip or duplicate). Retry from new tip.") from e
