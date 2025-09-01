@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, Mapping, Tuple, Dict, cast
+from typing import Any, Mapping, Dict, cast
 
 import numpy as np
 from pymongo.errors import DuplicateKeyError
@@ -14,9 +12,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from phaseedge.schemas.wl import WLSamplerSpec
 from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
-from phaseedge.storage.wl_ckpt_store import (
-    ensure_indexes, get_tip, insert_checkpoint, canonical_payload, sha256_hex
-)
+from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot, validate_counts_for_sublattice
 

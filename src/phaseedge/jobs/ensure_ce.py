@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage.ce_store import lookup_ce_by_key
-from phaseedge.flows.ensure_snapshots_multi import make_ensure_snapshots_multi
+from phaseedge.flows.ensure_snapshots_compositions import make_ensure_snapshots_compositions
 from phaseedge.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
@@ -106,7 +106,7 @@ class CEEnsureMixtureSpec(MSONable):
 # --------------------------------------------------------------------------------------
 
 @job
-def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
+def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     """
     Idempotent CE training over a mixture of compositions:
       - Canonicalize the mixture and compute ce_key (mixture-aware).
@@ -151,7 +151,7 @@ def check_or_schedule_ce(spec: CEEnsureMixtureSpec) -> Any:
         return existing
 
     # 3) Ensure snapshots for all mixture elements (barriered per element)
-    f_ensure_all, j_groups = make_ensure_snapshots_multi(
+    f_ensure_all, j_groups = make_ensure_snapshots_compositions(
         prototype=cast(PrototypeName, proto_name),
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,

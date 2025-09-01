@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Mapping
-
-import numpy as np
+from typing import Mapping
 
 
 @dataclass(frozen=True)

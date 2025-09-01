@@ -4,9 +4,9 @@ from jobflow.core.flow import Flow
 from jobflow.core.job import job, Job
 
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.flows.ensure_snapshots import make_ensure_snapshots_flow
+from phaseedge.flows.ensure_snapshots_composition import make_ensure_snapshots_composition_flow
 
-__all__ = ["make_ensure_snapshots_multi"]
+__all__ = ["make_ensure_snapshots_compositions"]
 
 
 class SnapshotGroup(TypedDict):
@@ -76,7 +76,7 @@ def _gather_groups(groups: Sequence[Any], meta: Sequence[Mapping[str, Any]]) -> 
     return {"groups": out}
 
 
-def make_ensure_snapshots_multi(
+def make_ensure_snapshots_compositions(
     *,
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
@@ -97,7 +97,7 @@ def make_ensure_snapshots_multi(
     all groups into a single output:
         {"groups": [{"set_id": ..., "occ_keys": [...], "counts": {...}, "seed": ...}, ...]}.
 
-    Thin wrapper around make_ensure_snapshots_flow (single-composition).
+    Thin wrapper around make_ensure_snapshots_composition_flow (single-composition).
     """
     if not mixture:
         raise ValueError("mixture must be a non-empty sequence.")
@@ -118,7 +118,7 @@ def make_ensure_snapshots_multi(
         seed = int(elem.get("seed", default_seed))
         indices = [int(i) for i in range(K)]
 
-        flow_i, j_gather_i = make_ensure_snapshots_flow(
+        flow_i, j_gather_i = make_ensure_snapshots_composition_flow(
             prototype=prototype,
             prototype_params=prototype_params,
             supercell_diag=supercell_diag,

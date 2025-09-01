@@ -7,7 +7,7 @@ from phaseedge.jobs.random_config import RandomConfigSpec, make_random_config
 from phaseedge.jobs.decide_relax import check_or_schedule_relax
 from phaseedge.science.prototypes import PrototypeName
 
-__all__ = ["make_ensure_snapshots_flow"]
+__all__ = ["make_ensure_snapshots_composition_flow"]
 
 
 class GatheredSnapshots(TypedDict):
@@ -42,7 +42,7 @@ def _gather_occ_keys(*, set_id: str, results: list[dict[str, Any] | None]) -> Ga
     return {"set_id": set_id, "occ_keys": occ_keys}
 
 
-def make_ensure_snapshots_flow(
+def make_ensure_snapshots_composition_flow(
     *,
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],

@@ -1,10 +1,7 @@
 import argparse
 from typing import Any
 
-from phaseedge.jobs.check_or_schedule_ce import (
-    CEEnsureMixtureSpec,
-    check_or_schedule_ce,
-)
+from phaseedge.jobs.ensure_ce import CEEnsureMixtureSpec, ensure_ce
 
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
@@ -170,7 +167,7 @@ def main() -> None:
         weighting=weighting,
     )
 
-    j = check_or_schedule_ce(spec)
+    j = ensure_ce(spec)
     j.name = "ensure_ce"
     j.metadata = {**(j.metadata or {}), "_category": args.category}
 
