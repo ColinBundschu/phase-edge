@@ -52,7 +52,7 @@ def occ_key_for_atoms(snapshot: Atoms) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-# ---- Canonicalization helpers --------------------------------------------------------
+# -------------------- canonicalization helpers --------------------
 
 def _json_canon(obj: Any) -> Any:
     try:
@@ -73,81 +73,7 @@ def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
     return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
 
 
-def _canon_indices(elem: Mapping[str, Any]) -> list[int]:
-    if "indices" in elem and elem["indices"] is not None:
-        idx = [int(x) for x in cast(Sequence[Any], elem["indices"])]
-        return sorted(dict.fromkeys(idx))
-    K = int(elem.get("K", 0))
-    if K <= 0:
-        raise ValueError(f"Mixture element missing valid K/indices: {elem!r}")
-    return [int(i) for i in range(K)]
-
-
-def canonical_mixture_signature(mix: Sequence[Mapping[str, Any]]) -> str:
-    normalized: list[dict[str, Any]] = []
-    for elem in mix:
-        cnts = canonical_counts(elem.get("counts", {}))
-        seed = int(elem.get("seed", 0))
-        indices = _canon_indices(elem)
-        normalized.append({"counts": cnts, "seed": seed, "indices": indices})
-
-    def _key(e: Mapping[str, Any]) -> tuple[str, int, str]:
-        c = json.dumps(e["counts"], sort_keys=True, separators=(",", ":"))
-        i = json.dumps(e["indices"], sort_keys=True, separators=(",", ":"))
-        return (c, int(e["seed"]), i)
-
-    normalized_sorted = sorted(normalized, key=_key)
-    return json.dumps(normalized_sorted, sort_keys=True, separators=(",", ":"))
-
-
-# ---- CE key (counts-based, deterministic) -------------------------------------------
-
-def compute_ce_key_mixture(
-    *,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
-    supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    mixture: Sequence[Mapping[str, Any]],
-    algo_version: str = "randgen-3-mix-1",
-    model: str,
-    relax_cell: bool,
-    dtype: str,
-    basis_spec: Mapping[str, Any],
-    regularization: Mapping[str, Any] | None = None,
-    extra_hyperparams: Mapping[str, Any] | None = None,
-    weighting: Mapping[str, Any] | None = None,
-) -> str:
-    """
-    Deterministic key for a CE trained on a union of snapshot families (mixture of compositions).
-    Identity includes system, mixture signature, engine, hyperparams (including weighting), and algo_version.
-    """
-    mix_sig = canonical_mixture_signature(mixture)
-    payload = {
-        "kind": "ce_key@mixture",
-        "system": {
-            "prototype": prototype,
-            "proto_params": _json_canon(prototype_params),
-            "supercell": list(supercell_diag),
-            "replace": replace_element,
-        },
-        "sampling": {"mixture_sig": mix_sig, "algo": algo_version},
-        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
-        "hyperparams": {
-            "basis": _json_canon(basis_spec),
-            "regularization": _json_canon(regularization or {}),
-            "extra": _json_canon(extra_hyperparams or {}),
-            "weighting": _json_canon(weighting or {}),
-        },
-    }
-    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-# --- Wang-Landau keys (COUNTS-ONLY, canonical) ---------------------------------------
-
 def _round_float(x: float, ndigits: int = 12) -> float:
-    # 12 significant digits is a good balance: stable, but not overly lossy.
     return float(f"{x:.{ndigits}g}")
 
 
@@ -160,6 +86,127 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
         return {str(k): _canon_num(v[k], ndigits) for k in sorted(v)}
     return v
 
+
+# -------------------- unified CE key over arbitrary sources --------------------
+
+def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Normalize the 'sources' list into a canonical JSON-ready structure.
+
+    Supported source types:
+      - {"type": "composition", "elements": [{"counts": {...}, "K": int, "seed": int}, ...]}
+      - {"type": "wl_chunked", "chunks": [{"wl_key": str, "step_end": int}, ...],
+         "selection": {"policy": str, "k_per_bin": int | None, "dedupe": str | None}}
+      - {"type": "specified", "occ_keys": [str, ...]}
+    """
+    norm: list[dict[str, Any]] = []
+
+    for src in sources:
+        t = str(src.get("type", "")).lower()
+
+        if t == "composition":
+            elems_in = list(src.get("elements", []))
+            elems_norm: list[dict[str, Any]] = []
+            for e in elems_in:
+                cnts = canonical_counts(e.get("counts", {}))
+                K = int(e.get("K", 0))
+                seed = int(e.get("seed", 0))
+                elems_norm.append({"counts": cnts, "K": K, "seed": seed})
+
+            # stable sort: by (counts_json, seed, K)
+            def _ekey(e: Mapping[str, Any]) -> tuple[str, int, int]:
+                cj = json.dumps(e["counts"], sort_keys=True, separators=(",", ":"))
+                return (cj, int(e["seed"]), int(e["K"]))
+            elems_norm = sorted(elems_norm, key=_ekey)
+
+            norm.append({"type": "composition", "elements": elems_norm})
+
+        elif t == "wl_chunked":
+            chunks_in = list(src.get("chunks", []))
+            chunks_norm: list[dict[str, Any]] = []
+            for ch in chunks_in:
+                wl_key = str(ch["wl_key"])
+                step_end = int(ch["step_end"])
+                chunks_norm.append({"wl_key": wl_key, "step_end": step_end})
+            # sort deterministically
+            chunks_norm = sorted(chunks_norm, key=lambda c: (c["wl_key"], c["step_end"]))
+
+            sel_in = dict(src.get("selection", {}))
+            selection = {
+                "policy": str(sel_in.get("policy", "")),
+                **({"k_per_bin": int(sel_in["k_per_bin"])} if "k_per_bin" in sel_in and sel_in["k_per_bin"] is not None else {}),
+                **({"dedupe": str(sel_in["dedupe"])} if "dedupe" in sel_in and sel_in["dedupe"] is not None else {}),
+            }
+
+            norm.append({"type": "wl_chunked", "chunks": chunks_norm, "selection": selection})
+
+        elif t == "specified":
+            occ_keys_in = [str(x) for x in src.get("occ_keys", [])]
+            occ_keys_norm = sorted(set(occ_keys_in))
+            norm.append({"type": "specified", "occ_keys": occ_keys_norm})
+
+        else:
+            raise ValueError(f"Unknown source type: {t!r}")
+
+    # sort the sources list deterministically:
+    #  - primary by type
+    #  - then by full JSON of the inner payload
+    def _src_key(s: Mapping[str, Any]) -> tuple[str, str]:
+        t = str(s.get("type", ""))
+        j = json.dumps(_json_canon(s), sort_keys=True, separators=(",", ":"))
+        return (t, j)
+
+    return sorted(norm, key=_src_key)
+
+
+def compute_ce_key(
+    *,
+    prototype: str,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+    replace_element: str,
+    sources: Sequence[Mapping[str, Any]],
+    algo_version: str,
+    model: str,
+    relax_cell: bool,
+    dtype: str,
+    basis_spec: Mapping[str, Any],
+    regularization: Mapping[str, Any] | None = None,
+    extra_hyperparams: Mapping[str, Any] | None = None,
+    weighting: Mapping[str, Any] | None = None,
+) -> str:
+    """
+    Deterministic key for a CE trained from an arbitrary set of sampling sources.
+    Identity includes: system, canonicalized `sources`, engine, hyperparams (incl. weighting), and algo_version.
+    """
+    norm_sources = _normalize_sources(sources)
+
+    payload = {
+        "kind": "ce_key@sources",
+        "system": {
+            "prototype": prototype,
+            "proto_params": _json_canon(prototype_params),
+            "supercell": list(supercell_diag),
+            "replace": replace_element,
+        },
+        "sampling": {
+            "algo": algo_version,
+            "sources": norm_sources,
+        },
+        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
+        "hyperparams": {
+            "basis": _json_canon(basis_spec),
+            "regularization": _json_canon(regularization or {}),
+            "extra": _json_canon(extra_hyperparams or {}),
+            "weighting": _json_canon(weighting or {}),
+        },
+    }
+
+    blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+# -------------------- Wang–Landau chain key (unchanged semantics) --------------------
 
 def compute_wl_key(
     *,
@@ -197,7 +244,6 @@ def compute_wl_key(
         },
         "mc": {
             "step_type": str(step_type),
-            # NOTE: steps intentionally omitted from identity
             "check_period": int(check_period),
             "update_period": int(update_period),
             "seed": int(seed),

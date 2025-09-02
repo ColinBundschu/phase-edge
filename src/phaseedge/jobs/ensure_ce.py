@@ -11,11 +11,12 @@ from phaseedge.flows.ensure_snapshots_compositions import make_ensure_snapshots_
 from phaseedge.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
-from phaseedge.utils.keys import compute_ce_key_mixture
+from phaseedge.utils.keys import compute_ce_key
 
 
 # --------------------------------------------------------------------------------------
-# Spec for a mixture-based CE ensure (MSON-serializable)
+# Spec for a compositions-based CE ensure (MSON-serializable)
+# (Retains existing class name for minimal churn; field names unchanged)
 # --------------------------------------------------------------------------------------
 
 @dataclass(slots=True)
@@ -25,22 +26,22 @@ class CEEnsureMixtureSpec(MSONable):
     supercell_diag: tuple[int, int, int]
     replace_element: str
 
-    # --- mixture sampling: list of elements, each with counts, K, and optional seed override
+    # compositions list: each element has counts, K, and optional seed
     mixture: Sequence[Mapping[str, Any]]
     default_seed: int  # used when an element doesn't specify its own seed
 
-    # --- relax/engine identity (for training energies)
+    # relax/engine identity (for training energies)
     model: str
     relax_cell: bool
     dtype: str
 
-    # --- CE hyperparameters (all knobs that distinguish models)
+    # CE hyperparameters (all knobs that distinguish models)
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
     extra_hyperparams: Mapping[str, Any] | None = None
     weighting: Mapping[str, Any] | None = None
 
-    # --- scheduling
+    # scheduling
     category: str = "gpu"  # FireWorks category tag
 
     # --- MSON hooks ---
@@ -102,39 +103,47 @@ class CEEnsureMixtureSpec(MSONable):
 
 
 # --------------------------------------------------------------------------------------
-# Decision job: ensure CE over a mixture (idempotent)
+# Decision job: ensure CE over compositions (idempotent)
 # --------------------------------------------------------------------------------------
 
 @job
 def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     """
-    Idempotent CE training over a mixture of compositions:
-      - Canonicalize the mixture and compute ce_key (mixture-aware).
+    Idempotent CE training over compositions:
+      - Canonicalize the composition list and compute ce_key (sources-aware).
       - If a CE already exists for ce_key, return it.
       - Otherwise replace this job with a single Flow:
-          ensure_snapshots_multi -> fetch_training_set_multi -> train_ce -> store_ce_model
+          ensure_snapshots_compositions -> fetch_training_set_multi -> train_ce -> store_ce_model
     """
     proto_name = cast(str, spec.prototype)
     proto_params = dict(spec.prototype_params)  # Mapping -> dict for typed helpers
-    algo: Final[str] = "randgen-3-mix-1"
+    algo: Final[str] = "randgen-3-comp-1"
 
-    # Canonicalize mixture: counts as dict[str,int], K:int >= 1, seed:int (fallback to default)
-    canon_mix: list[dict[str, Any]] = []
+    # Canonicalize composition elements: counts dict[str,int], K:int >= 1, seed:int (fallback to default)
+    canon_elems: list[dict[str, Any]] = []
     for elem in spec.mixture:
         counts = {str(k): int(v) for k, v in dict(elem.get("counts", {})).items()}
         K = int(elem.get("K", 0))
         if not counts or K <= 0:
-            raise ValueError(f"Invalid mixture element: counts={counts}, K={K}")
+            raise ValueError(f"Invalid composition element: counts={counts}, K={K}")
         seed_eff = int(elem.get("seed", spec.default_seed))
-        canon_mix.append({"counts": counts, "K": K, "seed": seed_eff})
+        canon_elems.append({"counts": counts, "K": K, "seed": seed_eff})
+
+    # Unified sources block (only composition source for now)
+    sources = [
+        {
+            "type": "composition",
+            "elements": canon_elems,
+        }
+    ]
 
     # 1) Compute CE key (single source of truth for idempotency)
-    ce_key: str = compute_ce_key_mixture(
+    ce_key: str = compute_ce_key(
         prototype=proto_name,
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
         replace_element=spec.replace_element,
-        mixture=canon_mix,
+        sources=sources,
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
@@ -150,13 +159,13 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     if existing:
         return existing
 
-    # 3) Ensure snapshots for all mixture elements (barriered per element)
+    # 3) Ensure snapshots for all composition elements (barriered per element)
     f_ensure_all, j_groups = make_ensure_snapshots_compositions(
         prototype=cast(PrototypeName, proto_name),
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
         replace_element=spec.replace_element,
-        mixture=canon_mix,
+        mixture=canon_elems,  # function still uses 'mixture' param name internally
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
@@ -213,8 +222,13 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
                 "replace_element": spec.replace_element,
             },
             sampling={
-                "mixture": canon_mix,
                 "algo_version": algo,
+                "sources": [
+                    {
+                        "type": "composition",
+                        "elements": canon_elems,
+                    }
+                ],
             },
             engine={
                 "model": spec.model,
@@ -238,7 +252,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     j_store.metadata = {**(j_store.metadata or {}), "_category": spec.category}
 
     # Compose a single Flow so Response.replace is well-typed
-    end_to_end = Flow([f_ensure_all, j_fetch, j_train, j_store], name="Ensure CE (mixture, barriered)")
+    end_to_end = Flow([f_ensure_all, j_fetch, j_train, j_store], name="Ensure CE (compositions, barriered)")
 
     # Replace this decision job with the full chain; alias our output to the stored doc
     return Response(replace=end_to_end, output=j_store.output)

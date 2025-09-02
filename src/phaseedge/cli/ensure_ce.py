@@ -1,7 +1,7 @@
 import argparse
 from typing import Any
 
-from phaseedge.jobs.ensure_ce import CEEnsureMixtureSpec, ensure_ce
+from phaseedge.jobs.ensure_ce import CEEnsureMixtureSpec, ensure_ce  # spec name kept for now
 
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
@@ -9,7 +9,7 @@ from fireworks import LaunchPad
 
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattice
-from phaseedge.utils.keys import compute_ce_key_mixture
+from phaseedge.utils.keys import compute_ce_key
 from phaseedge.cli.common import parse_counts_arg
 
 
@@ -58,7 +58,7 @@ def _parse_mix_item(s: str) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pe-ensure-ce",
-        description="Ensure a CE over a mixture of compositions (deterministic snapshots → MACE relax cache → train CE → store).",
+        description="Ensure a CE over compositions (deterministic snapshots → MACE relax cache → train CE → store).",
     )
     p.add_argument("--launchpad", required=True)
 
@@ -68,13 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
     p.add_argument("--replace-element", required=True)
 
-    # Mixture input (repeatable)
-    p.add_argument("--mix", action="append", default=[], help="Mixture element: 'counts=...;K=...;seed=...'")
-
-    # Back-compat single-composition flags (used only if --mix not supplied)
-    p.add_argument("--counts", help="Exact counts per species, e.g. 'Co:76,Fe:24'")
-    p.add_argument("--seed", type=int, help="Global/default seed (and seed for single-composition mode)")
-    p.add_argument("--K", type=int, help="Exact number of snapshots for single-composition mode")
+    # Composition input (repeatable)
+    p.add_argument("--mix", action="append", required=True, help="Composition element: 'counts=...;K=...;seed=...'")
+    p.add_argument("--seed", type=int, default=0, help="Global/default seed")
 
     # Relax/engine for training energies
     p.add_argument("--model", default="MACE-MPA-0")
@@ -106,19 +102,12 @@ def main() -> None:
 
     cutoffs = _parse_cutoffs_arg(args.cutoffs)
 
-    # Build mixture (either from --mix or from legacy single-composition flags)
-    if args.mix:
-        mixture = [_parse_mix_item(s) for s in args.mix]
-        default_seed = 0 if args.seed is None else int(args.seed)
-    else:
-        if args.counts is None or args.seed is None or args.K is None:
-            raise SystemExit("When --mix is not used, you must provide --counts, --seed, and --K.")
-        mixture = [{"counts": parse_counts_arg(args.counts), "K": int(args.K), "seed": int(args.seed)}]
-        default_seed = int(args.seed)
+    # Build composition list
+    compositions = [_parse_mix_item(s) for s in args.mix]
 
     # Optional early validation
     conv = make_prototype(args.prototype, a=args.a)
-    for elem in mixture:
+    for elem in compositions:
         cts = dict(elem["counts"])
         validate_counts_for_sublattice(
             conv_cell=conv,
@@ -132,14 +121,18 @@ def main() -> None:
         {"scheme": "inv_count", "alpha": float(args.weight_alpha)} if args.balance_by_comp else None
     )
 
-    # Compute CE key (mixture-aware)
-    ce_key = compute_ce_key_mixture(
+    # Compute CE key (unified, sources-based)
+    algo = "randgen-3-comp-1"
+    sources = [
+        {"type": "composition", "elements": compositions}
+    ]
+    ce_key = compute_ce_key(
         prototype=args.prototype,
         prototype_params={"a": args.a},
         supercell_diag=tuple(args.supercell),
         replace_element=args.replace_element,
-        mixture=mixture,
-        algo_version="randgen-3-mix-1",
+        sources=sources,
+        algo_version=algo,
         model=args.model,
         relax_cell=bool(args.relax_cell),
         dtype=args.dtype,
@@ -149,14 +142,14 @@ def main() -> None:
         weighting=weighting,
     )
 
-    # Build the idempotent ensure job (mixture spec) and submit
+    # Build the idempotent ensure job (mixture spec retained) and submit
     spec = CEEnsureMixtureSpec(
         prototype=args.prototype,
         prototype_params={"a": args.a},
         supercell_diag=tuple(args.supercell),
         replace_element=args.replace_element,
-        mixture=mixture,
-        default_seed=default_seed,
+        mixture=compositions,                # name retained in spec for now
+        default_seed=args.seed,
         model=args.model,
         relax_cell=bool(args.relax_cell),
         dtype=args.dtype,
@@ -171,7 +164,7 @@ def main() -> None:
     j.name = "ensure_ce"
     j.metadata = {**(j.metadata or {}), "_category": args.category}
 
-    flow = Flow([j], name="Ensure CE (mixture)")
+    flow = Flow([j], name="Ensure CE (compositions)")
     wf = flow_to_workflow(flow)
     for fw in wf.fws:
         fw.spec = {**(fw.spec or {}), "_category": args.category}
@@ -187,7 +180,7 @@ def main() -> None:
             "a": args.a,
             "supercell": tuple(args.supercell),
             "replace_element": args.replace_element,
-            "mixture": mixture,
+            "sources": sources,
             "model": args.model,
             "relax_cell": bool(args.relax_cell),
             "dtype": args.dtype,
