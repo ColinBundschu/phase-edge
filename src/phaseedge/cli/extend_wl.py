@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.jobs.add_wl_chunk import WLChunkSpec, add_wl_chunk
+from phaseedge.jobs.add_wl_chunk import add_wl_chunk
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg
 
@@ -71,6 +71,7 @@ def main() -> int:
 
     # Build run_spec. steps & samples_per_bin are runtime policies (non-key).
     run_spec = WLSamplerSpec(
+        wl_key=wl_key,
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
         steps=int(args.steps_to_run),
@@ -82,9 +83,7 @@ def main() -> int:
         samples_per_bin=int(args.samples_per_bin),
     )
 
-    chunk_spec = WLChunkSpec(run_spec=run_spec, wl_key=wl_key)
-
-    j = add_wl_chunk(chunk_spec)
+    j = add_wl_chunk(run_spec)
     j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
     j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
 

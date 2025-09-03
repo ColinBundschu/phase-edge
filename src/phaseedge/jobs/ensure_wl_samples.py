@@ -14,63 +14,18 @@ qualifying checkpoint or schedule a single new chunk on the tip of
 the chain.
 """
 
-from dataclasses import dataclass, asdict
 from typing import Any, Mapping
 
-from monty.json import MSONable
 from jobflow.core.job import job, Response, Job
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.jobs.add_wl_chunk import WLChunkSpec, add_wl_chunk
+from phaseedge.jobs.add_wl_chunk import add_wl_chunk
 from phaseedge.storage import store
-
-
-@dataclass(frozen=True)
-class EnsureWLSamplesSpec(MSONable):
-    """Specification for the :func:`ensure_wl_samples` decision job.
-
-    Parameters
-    ----------
-    run_spec
-        A :class:`~phaseedge.schemas.wl.WLSamplerSpec` defining the
-        parameters of the WL simulation to be run if no existing
-        checkpoint meets the criteria.  The fields ``steps`` and
-        ``samples_per_bin`` are used as the minimum chunk size and
-        minimum number of samples captured per bin, respectively.
-
-    wl_key
-        The identifier for the WL chain.  All checkpoints belonging
-        to this key constitute a linear chain from the genesis (no
-        parent) through successive ``add_wl_chunk`` operations.
-    """
-
-    run_spec: WLSamplerSpec
-    wl_key: str
-
-    def as_dict(self) -> dict[str, Any]:  # type: ignore[override]
-        """Serialize this spec for storage via Monty/Jobflow.
-
-        The returned dictionary contains the module and class names so
-        that the object can be reconstructed automatically.
-        """
-        d = asdict(self)
-        d.update({"@module": type(self).__module__, "@class": type(self).__name__})
-        return d
-
-    @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "EnsureWLSamplesSpec":  # type: ignore[override]
-        # Strip Monty metadata and reconstruct nested objects as needed
-        payload = {k: v for k, v in d.items() if not k.startswith("@")}
-        run_spec_obj = payload.get("run_spec")
-        if run_spec_obj is not None and not isinstance(run_spec_obj, WLSamplerSpec):
-            run_spec_obj = WLSamplerSpec(**run_spec_obj)  # type: ignore[arg-type]
-        payload["run_spec"] = run_spec_obj
-        return cls(**payload)  # type: ignore[arg-type]
 
 
 @job
 def ensure_wl_samples(
-    spec: EnsureWLSamplesSpec,
+    spec: WLSamplerSpec,
 ) -> Mapping[str, Any] | Response:
     """Ensure a WL chain contains a chunk meeting the sampling criteria.
 
@@ -103,8 +58,8 @@ def ensure_wl_samples(
     coll = store.db_ro()["wang_landau_ckpt"]
 
     # Minimum requirements derived from the run spec
-    min_steps: int = int(spec.run_spec.steps)
-    min_samples_per_bin: int = int(spec.run_spec.samples_per_bin)
+    min_steps: int = int(spec.steps)
+    min_samples_per_bin: int = int(spec.samples_per_bin)
 
     # Compose a query: same wl_key, chunk length >= min_steps, samples >= min_samples_per_bin
     query: dict[str, Any] = {
@@ -121,12 +76,8 @@ def ensure_wl_samples(
         # Return the stored checkpoint as-is; Jobflow will serialize this mapping
         return dict(doc)
 
-    # No qualifying chunk exists: schedule a new chunk using add_wl_chunk
-    # Construct a WLChunkSpec from the run spec and chain key
-    wl_chunk_spec = WLChunkSpec(run_spec=spec.run_spec, wl_key=spec.wl_key)
-
     # Instantiate the add_wl_chunk job; cast to Job for type hinting
-    new_job: Job = add_wl_chunk(wl_chunk_spec)  # type: ignore[assignment]
+    new_job: Job = add_wl_chunk(spec)
 
     # Forward the return value of the scheduled job as our own output
     return Response(replace=new_job, output=new_job.output)

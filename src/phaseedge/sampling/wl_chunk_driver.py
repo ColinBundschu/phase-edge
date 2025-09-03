@@ -38,13 +38,13 @@ def _initial_occupancy_from_counts(
     counts_clean = {str(k): int(v) for k, v in counts.items()}
     validate_counts_for_sublattice(
         conv_cell=conv,
-        supercell_diag=tuple(supercell_diag),  # type: ignore[arg-type]
+        supercell_diag=tuple(supercell_diag),
         replace_element=replace_element,
         counts=counts_clean,
     )
     snap = make_one_snapshot(
         conv_cell=conv,
-        supercell_diag=tuple(supercell_diag),  # type: ignore[arg-type]
+        supercell_diag=tuple(supercell_diag),
         replace_element=replace_element,
         counts=counts_clean,
         rng=rng,
@@ -67,10 +67,10 @@ def _initial_occupancy_from_counts(
 
 # ---- Chunk runner ---------------------------------------------------------
 
-def run_wl_chunk(spec: WLSamplerSpec, wl_key: str) -> Dict[str, Any]:
+def run_wl_chunk(spec: WLSamplerSpec) -> Dict[str, Any]:
     """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a checkpoint."""
     ensure_indexes()
-    tip = get_tip(wl_key)
+    tip = get_tip(spec.wl_key)
 
     # Parent hash & restore point
     if tip is None:
@@ -137,14 +137,14 @@ def run_wl_chunk(spec: WLSamplerSpec, wl_key: str) -> Dict[str, Any]:
     step_end = step_start + spec.steps
 
     # Defensive: fail fast if tip moved between our read and now
-    latest_now = get_tip(wl_key)
+    latest_now = get_tip(spec.wl_key)
     if latest_now is not None and parent_hash != latest_now["hash"]:
         raise RuntimeError("Tip moved while running; aborting write to avoid fork.")
 
     # Try insert; uniqueness on (wl_key,parent_hash) ensures linear chain
     try:
         _id, doc_inserted = insert_checkpoint(
-            wl_key=wl_key,
+            wl_key=spec.wl_key,
             step_end=step_end,
             chunk_size=spec.steps,
             parent_hash=parent_hash,
@@ -160,7 +160,7 @@ def run_wl_chunk(spec: WLSamplerSpec, wl_key: str) -> Dict[str, Any]:
 
     return {
         "_id": _id,
-        "wl_key": wl_key,
+        "wl_key": spec.wl_key,
         "step_end": step_end,
         "parent_hash": parent_hash,
         "hash": doc_inserted["hash"],
