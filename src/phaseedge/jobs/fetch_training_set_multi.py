@@ -24,40 +24,59 @@ class CETrainRef(TypedDict):
     dtype: str
 
 
-def _lookup_energy(
+def _lookup_energy_and_check_converged(
     *, set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str
 ) -> float:
     """
-    Lookup final energy from the Jobflow 'outputs' collection.
-    Matches on job metadata and reads ForceFieldTaskDocument.output.energy.
+    Find the FF TaskDocument in `outputs` via job metadata and return total energy,
+    but *only* if the relaxation is converged. Raises with a clear message otherwise.
     """
-    q = {
-        "metadata.set_id": set_id,
-        "metadata.occ_key": occ_key,
-        "metadata.model": model,
-        "metadata.relax_cell": relax_cell,
-        "metadata.dtype": dtype,
-        # correct dotted path for energy:
-        "output.output.energy": {"$exists": True},
-        # (optional) ensure the final structure exists in the task doc:
-        # "output.structure": {"$exists": True},
-    }
+    coll = store.db_rw()["outputs"]
+    doc: Mapping[str, Any] | None = coll.find_one(
+        {
+            "metadata.set_id": set_id,
+            "metadata.occ_key": occ_key,
+            "metadata.model": model,
+            "metadata.relax_cell": relax_cell,
+            "metadata.dtype": dtype,
+        },
+        projection={
+            "output.is_force_converged": 1,
+            "output.energy_downhill": 1,
+            "output.output.energy": 1,
+        },
+    )
 
-    # If duplicates ever exist, prefer the most recent completion
-    doc = store.db_rw()["outputs"].find_one(q, sort=[("completed_at", -1)])
     if not doc:
         raise RuntimeError(
-            f"Missing FF energy for set_id={set_id} occ_key={occ_key} "
-            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})"
+            f"Missing FF document for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
         )
 
-    e = doc["output"]["output"].get("energy")
-    if e is None:
+    out = doc.get("output", {}) if isinstance(doc, Mapping) else {}
+    is_conv = bool(out.get("is_force_converged"))
+    if not is_conv:
         raise RuntimeError(
-            f"Found doc but no energy for set_id={set_id} occ_key={occ_key} "
-            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})"
+            f"Force-field relaxation not converged for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
         )
-    return float(e)
+
+    # Optional extra guard: ensure optimization went downhill (can be relaxed if desired)
+    downhill = out.get("energy_downhill")
+    if downhill is False:
+        raise RuntimeError(
+            f"Relaxation ended uphill in energy for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
+        )
+
+    energy = out.get("output", {}).get("energy")
+    if energy is None:
+        raise RuntimeError(
+            f"No total energy stored for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
+        )
+
+    return float(energy)
 
 
 def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
@@ -170,7 +189,7 @@ def fetch_training_set_multi(
 
             # Energy lookup from ff_tasks (must exist)
             try:
-                e = _lookup_energy(
+                e = _lookup_energy_and_check_converged(
                     set_id=set_id, occ_key=ok, model=model, relax_cell=relax_cell, dtype=dtype
                 )
             except Exception as exc:

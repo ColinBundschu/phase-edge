@@ -58,8 +58,8 @@ def make_ensure_snapshots_composition_flow(
     directly from the deterministic generator outputs.
     """
     jobs: list[Job] = []
-    relax_barrier_outputs: list[Any] = []
-    ordered_occ_keys: list[str] = []
+    relax_barrier_outputs = []
+    ordered_occ_keys = []
 
     first_set_id_ref: Any | None = None
 
