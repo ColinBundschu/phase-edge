@@ -65,7 +65,6 @@ def main() -> int:
         check_period=int(args.check_period),
         update_period=int(args.update_period),
         seed=int(args.seed),
-        grid_anchor=0.0,
         algo_version="wl-grid-v1",
     )
     short = wl_key[:12]

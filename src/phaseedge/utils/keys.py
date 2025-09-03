@@ -217,7 +217,6 @@ def compute_wl_key(
     check_period: int,
     update_period: int,
     seed: int,
-    grid_anchor: float = 0.0,
     algo_version: str = "wl-grid-v1",
 ) -> str:
     """
@@ -239,7 +238,6 @@ def compute_wl_key(
             "composition_counts": comp_counts,
         },
         "grid": {
-            "anchor": _round_float(grid_anchor),
             "bin_width": _round_float(float(bin_width)),
         },
         "mc": {
