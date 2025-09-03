@@ -52,7 +52,6 @@ def db_rw() -> Database:
     global _rw_client
     if _rw_client is None:
         _rw_client = MongoClient(_mongo_uri("MONGO_ADMIN_USER", "MONGO_ADMIN_PASS"), tz_aware=True)
-        _ensure_indexes(_rw_client[os.environ["MONGO_DB"]])
     return _rw_client[os.environ["MONGO_DB"]]
 
 
@@ -67,31 +66,3 @@ def db_ro() -> Database:
 def coll(name: str, *, mode: Literal["rw", "ro"] = "ro") -> Collection:
     """Convenience accessor for a collection in RO/RW mode."""
     return (db_rw() if mode == "rw" else db_ro())[name]
-
-
-# -------------------------
-# One-time index creation
-# -------------------------
-
-def _ensure_indexes(db: Database) -> None:
-    """
-    Idempotent: create the indexes we rely on.
-    Call once on RW connection.
-    """
-    # Enforce idempotency of relax results:
-    # (set_id, occ_key, model, relax_cell, dtype) must be unique.
-    db.mace_relax.create_index(
-        [
-            ("set_id",       ASCENDING),
-            ("occ_key",      ASCENDING),
-            ("model",        ASCENDING),
-            ("relax_cell",   ASCENDING),
-            ("dtype",        ASCENDING),
-        ],
-        unique=True,
-        name="uniq_mace_relax_calc_key",
-    )
-
-    # Optional helpers (uncomment if you end up filtering by these a lot):
-    # db.mace_relax.create_index([("energy", ASCENDING)], name="idx_energy")
-    # db.mace_relax.create_index([("details.n_sites", ASCENDING)], name="idx_nsites")

@@ -206,7 +206,7 @@ def compute_ce_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-# -------------------- Wang–Landau chain key (unchanged semantics) --------------------
+# -------------------- Wang-Landau chain key (unchanged semantics) --------------------
 
 def compute_wl_key(
     *,
