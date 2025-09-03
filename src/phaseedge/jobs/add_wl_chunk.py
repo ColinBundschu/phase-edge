@@ -5,11 +5,11 @@ from jobflow.core.job import job
 from monty.json import MSONable
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.sampling.wl_chunk_driver import WLChunkSpec, run_wl_chunk
+from phaseedge.sampling.wl_chunk_driver import run_wl_chunk
 
 
 @dataclass(frozen=True)
-class WLChunkEnsureSpec(MSONable):
+class WLChunkSpec(MSONable):
     """Job spec to extend a WL chain using the steps in run_spec."""
     run_spec: WLSamplerSpec
     wl_key: str
@@ -20,15 +20,14 @@ class WLChunkEnsureSpec(MSONable):
         return d
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "WLChunkEnsureSpec":
+    def from_dict(cls, d: Mapping[str, Any]) -> "WLChunkSpec":
         d = {k: v for k, v in d.items() if not k.startswith("@")}
         if not isinstance(d.get("run_spec"), WLSamplerSpec):
             d["run_spec"] = WLSamplerSpec(**d["run_spec"])
-        return cls(**d)  # type: ignore[arg-type]
+        return cls(**d)
 
 
 @job
-def ensure_wl_chunk(spec: WLChunkEnsureSpec) -> Dict[str, Any]:
+def add_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
     """Extend the WL chain by run_spec.steps, idempotently. Fails if not on tip."""
-    chunk_spec = WLChunkSpec(run_spec=spec.run_spec, wl_key=spec.wl_key)
-    return run_wl_chunk(chunk_spec)
+    return run_wl_chunk(spec=spec.run_spec, wl_key=spec.wl_key)

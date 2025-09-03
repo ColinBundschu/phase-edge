@@ -8,9 +8,12 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
-from phaseedge.science.random_configs import make_one_snapshot, validate_counts_for_sublattice
-from phaseedge.jobs.store_mace_result import lookup_mace_result
+from phaseedge.science.random_configs import (
+    make_one_snapshot,
+    validate_counts_for_sublattice,
+)
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
+from phaseedge.storage import store
 
 
 class CETrainRef(TypedDict):
@@ -19,6 +22,42 @@ class CETrainRef(TypedDict):
     model: str
     relax_cell: bool
     dtype: str
+
+
+def _lookup_energy(
+    *, set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str
+) -> float:
+    """
+    Lookup final energy from the Jobflow 'outputs' collection.
+    Matches on job metadata and reads ForceFieldTaskDocument.output.energy.
+    """
+    q = {
+        "metadata.set_id": set_id,
+        "metadata.occ_key": occ_key,
+        "metadata.model": model,
+        "metadata.relax_cell": relax_cell,
+        "metadata.dtype": dtype,
+        # correct dotted path for energy:
+        "output.output.energy": {"$exists": True},
+        # (optional) ensure the final structure exists in the task doc:
+        # "output.structure": {"$exists": True},
+    }
+
+    # If duplicates ever exist, prefer the most recent completion
+    doc = store.db_rw()["outputs"].find_one(q, sort=[("completed_at", -1)])
+    if not doc:
+        raise RuntimeError(
+            f"Missing FF energy for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})"
+        )
+
+    e = doc["output"]["output"].get("energy")
+    if e is None:
+        raise RuntimeError(
+            f"Found doc but no energy for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})"
+        )
+    return float(e)
 
 
 def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
@@ -37,7 +76,7 @@ def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
 @job
 def fetch_training_set_multi(
     *,
-    # groups are produced by ensure_snapshots_multi's final gather
+    # groups are produced by ensure_snapshots_compositions' final gather
     groups: Sequence[Mapping[str, Any]],
     # prototype-only system identity (needed to rebuild snapshots)
     prototype: str,
@@ -51,7 +90,7 @@ def fetch_training_set_multi(
 ) -> dict[str, Any]:
     """
     Reconstruct EXACT snapshots for each group (composition), verify occ_keys match,
-    and fetch relaxed energies from the cache. Fails loudly if anything is missing
+    and fetch relaxed energies from the Atomate2 cache. Fails loudly if anything is missing
     or inconsistent.
 
     Input group schema (validated here):
@@ -76,7 +115,7 @@ def fetch_training_set_multi(
     # Build prototype conventional cell once; validate each group's counts against it.
     conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
 
-    # Make a strictly-typed supercell diag (avoid tuple[int, ...] gripes)
+    # Make a strictly-typed supercell diag
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 
@@ -125,25 +164,19 @@ def fetch_training_set_multi(
                     "This indicates a change in snapshot generation or inputs."
                 )
 
-            # Convert to pymatgen Structure
+            # Convert to pymatgen Structure (training features are built from this)
             pmg = AseAtomsAdaptor.get_structure(snap)  # pyright: ignore[reportArgumentType]
             structures.append(pmg)
 
-            # Energy lookup (must exist and be successful)
-            doc = lookup_mace_result(set_id, ok, model=model, relax_cell=relax_cell, dtype=dtype)
-            if not doc:
-                problems.append(f"group[{gi}] occ_key={ok}: not_found")
-                continue
-            success = bool(doc.get("success", False))  # type: ignore[arg-type]
-            e_val = cast(float | None, doc.get("energy"))
-            if not success:
-                problems.append(f"group[{gi}] occ_key={ok}: found_but_failed")
-                continue
-            if e_val is None:
-                problems.append(f"group[{gi}] occ_key={ok}: found_but_no_energy")
+            # Energy lookup from ff_tasks (must exist)
+            try:
+                e = _lookup_energy(
+                    set_id=set_id, occ_key=ok, model=model, relax_cell=relax_cell, dtype=dtype
+                )
+            except Exception as exc:
+                problems.append(f"group[{gi}] occ_key={ok}: {exc}")
                 continue
 
-            e = float(e_val)
             energies.append(e)
             train_refs.append(
                 {

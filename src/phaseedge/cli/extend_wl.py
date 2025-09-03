@@ -7,15 +7,15 @@ from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.jobs.ensure_wl_chunk import WLChunkEnsureSpec, ensure_wl_chunk
+from phaseedge.jobs.add_wl_chunk import WLChunkSpec, add_wl_chunk
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="pe-wl-extend",
-        description="Extend a Wang–Landau chain by N steps (idempotent checkpoint block).",
+        prog="pe-extend-wl",
+        description="Extend a Wang-Landau chain by N steps (idempotent checkpoint block).",
     )
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
@@ -83,13 +83,13 @@ def main() -> int:
         samples_per_bin=int(args.samples_per_bin),
     )
 
-    chunk_spec = WLChunkEnsureSpec(run_spec=run_spec, wl_key=wl_key)
+    chunk_spec = WLChunkSpec(run_spec=run_spec, wl_key=wl_key)
 
-    j = ensure_wl_chunk(chunk_spec)
-    j.name = f"wl_extend::{short}::+{int(args.steps_to_run):,}"
+    j = add_wl_chunk(chunk_spec)
+    j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
     j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
 
-    flow = Flow([j], name=f"WL Extend :: {short} :: +{int(args.steps_to_run):,}")
+    flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")
     wf = flow_to_workflow(flow)
     for fw in wf.fws:
         fw.name = f"{fw.name}::{short}"

@@ -16,29 +16,20 @@ class GatheredSnapshots(TypedDict):
 
 
 @job
-def _gather_occ_keys(*, set_id: str, results: list[dict[str, Any] | None]) -> GatheredSnapshots:
+def _gather_occ_keys(
+    *,
+    set_id: str,
+    occ_keys: list[str],
+    # purely for dependency; ensures this job runs after all relax jobs complete
+    wait_for: list[Any] | None = None,
+) -> GatheredSnapshots:
     """
-    Validate per-index results and gather their occ_keys into order, returning
-    a payload that downstream jobs can consume (including the set_id that
-    identifies this snapshot family).
+    Barrier + pass-through: return the set_id and the ordered list of occ_keys.
+    The 'wait_for' argument is unused except to enforce that all upstream relax
+    jobs have finished before this runs.
     """
-    bad_idxs: list[int] = []
-    occ_keys: list[str] = []
-
-    for i, r in enumerate(results):
-        if not isinstance(r, dict) or "occ_key" not in r:
-            bad_idxs.append(i)
-            continue
-        occ_keys.append(cast(str, r["occ_key"]))
-
-    if bad_idxs:
-        raise ValueError(
-            "gather_occ_keys: Missing or invalid results at indices "
-            f"{bad_idxs}. Upstream jobs likely returned None or a payload "
-            "without 'occ_key'. Ensure decide_relax/store_mace_result always return "
-            "{'occ_key': ..., ...}."
-        )
-
+    if not isinstance(occ_keys, list) or not all(isinstance(x, str) for x in occ_keys):
+        raise ValueError("gather_occ_keys: 'occ_keys' must be a list[str].")
     return {"set_id": set_id, "occ_keys": occ_keys}
 
 
@@ -57,16 +48,18 @@ def make_ensure_snapshots_composition_flow(
     category: str = "gpu",
 ) -> tuple[Flow, Job]:
     """
-    Ensure an exact, ordered set of snapshots (by `indices`) have MACE relax results
+    Ensure an exact, ordered set of snapshots (by `indices`) have ForceField relax results
     in the DB. Returns (flow, gather_job), where gather_job.output provides:
         - set_id
         - occ_keys (ordered to match `indices`)
 
-    The final gather job *consumes* the per-index relax/store outputs so that any
-    downstream job (e.g. fetch_training_set) waits until all relaxes are complete.
+    The final gather job consumes the relax-job outputs via 'wait_for' so downstream
+    work won’t start until all relaxes are completed, while the occ_keys are taken
+    directly from the deterministic generator outputs.
     """
-    decide_outputs = []
     jobs: list[Job] = []
+    relax_barrier_outputs: list[Any] = []
+    ordered_occ_keys: list[str] = []
 
     first_set_id_ref: Any | None = None
 
@@ -83,10 +76,13 @@ def make_ensure_snapshots_composition_flow(
 
         j_gen = make_random_config(spec)
         j_gen.name = f"generate_random_config[{idx}]"
-        j_gen.metadata = {**(j_gen.metadata or {}), "_category": category}
+        j_gen.update_metadata({"_category": category})
 
         if first_set_id_ref is None:
             first_set_id_ref = j_gen.output["set_id"]
+
+        # record the generator's occ_key in order
+        ordered_occ_keys.append(j_gen.output["occ_key"])
 
         j_decide = check_or_schedule_relax(
             set_id=j_gen.output["set_id"],
@@ -98,16 +94,21 @@ def make_ensure_snapshots_composition_flow(
             category=category,
         )
         j_decide.name = f"check_or_schedule_relax[{idx}]"
-        j_decide.metadata = {**(j_decide.metadata or {}), "_category": category}
+        j_decide.update_metadata({"_category": category})
 
         jobs.extend([j_gen, j_decide])
-        decide_outputs.append(j_decide.output)  # dependency barrier
+        # NOTE: we don’t inspect the relax output; we only depend on it to finish
+        relax_barrier_outputs.append(j_decide.output)
 
     assert first_set_id_ref is not None, "indices must be non-empty"
 
-    j_gather = _gather_occ_keys(set_id=cast(str, first_set_id_ref), results=decide_outputs)  # cast for Pylance
+    j_gather = _gather_occ_keys(
+        set_id=cast(str, first_set_id_ref),
+        occ_keys=ordered_occ_keys,
+        wait_for=relax_barrier_outputs,
+    )
     j_gather.name = "gather_occ_keys"
-    j_gather.metadata = {**(j_gather.metadata or {}), "_category": category}
+    j_gather.update_metadata({"_category": category})
 
     flow = Flow([*jobs, j_gather], name="Ensure snapshots (barriered)")
     return flow, j_gather

@@ -188,7 +188,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         ),
     )
     j_fetch.name = "fetch_training_set_multi"
-    j_fetch.metadata = {**(j_fetch.metadata or {}), "_category": spec.category}
+    j_fetch.update_metadata({"_category": spec.category})
 
     # 5) Train CE (pooled); pass cv_seed for deterministic folds
     j_train: Job = cast(
@@ -208,7 +208,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         ),
     )
     j_train.name = "train_ce"
-    j_train.metadata = {**(j_train.metadata or {}), "_category": spec.category}
+    j_train.update_metadata({"_category": spec.category})
 
     # 6) Store CE model (returns stored doc)
     j_store: Job = cast(
@@ -249,7 +249,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         ),
     )
     j_store.name = "store_ce_model"
-    j_store.metadata = {**(j_store.metadata or {}), "_category": spec.category}
+    j_store.update_metadata({"_category": spec.category})
 
     # Compose a single Flow so Response.replace is well-typed
     end_to_end = Flow([f_ensure_all, j_fetch, j_train, j_store], name="Ensure CE (compositions, barriered)")

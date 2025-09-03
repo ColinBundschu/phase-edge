@@ -8,7 +8,7 @@ pe-db-ping = "phaseedge.cli.db:main"
 pe-db-info = "phaseedge.cli.db_info:main"
 pe-db-reset = "phaseedge.cli.db_reset:main"
 pe-ensure-ce = "phaseedge.cli.ensure_ce:main"
-pe-wl-extend = "phaseedge.cli.wl_extend:main"
+pe-extend-wl = "phaseedge.cli.extend_wl:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

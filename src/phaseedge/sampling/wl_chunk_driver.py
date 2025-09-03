@@ -67,37 +67,28 @@ def _initial_occupancy_from_counts(
 
 # ---- Chunk runner ---------------------------------------------------------
 
-@dataclass(frozen=True)
-class WLChunkSpec:
-    """Minimal inputs to extend a WL chain."""
-    run_spec: WLSamplerSpec
-    wl_key: str
-    rng_name: str = "PCG64"  # sanity check; informative only
-
-def run_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
+def run_wl_chunk(spec: WLSamplerSpec, wl_key: str) -> Dict[str, Any]:
     """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a checkpoint."""
     ensure_indexes()
-    tip = get_tip(spec.wl_key)
+    tip = get_tip(wl_key)
 
     # Parent hash & restore point
     if tip is None:
         parent_hash = "GENESIS"
         # Fresh initialization
-        doc = _rehydrate_ce(spec.run_spec.ce_key)
-        rng = np.random.default_rng(int(spec.run_spec.seed))
-        occ, ensemble = _initial_occupancy_from_counts(doc=doc,
-                                                       counts=spec.run_spec.composition_counts,
-                                                       rng=rng)
+        doc = _rehydrate_ce(spec.ce_key)
+        rng = np.random.default_rng(int(spec.seed))
+        occ, ensemble = _initial_occupancy_from_counts(doc=doc, counts=spec.composition_counts, rng=rng)
         sampler = Sampler.from_ensemble(
             ensemble,
             kernel_type="InfiniteWangLandau",
-            bin_size=spec.run_spec.bin_width,
-            step_type=spec.run_spec.step_type,
+            bin_size=spec.bin_width,
+            step_type=spec.step_type,
             flatness=0.8,
-            seeds=[int(spec.run_spec.seed)],
-            check_period=spec.run_spec.check_period,
-            update_period=spec.run_spec.update_period,
-            samples_per_bin=int(spec.run_spec.samples_per_bin),  # runtime capture policy (non-key)
+            seeds=[int(spec.seed)],
+            check_period=spec.check_period,
+            update_period=spec.update_period,
+            samples_per_bin=int(spec.samples_per_bin),  # runtime capture policy (non-key)
         )
         step_start = 0
     else:
@@ -105,21 +96,21 @@ def run_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
         step_start = int(tip["step_end"])
 
         # Rehydrate ensemble and sampler
-        doc = _rehydrate_ce(spec.run_spec.ce_key)
-        rng = np.random.default_rng(int(spec.run_spec.seed))
+        doc = _rehydrate_ce(spec.ce_key)
+        rng = np.random.default_rng(int(spec.seed))
         _, ensemble = _initial_occupancy_from_counts(doc=doc,
-                                                     counts=spec.run_spec.composition_counts,
+                                                     counts=spec.composition_counts,
                                                      rng=rng)
         sampler = Sampler.from_ensemble(
             ensemble,
             kernel_type="InfiniteWangLandau",
-            bin_size=spec.run_spec.bin_width,
-            step_type=spec.run_spec.step_type,
+            bin_size=spec.bin_width,
+            step_type=spec.step_type,
             flatness=0.8,
-            seeds=[int(spec.run_spec.seed)],
-            check_period=spec.run_spec.check_period,
-            update_period=spec.run_spec.update_period,
-            samples_per_bin=int(spec.run_spec.samples_per_bin),
+            seeds=[int(spec.seed)],
+            check_period=spec.check_period,
+            update_period=spec.update_period,
+            samples_per_bin=int(spec.samples_per_bin),
         )
         # Load kernel + occupancy from tip
         k = sampler.mckernels[0]
@@ -127,10 +118,10 @@ def run_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
         occ = np.asarray(tip["occupancy"], dtype=np.int32)
 
     # Minimize memory retention during the run (keep just one retained sample).
-    thin_by = max(1, spec.run_spec.steps)
+    thin_by = max(1, spec.steps)
 
     # Run the chunk
-    sampler.run(spec.run_spec.steps, occ, thin_by=thin_by, progress=False)
+    sampler.run(spec.steps, occ, thin_by=thin_by, progress=False)
 
     # Capture state & occupancy (occupancy returned is last sample’s)
     k = sampler.mckernels[0]
@@ -143,35 +134,35 @@ def run_wl_chunk(spec: WLChunkSpec) -> Dict[str, Any]:
     # capture any per-bin samples harvested this chunk
     bin_samples: Dict[int, List[list[int]]] = k.pop_bin_samples()
 
-    step_end = step_start + spec.run_spec.steps
+    step_end = step_start + spec.steps
 
     # Defensive: fail fast if tip moved between our read and now
-    latest_now = get_tip(spec.wl_key)
+    latest_now = get_tip(wl_key)
     if latest_now is not None and parent_hash != latest_now["hash"]:
         raise RuntimeError("Tip moved while running; aborting write to avoid fork.")
 
     # Try insert; uniqueness on (wl_key,parent_hash) ensures linear chain
     try:
         _id, doc_inserted = insert_checkpoint(
-            wl_key=spec.wl_key,
+            wl_key=wl_key,
             step_end=step_end,
-            chunk_size=spec.run_spec.steps,
+            chunk_size=spec.steps,
             parent_hash=parent_hash,
             state=end_state,
             occupancy=occ_last,
             # --- first-class top-level metadata ---
             mod_updates=mod_updates,
             bin_samples=[{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
-            samples_per_bin=int(spec.run_spec.samples_per_bin),
+            samples_per_bin=int(spec.samples_per_bin),
         )
     except DuplicateKeyError as e:
         raise RuntimeError("Checkpoint insert conflict (not on tip or duplicate). Retry from new tip.") from e
 
     return {
         "_id": _id,
-        "wl_key": spec.wl_key,
+        "wl_key": wl_key,
         "step_end": step_end,
         "parent_hash": parent_hash,
         "hash": doc_inserted["hash"],
-        "chunk_size": spec.run_spec.steps,
+        "chunk_size": spec.steps,
     }
