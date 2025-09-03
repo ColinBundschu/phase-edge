@@ -95,8 +95,9 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
 
     Supported source types:
       - {"type": "composition", "elements": [{"counts": {...}, "K": int, "seed": int}, ...]}
-      - {"type": "wl_chunked", "chunks": [{"wl_key": str, "step_end": int}, ...],
-         "selection": {"policy": str, "k_per_bin": int | None, "dedupe": str | None}}
+      - {"type": "wl_chunked",
+         "chunks": [{"wl_key": str, "step_end": int}, ...],
+         "selection": <arbitrary dict, canonicalized deterministically>}
       - {"type": "specified", "occ_keys": [str, ...]}
     """
     norm: list[dict[str, Any]] = []
@@ -131,12 +132,10 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
             # sort deterministically
             chunks_norm = sorted(chunks_norm, key=lambda c: (c["wl_key"], c["step_end"]))
 
+            # selection: accept arbitrary keys; drop None; canonicalize + numeric-round
             sel_in = dict(src.get("selection", {}))
-            selection = {
-                "policy": str(sel_in.get("policy", "")),
-                **({"k_per_bin": int(sel_in["k_per_bin"])} if "k_per_bin" in sel_in and sel_in["k_per_bin"] is not None else {}),
-                **({"dedupe": str(sel_in["dedupe"])} if "dedupe" in sel_in and sel_in["dedupe"] is not None else {}),
-            }
+            sel_drop_none = {str(k): v for k, v in sel_in.items() if v is not None}
+            selection = _json_canon(_canon_num(sel_drop_none))
 
             norm.append({"type": "wl_chunked", "chunks": chunks_norm, "selection": selection})
 

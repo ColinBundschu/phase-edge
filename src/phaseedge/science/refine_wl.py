@@ -79,7 +79,6 @@ def _evenly_spaced_indices(nbins: int, k: int) -> list[int]:
         idxs.append(x)
 
     # Sanity: endpoints and monotonicity
-    # (Monotonicity holds because d >= 1 when k <= nbins and steps >= 1)
     if idxs[0] != 0 or idxs[-1] != nbins - 1:
         raise AssertionError("Fencepost construction failed to include endpoints.")
     return idxs
@@ -164,10 +163,10 @@ def refine_wl_samples(
             if by_bin[b]:
                 selected.append(by_bin[b][0])
 
-        # If we still need more (requested > #bins), fill round-robin from remaining entries
-        need = (k - len(selected)) if options.n_total is not None else 0
+        # If we still need more, fill round-robin from remaining entries
+        # NOTE: when n_total is None, k == total_available, so we continue until we've selected all.
+        need = k - len(selected)
         if need > 0:
-            # advance cursors for bins we already used
             chosen_bins = {bins_sorted[i] for i in idxs}
             cursors: dict[int, int] = {b: (1 if b in chosen_bins else 0) for b in bins_sorted}
             while len(selected) < k:
