@@ -11,7 +11,7 @@ from phaseedge.jobs.ensure_wl_samples_from_ce import (
     EnsureWLSamplesFromCESpec,
     ensure_wl_samples_from_ce,
 )
-from phaseedge.utils.keys import compute_ce_key
+from phaseedge.utils.keys import compute_ce_key, compute_wl_key, canonical_counts
 
 
 def _parse_cutoffs_arg(s: str) -> dict[int, float]:
@@ -57,6 +57,12 @@ def _parse_endpoint_item(s: str) -> dict[str, int]:
         raise ValueError("Endpoint must be 'counts=El:INT[,El2:INT...]' with no other keys.")
     _, v = parts[0].split("=", 1)
     return parse_counts_arg(v)
+
+
+def _counts_sig(counts: Mapping[str, int]) -> str:
+    """Stable 'El:cnt,El2:cnt2' signature with canonical ordering."""
+    cc = canonical_counts(counts)
+    return ",".join(f"{k}:{int(v)}" for k, v in cc.items())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,12 +122,15 @@ def main() -> int:
     p = build_parser()
     args = p.parse_args()
 
+    # Parse + canonicalize inputs
     compositions: List[Dict[str, Any]] = [_parse_mix_item(s) for s in args.mix]
-    endpoints: List[Dict[str, int]] = [_parse_endpoint_item(s) for s in (args.endpoint or [])]
+    endpoints_raw: List[Dict[str, int]] = [_parse_endpoint_item(s) for s in (args.endpoint or [])]
+    endpoints = [canonical_counts(ep) for ep in endpoints_raw]
 
-    endpoint_sigs = {",".join(f"{k}:{v}" for k, v in sorted(ep.items())) for ep in endpoints}
+    # Reject illegal duplicates (mix comp equals an endpoint)
+    endpoint_sigs = {_counts_sig(ep) for ep in endpoints}
     for elem in compositions:
-        sig = ",".join(f"{k}:{v}" for k, v in sorted(elem["counts"].items()))
+        sig = _counts_sig(elem["counts"])
         if sig in endpoint_sigs:
             raise SystemExit(f"--mix contains a composition that is also specified as an --endpoint: {sig}")
 
@@ -131,10 +140,14 @@ def main() -> int:
     )
     cutoffs = _parse_cutoffs_arg(args.cutoffs)
 
+    supercell_x, supercell_y, supercell_z = tuple(int(x) for x in args.supercell)
+    supercell_diag = (supercell_x, supercell_y, supercell_z)
+
+    # Build CE spec (endpoints injected later by the job as K=1, seed=0)
     ce_spec = CEEnsureMixtureSpec(
         prototype=args.prototype,
         prototype_params={"a": float(args.a)},
-        supercell_diag=tuple(int(x) for x in args.supercell),
+        supercell_diag=supercell_diag,
         replace_element=args.replace_element,
         mixture=compositions,
         default_seed=int(args.seed),
@@ -144,16 +157,23 @@ def main() -> int:
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": float(args.alpha), "l1_ratio": float(args.l1_ratio)},
         extra_hyperparams={},
-        category=str(args.category),   # <= single category
+        category=str(args.category),
         weighting=weighting,
     )
 
+    # Deterministic CE key, including endpoints (as K=1, seed=0)
     algo = "randgen-3-comp-1"
-    sources = [{"type": "composition", "elements": [*compositions, *({"counts": ep, "K": 1, "seed": 0} for ep in endpoints)]}]
+    sources = [{
+        "type": "composition",
+        "elements": [
+            *compositions,
+            *({"counts": ep, "K": 1, "seed": 0} for ep in endpoints)
+        ],
+    }]
     ce_key = compute_ce_key(
         prototype=args.prototype,
         prototype_params={"a": float(args.a)},
-        supercell_diag=tuple(int(x) for x in args.supercell),
+        supercell_diag=supercell_diag,
         replace_element=args.replace_element,
         sources=sources,
         algo_version=algo,
@@ -166,9 +186,37 @@ def main() -> int:
         weighting=weighting or {},
     )
 
+    # Precompute the WL keys for all unique NON-endpoint compositions (once per composition)
+    seen_sigs: set[str] = set()
+    planned_wl_runs: list[dict[str, Any]] = []
+    for elem in compositions:
+        counts_canon = canonical_counts(elem["counts"])
+        sig = _counts_sig(counts_canon)
+        if sig in endpoint_sigs or sig in seen_sigs:
+            seen_sigs.add(sig)
+            continue
+        seen_sigs.add(sig)
+
+        wl_key = compute_wl_key(
+            ce_key=ce_key,
+            bin_width=float(args.wl_bin_width),
+            step_type=str(args.step_type),
+            composition_counts=counts_canon,
+            check_period=int(args.check_period),
+            update_period=int(args.update_period),
+            seed=int(args.wl_seed),
+            algo_version="wl-grid-v1",
+        )
+        planned_wl_runs.append({
+            "counts_sig": sig,
+            "wl_key": wl_key,
+            "short": wl_key[:12],
+        })
+
+    # Compose the master ensure job
     master_spec = EnsureWLSamplesFromCESpec(
         ce_spec=ce_spec,
-        endpoints=endpoints,
+        endpoints=endpoints,  # already canonicalized
         wl_bin_width=float(args.wl_bin_width),
         wl_steps_to_run=int(args.steps_to_run),
         wl_samples_per_bin=int(args.samples_per_bin),
@@ -186,7 +234,7 @@ def main() -> int:
     flow = Flow([j], name="Ensure WL samples from CE")
     wf = flow_to_workflow(flow)
     for fw in wf.fws:
-        fw.spec = {**(fw.spec or {}), "_category": args.category}     # wrapper FW gets same category
+        fw.spec = {**(fw.spec or {}), "_category": args.category}  # wrapper FW gets same category
 
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
@@ -218,6 +266,7 @@ def main() -> int:
             "update_period": int(args.update_period),
             "seed": int(args.wl_seed),
         },
+        "planned_wl_runs": planned_wl_runs,
     }
 
     if args.json:
@@ -233,6 +282,12 @@ def main() -> int:
                 "category", "endpoints",
             )
         })
+        if planned_wl_runs:
+            print("Planned WL chains:")
+            for rec in planned_wl_runs:
+                print(f"  {rec['counts_sig']:>18}  wl_key={rec['wl_key']}  (short={rec['short']})")
+        else:
+            print("Planned WL chains: []")
     return 0
 
 

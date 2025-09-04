@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence, cast, Final
 
@@ -41,14 +39,14 @@ class EnsureWLSamplesFromCESpec(MSONable):
             "@class": type(self).__name__,
             "ce_spec": self.ce_spec.as_dict(),
             "endpoints": [canonical_counts(e) for e in self.endpoints],
-            "wl_bin_width": float(self.wl_bin_width),
-            "wl_steps_to_run": int(self.wl_steps_to_run),
-            "wl_samples_per_bin": int(self.wl_samples_per_bin),
-            "wl_step_type": str(self.wl_step_type),
-            "wl_check_period": int(self.wl_check_period),
-            "wl_update_period": int(self.wl_update_period),
-            "wl_seed": int(self.wl_seed),
-            "category": str(self.category),
+            "wl_bin_width": self.wl_bin_width,
+            "wl_steps_to_run": self.wl_steps_to_run,
+            "wl_samples_per_bin": self.wl_samples_per_bin,
+            "wl_step_type": self.wl_step_type,
+            "wl_check_period": self.wl_check_period,
+            "wl_update_period": self.wl_update_period,
+            "wl_seed": self.wl_seed,
+            "category": self.category,
         }
 
     @classmethod
@@ -110,18 +108,18 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     ce_spec_for_run = CEEnsureMixtureSpec(
         prototype=ce_spec.prototype,
         prototype_params=dict(ce_spec.prototype_params),
-        supercell_diag=tuple(ce_spec.supercell_diag),
+        supercell_diag=ce_spec.supercell_diag,
         replace_element=ce_spec.replace_element,
         mixture=canon_mix,
-        default_seed=int(ce_spec.default_seed),
+        default_seed=ce_spec.default_seed,
         model=ce_spec.model,
-        relax_cell=bool(ce_spec.relax_cell),
+        relax_cell=ce_spec.relax_cell,
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
         extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         weighting=dict(ce_spec.weighting or {}) if ce_spec.weighting else None,
-        category=str(spec.category),
+        category=spec.category,
     )
     j_ce: Job = ensure_ce(ce_spec_for_run)  # type: ignore[assignment]
     j_ce.name = "ensure_ce"
@@ -130,7 +128,7 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     # 4) Ensure WL once per unique, non-endpoint composition
     endpoint_fps = {_counts_sig(e) for e in endpoints_canon}
     seen: set[str] = set()
-    wl_jobs: list[Job] = []
+    wl_jobs: list[Job | Flow] = []
     wl_manifest: list[Mapping[str, Any]] = []
 
     for elem in ce_spec.mixture:

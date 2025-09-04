@@ -1,6 +1,6 @@
 from typing import Any, Mapping, Sequence, cast, TypedDict
 
-from jobflow.core.flow import Flow
+from jobflow.core.flow import Flow, JobOrder
 from jobflow.core.job import job, Job
 
 from phaseedge.jobs.random_config import RandomConfigSpec, make_random_config
@@ -20,13 +20,14 @@ def _gather_occ_keys(
     *,
     set_id: str,
     occ_keys: list[str],
-    # purely for dependency; ensures this job runs after all relax jobs complete
-    wait_for: list[Any] | None = None,
 ) -> GatheredSnapshots:
     """
-    Barrier + pass-through: return the set_id and the ordered list of occ_keys.
-    The 'wait_for' argument is unused except to enforce that all upstream relax
-    jobs have finished before this runs.
+    Pass-through gather: return the set_id and the ordered list of occ_keys.
+
+    We no longer use an explicit 'wait_for' arg to create a barrier. Instead,
+    the enclosing Flow enforces a barrier between the snapshot/relax subflow
+    and this gather job by using JobOrder.LINEAR at the outer level. That
+    preserves parallelism inside the subflow and guarantees gather runs last.
     """
     if not isinstance(occ_keys, list) or not all(isinstance(x, str) for x in occ_keys):
         raise ValueError("gather_occ_keys: 'occ_keys' must be a list[str].")
@@ -53,13 +54,14 @@ def make_ensure_snapshots_composition_flow(
         - set_id
         - occ_keys (ordered to match `indices`)
 
-    The final gather job consumes the relax-job outputs via 'wait_for' so downstream
-    work won’t start until all relaxes are completed, while the occ_keys are taken
-    directly from the deterministic generator outputs.
+    Implementation detail:
+      - We keep parallelism across (generate → relax) per index inside an inner subflow
+        (default AUTO ordering), and enforce a barrier to the final gather step by
+        wrapping the inner subflow and the gather job in an OUTER flow with
+        JobOrder.LINEAR. This replaces the previous 'wait_for' trick.
     """
-    jobs: list[Job] = []
-    relax_barrier_outputs = []
-    ordered_occ_keys = []
+    inner_jobs: list[Job | Flow] = []
+    ordered_occ_keys: list[Any] = []
 
     first_set_id_ref: Any | None = None
 
@@ -96,19 +98,25 @@ def make_ensure_snapshots_composition_flow(
         j_decide.name = f"check_or_schedule_relax[{idx}]"
         j_decide.update_metadata({"_category": category})
 
-        jobs.extend([j_gen, j_decide])
-        # NOTE: we don’t inspect the relax output; we only depend on it to finish
-        relax_barrier_outputs.append(j_decide.output)
+        # Keep per-index parallelism: only depend j_decide on its j_gen references
+        inner_jobs.extend([j_gen, j_decide])
 
     assert first_set_id_ref is not None, "indices must be non-empty"
 
+    # Final gather does NOT create extra data dependencies; it just collects the
+    # deterministic set_id/occ_keys from j_gen outputs. The barrier is achieved by
+    # outer Flow(order=LINEAR) placing this after the inner subflow.
     j_gather = _gather_occ_keys(
         set_id=cast(str, first_set_id_ref),
         occ_keys=ordered_occ_keys,
-        wait_for=relax_barrier_outputs,
     )
     j_gather.name = "gather_occ_keys"
     j_gather.update_metadata({"_category": category})
 
-    flow = Flow([*jobs, j_gather], name="Ensure snapshots (barriered)")
+    # Inner subflow: generation + relax per index, AUTO order for parallelism.
+    inner = Flow(inner_jobs, name="Ensure snapshots (parallel)")
+
+    # Outer flow: enforce barrier "inner → gather" without serializing inner jobs.
+    flow = Flow([inner, j_gather], name="Ensure snapshots (barriered)", order=JobOrder.LINEAR)
+
     return flow, j_gather
