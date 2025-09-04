@@ -10,6 +10,7 @@ pe-db-reset = "phaseedge.cli.db_reset:main"
 pe-ensure-ce = "phaseedge.cli.ensure_ce:main"
 pe-extend-wl = "phaseedge.cli.extend_wl:main"
 pe-refine-wl-samples = "phaseedge.cli.refine_wl_samples:main"
+pe-ensure-wl-from-ce = "phaseedge.cli.ensure_wl_from_ce:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
