@@ -1,3 +1,14 @@
+"""
+Modified ensure_ce_from_refined_wl job to support idempotent shortcutting.
+
+This version computes the deterministic base CE key and the final refined intent
+CE key up-front using the same logic as the original code. It then checks
+whether a CE model with the final key already exists in the backing store via
+``lookup_ce_by_key``. If such a model is found, the job returns the existing
+document immediately instead of launching the full workflow. This makes the
+workflow idempotent and avoids recomputing an identical CE.
+"""
+
 from typing import Any, Literal, Mapping, Final
 
 from jobflow.core.flow import Flow, JobOrder
@@ -15,6 +26,7 @@ from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.jobs.prepare_refined_wl_sources import prepare_refined_wl_sources
 from phaseedge.utils.keys import canonical_counts, compute_ce_key, compute_wl_key
+from phaseedge.storage.ce_store import lookup_ce_by_key
 
 
 def _counts_sig(counts: Mapping[str, int]) -> str:
@@ -35,13 +47,142 @@ def ensure_ce_from_refined_wl(
     budget: int = 64,
     category: str = "gpu",
 ) -> Mapping[str, Any] | Response:
+    """Ensure a CE using refined WL data, idempotently.
 
+    This job orchestrates a workflow that first ensures that Wang–Landau (WL)
+    sampling jobs are complete for each unique, non‑endpoint composition in the
+    input mixture. It then refines these WL samples, selects a D‑optimal basis
+    from the refined checkpoints, relaxes the selected structures, trains a
+    cluster expansion (CE) on the resulting data set, and stores the trained
+    CE model. To avoid recomputing an identical CE, the function computes
+    deterministic keys for the base CE and for the refined intent at submit
+    time. If the final CE key already exists in the database, the existing
+    document is returned immediately and no sub‑jobs are scheduled.
+    """
+
+    # -------------------------------------------------------------------------
+    # Early exit to avoid redundant work
+    #
+    # Compute the deterministic base CE key and the refined final CE key using
+    # only submit‑time information. These computations mirror the logic used
+    # later in the workflow so that the keys are identical to the ones that
+    # would be produced after running the full pipeline. If a CE with the
+    # refined final key already exists, return it immediately.
+    ce_spec = ensure_wl_spec.ce_spec
+    _canon_mix_for_key: list[dict[str, Any]] = []
+    for elem in ce_spec.mixture:
+        counts = canonical_counts(elem.get("counts", {}))
+        K = int(elem.get("K", 0))
+        seed = int(elem.get("seed", ce_spec.default_seed))
+        # Only include valid composition elements
+        if counts and K > 0:
+            _canon_mix_for_key.append({"counts": counts, "K": K, "seed": seed})
+    # Inject endpoints with K=1 and seed=0
+    _endpoints_canon_for_key: list[dict[str, int]] = [canonical_counts(e) for e in ensure_wl_spec.endpoints]
+    for e in _endpoints_canon_for_key:
+        _canon_mix_for_key.append({"counts": e, "K": 1, "seed": 0})
+    # Compute the base CE key using the composition source and algorithm version
+    _sources_base_key = [{"type": "composition", "elements": _canon_mix_for_key}]
+    _base_ce_key_for_key = compute_ce_key(
+        prototype=ce_spec.prototype,
+        prototype_params=dict(ce_spec.prototype_params),
+        supercell_diag=ce_spec.supercell_diag,
+        replace_element=ce_spec.replace_element,
+        sources=_sources_base_key,
+        model=ce_spec.model,
+        relax_cell=ce_spec.relax_cell,
+        dtype=ce_spec.dtype,
+        basis_spec=dict(ce_spec.basis_spec),
+        regularization=dict(ce_spec.regularization or {}),
+        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
+        algo_version="randgen-3-comp-1",
+        weighting=dict(ce_spec.weighting or {}),
+    )
+    # Build submit‑time policy blocks for WL, ensure, refine, and D‑optimal
+    _wl_policy_for_key = {
+        "bin_width": float(ensure_wl_spec.wl_bin_width),
+        "step_type": str(ensure_wl_spec.wl_step_type),
+        "check_period": int(ensure_wl_spec.wl_check_period),
+        "update_period": int(ensure_wl_spec.wl_update_period),
+        "seed": int(ensure_wl_spec.wl_seed),
+    }
+    _ensure_policy_for_key = {
+        "steps_to_run": int(ensure_wl_spec.wl_steps_to_run),
+        "samples_per_bin": int(ensure_wl_spec.wl_samples_per_bin),
+    }
+    _refine_options_for_key = {
+        "mode": ("all" if int(refine_n_total) == 0 else "refine"),
+        "n_total": (None if int(refine_n_total) == 0 else int(refine_n_total)),
+        "per_bin_cap": int(refine_per_bin_cap),
+        "strategy": str(refine_strategy),
+    }
+    _dopt_options_for_key = {
+        "budget": int(budget),
+        "ridge": float(1e-10),
+        "tie_breaker": "bin_then_hash",
+    }
+    # Compose the intent source dict exactly as in prepare_refined_wl_sources
+    _src_intent_for_key = {
+        "type": "wl_refined_intent",
+        "base_ce_key": str(_base_ce_key_for_key),
+        "endpoints": _endpoints_canon_for_key,
+        "wl_policy": {
+            "bin_width": _wl_policy_for_key["bin_width"],
+            "step_type": _wl_policy_for_key["step_type"],
+            "check_period": _wl_policy_for_key["check_period"],
+            "update_period": _wl_policy_for_key["update_period"],
+            "seed": _wl_policy_for_key["seed"],
+        },
+        "ensure": {
+            "steps_to_run": _ensure_policy_for_key["steps_to_run"],
+            "samples_per_bin": _ensure_policy_for_key["samples_per_bin"],
+        },
+        "refine": {
+            "mode": _refine_options_for_key["mode"],
+            "n_total": _refine_options_for_key["n_total"],
+            "per_bin_cap": _refine_options_for_key["per_bin_cap"],
+            "strategy": _refine_options_for_key["strategy"],
+        },
+        "dopt": {
+            "budget": _dopt_options_for_key["budget"],
+            "ridge": _dopt_options_for_key["ridge"],
+            "tie_breaker": _dopt_options_for_key["tie_breaker"],
+        },
+        "versions": {
+            "refine": "refine-wl-v1",
+            "dopt": "dopt-greedy-sm-v1",
+            "sampler": "wl-grid-v1",
+        },
+    }
+    # Compute the final CE key for the refined intent
+    _final_ce_key_for_key = compute_ce_key(
+        prototype=ce_spec.prototype,
+        prototype_params=dict(ce_spec.prototype_params),
+        supercell_diag=ce_spec.supercell_diag,
+        replace_element=ce_spec.replace_element,
+        sources=[_src_intent_for_key],
+        model=str(train_model),
+        relax_cell=bool(train_relax_cell),
+        dtype=str(train_dtype),
+        basis_spec=dict(ce_spec.basis_spec),
+        regularization=dict(ce_spec.regularization or {}),
+        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
+        algo_version="refined-wl-dopt-v2",
+        weighting=dict(ce_spec.weighting or {}),
+    )
+    # Lookup the final CE key in the database and return if it exists
+    existing_ce = lookup_ce_by_key(_final_ce_key_for_key)
+    if existing_ce is not None:
+        return existing_ce
+
+    # -------------------------------------------------------------------------
     # 1) Ensure CE + WL (per composition)
     j_wl = ensure_wl_samples_from_ce(ensure_wl_spec)  # type: ignore[assignment]
     j_wl.name = "ensure_wl_samples_from_ce"
     j_wl.update_metadata({"_category": category})
 
-    # --- Plan WL chains deterministically (same order as inner ensure job) ---
+    # -------------------------------------------------------------------------
+    # Plan WL chains deterministically (same order as inner ensure job)
     ce_spec = ensure_wl_spec.ce_spec
 
     # Canonicalize mixture and inject endpoints (K=1, seed=0)
@@ -76,7 +217,7 @@ def ensure_ce_from_refined_wl(
         weighting=dict(ce_spec.weighting or {}),
     )
 
-    # Non-endpoint WL keys in canonical order; build wl_counts_map for relax stage
+    # Non‑endpoint WL keys in canonical order; build wl_counts_map for relax stage
     endpoint_fps = {_counts_sig(e) for e in endpoints_canon}
     planned: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -104,11 +245,12 @@ def ensure_ce_from_refined_wl(
         planned.append({"counts_sig": sig, "wl_key": wl_key})
         wl_counts_map[wl_key] = counts
 
-    # 2) Refine (or pass-through all) per WL checkpoint (parallel)
+    # -------------------------------------------------------------------------
+    # 2) Refine (or pass‑through all) per WL checkpoint (parallel)
     refine_jobs: list[Job | Flow] = []
     for i, rec in enumerate(planned):
         wl_key = rec["wl_key"]
-        ck_hash_ref = j_wl.output["wl_chunks"][i]["hash"]  # index-based; no iteration
+        ck_hash_ref = j_wl.output["wl_chunks"][i]["hash"]  # index‑based; no iteration
         mode = "all" if int(refine_n_total) == 0 else "refine"
         r_spec = RefineWLSpec(
             wl_key=str(wl_key),
@@ -122,9 +264,14 @@ def ensure_ce_from_refined_wl(
         j_r.update_metadata({"_category": category})
         refine_jobs.append(j_r)
 
-    # 3) Select D-optimal basis
+    # -------------------------------------------------------------------------
+    # 3) Select D‑optimal basis
     chains_payload = [
-        {"wl_key": r.output["wl_key"], "checkpoint_hash": r.output["checkpoint_hash"], "samples": r.output["selected"]}
+        {
+            "wl_key": r.output["wl_key"],
+            "checkpoint_hash": r.output["checkpoint_hash"],
+            "samples": r.output["selected"],
+        }
         for r in refine_jobs
     ]
     j_select = select_d_optimal_basis(
@@ -141,7 +288,8 @@ def ensure_ce_from_refined_wl(
     j_select.name = "select_d_optimal_basis"
     j_select.update_metadata({"_category": category})
 
-    # 3b) Prepare INTENT sources + final_ce_key (intent-based hashing)
+    # -------------------------------------------------------------------------
+    # 3b) Prepare INTENT sources + final_ce_key (intent‑based hashing)
     wl_policy = {
         "bin_width": float(ensure_wl_spec.wl_bin_width),
         "step_type": str(ensure_wl_spec.wl_step_type),
@@ -190,6 +338,7 @@ def ensure_ce_from_refined_wl(
     j_prep.name = "prepare_refined_wl_sources"
     j_prep.update_metadata({"_category": category})
 
+    # -------------------------------------------------------------------------
     # 4) Convert occupancies → structures and schedule relax (parallel), grouped per composition
     j_relax = relax_selected_from_wl(
         ce_key=j_wl.output["ce_key"],
@@ -203,6 +352,7 @@ def ensure_ce_from_refined_wl(
     j_relax.name = "relax_selected_from_wl"
     j_relax.update_metadata({"_category": category})
 
+    # -------------------------------------------------------------------------
     # 5) Fetch → Train → Store final CE
     j_fetch: Job = fetch_training_set_multi(
         groups=j_relax.output["groups"],  # per-composition groups with counts & occs
@@ -264,6 +414,7 @@ def ensure_ce_from_refined_wl(
     j_store.name = "store_ce_model"
     j_store.update_metadata({"_category": category})
 
+    # -------------------------------------------------------------------------
     # Stage the pipeline (barriers between stages; inner parallelism preserved)
     stage1 = Flow([j_wl], name="stage1: ensure_wl")
     stage2 = Flow(refine_jobs, name="stage2: refine (parallel)") if refine_jobs else Flow([], name="stage2: refine")

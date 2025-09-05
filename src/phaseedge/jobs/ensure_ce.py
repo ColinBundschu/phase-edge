@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage.ce_store import lookup_ce_by_key
-from phaseedge.flows.ensure_snapshots_compositions import make_ensure_snapshots_compositions
+from phaseedge.jobs.ensure_snapshots_compositions import make_ensure_snapshots_compositions
 from phaseedge.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model

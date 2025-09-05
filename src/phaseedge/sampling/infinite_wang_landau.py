@@ -14,7 +14,7 @@ Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping, Any, cast, dict, list, Set
+from typing import Callable, Mapping, Any, cast, Set
 
 import hashlib
 import numpy as np

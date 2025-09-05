@@ -4,7 +4,7 @@ from jobflow.core.flow import Flow
 from jobflow.core.job import job, Job
 
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.flows.ensure_snapshots_composition import make_ensure_snapshots_composition_flow
+from phaseedge.jobs.ensure_snapshots_composition import make_ensure_snapshots_composition_flow
 
 __all__ = ["make_ensure_snapshots_compositions"]
 
