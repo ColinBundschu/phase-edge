@@ -2,6 +2,7 @@ from typing import Any, Mapping, Sequence, TypedDict, cast
 import hashlib
 import json
 
+import numpy as np
 from jobflow.core.job import job
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
@@ -14,6 +15,9 @@ from phaseedge.science.random_configs import (
 )
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 from phaseedge.storage import store
+from phaseedge.storage.ce_store import lookup_ce_by_key
+from smol.cofe import ClusterExpansion
+from smol.moca.ensemble import Ensemble
 
 
 class CETrainRef(TypedDict):
@@ -61,7 +65,7 @@ def _lookup_energy_and_check_converged(
             f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
         )
 
-    # Optional extra guard: ensure optimization went downhill (can be relaxed if desired)
+    # Optional extra guard
     downhill = out.get("energy_downhill")
     if downhill is False:
         raise RuntimeError(
@@ -92,12 +96,24 @@ def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _rehydrate_ensemble_by_ce_key(ce_key: str) -> Ensemble:
+    doc = lookup_ce_by_key(ce_key)
+    if not doc:
+        raise RuntimeError(f"No CE found for ce_key={ce_key}")
+    payload = cast(Mapping[str, Any], doc["payload"])
+    ce = ClusterExpansion.from_dict(dict(payload))
+    system = cast(Mapping[str, Any], doc["system"])
+    sc = tuple(int(x) for x in cast(Sequence[int], system["supercell_diag"]))
+    sc_matrix = np.diag(sc)
+    return Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
+
+
 @job
 def fetch_training_set_multi(
     *,
-    # groups are produced by ensure_snapshots_compositions' final gather
+    # groups can come from RNG (old path) or WL (new path)
     groups: Sequence[Mapping[str, Any]],
-    # prototype-only system identity (needed to rebuild snapshots)
+    # prototype-only system identity (needed to rebuild RNG snapshots)
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
@@ -106,37 +122,54 @@ def fetch_training_set_multi(
     model: str,
     relax_cell: bool,
     dtype: str,
+    # optional: required when groups carry "occs" (WL path)
+    ce_key_for_rebuild: str | None = None,
 ) -> dict[str, Any]:
     """
-    Reconstruct EXACT snapshots for each group (composition), verify occ_keys match,
-    and fetch relaxed energies from the Atomate2 cache. Fails loudly if anything is missing
-    or inconsistent.
+    Reconstruct EXACT snapshots and fetch relaxed energies.
 
-    Input group schema (validated here):
-      {
-        "set_id": str,
-        "occ_keys": list[str],         # ordered; length defines K for this group
-        "counts": dict[str, int],      # exact integers for this composition
-        "seed": int,                   # effective seed used for this group's generation
-      }
+    Supported input group schemas:
+      RNG groups (legacy):
+        {
+          "set_id": str,
+          "occ_keys": list[str],         # ordered
+          "counts": dict[str, int],
+          "seed": int,
+        }
+
+      WL groups (new):
+        {
+          "set_id": str,
+          "occ_keys": list[str],         # ordered, structure-based keys
+          "counts": dict[str, int],
+          "occs": list[list[int]],       # raw occupancies, length matches occ_keys
+        }
 
     Returns:
       {
         "structures": list[Structure],
         "energies": list[float],
         "train_refs": list[CETrainRef],
-        "dataset_hash": str,  # hash over (set_id, occ_key, energy)
+        "dataset_hash": str,
       }
     """
     if not groups:
         raise ValueError("fetch_training_set_multi: 'groups' must be a non-empty sequence.")
 
-    # Build prototype conventional cell once; validate each group's counts against it.
+    # Build prototype conventional cell once for RNG path
     conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-
-    # Make a strictly-typed supercell diag
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
+
+    # If any group contains 'occs', we need a CE ensemble to rebuild those structures
+    needs_ensemble = any(isinstance(g, Mapping) and "occs" in g for g in groups)
+    ensemble: Ensemble | None = None
+    if needs_ensemble:
+        if not ce_key_for_rebuild:
+            raise ValueError(
+                "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
+            )
+        ensemble = _rehydrate_ensemble_by_ce_key(str(ce_key_for_rebuild))
 
     structures: list[Structure] = []
     energies: list[float] = []
@@ -166,47 +199,96 @@ def fetch_training_set_multi(
             counts=counts,
         )
 
-        # Deterministic rebuild and energy fetch
-        for i, ok in enumerate(occ_keys):
-            rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
-            snap = make_one_snapshot(
-                conv_cell=conv,
-                supercell_diag=sc_diag,
-                replace_element=replace_element,
-                counts=counts,
-                rng=rng,
-            )
-            ok2 = occ_key_for_atoms(snap)
-            if ok2 != ok:
-                raise ValueError(
-                    f"occ_key mismatch in group[{gi}] at index={i}: expected {ok}, rebuilt {ok2}. "
-                    "This indicates a change in snapshot generation or inputs."
+        is_wl_group = "occs" in g
+        if is_wl_group:
+            # WL path: rebuild from occupancies via CE ensemble and verify structure-based occ_key
+            if ensemble is None:
+                raise RuntimeError("Internal error: ensemble is None but WL group encountered.")
+            occs = cast(Sequence[Sequence[int]], g["occs"])
+            if len(occs) != len(occ_keys):
+                raise ValueError(f"group[{gi}] length mismatch: len(occs) != len(occ_keys).")
+
+            for i, (occ_raw, ok_expected) in enumerate(zip(occs, occ_keys)):
+                occ_arr = np.asarray([int(x) for x in occ_raw], dtype=np.int32)
+                pmg_struct = ensemble.processor.structure_from_occupancy(occ_arr)
+                # recompute structure-based key
+                atoms = AseAtomsAdaptor.get_atoms(pmg_struct)
+                ok2 = occ_key_for_atoms(cast(Atoms, atoms))
+                if ok2 != ok_expected:
+                    raise ValueError(
+                        f"WL group occ_key mismatch in group[{gi}] at index={i}: "
+                        f"expected {ok_expected}, rebuilt {ok2}. "
+                        "This indicates a change in structure hashing or occupancy mapping."
+                    )
+
+                structures.append(pmg_struct)
+
+                # Energy lookup from ff_tasks (must exist)
+                try:
+                    e = _lookup_energy_and_check_converged(
+                        set_id=set_id, occ_key=ok_expected, model=model, relax_cell=relax_cell, dtype=dtype
+                    )
+                except Exception as exc:
+                    problems.append(f"group[{gi}] occ_key={ok_expected}: {exc}")
+                    continue
+
+                energies.append(e)
+                train_refs.append(
+                    {
+                        "set_id": set_id,
+                        "occ_key": ok_expected,
+                        "model": model,
+                        "relax_cell": relax_cell,
+                        "dtype": dtype,
+                    }
                 )
+                hash_records.append((set_id, ok_expected, e))
 
-            # Convert to pymatgen Structure (training features are built from this)
-            pmg = AseAtomsAdaptor.get_structure(snap)  # pyright: ignore[reportArgumentType]
-            structures.append(pmg)
+        else:
+            # RNG path: deterministic regeneration via seed/index
+            seed = g.get("seed")
+            if not isinstance(seed, int):
+                raise ValueError(f"group[{gi}] missing integer 'seed' for RNG reconstruction.")
 
-            # Energy lookup from ff_tasks (must exist)
-            try:
-                e = _lookup_energy_and_check_converged(
-                    set_id=set_id, occ_key=ok, model=model, relax_cell=relax_cell, dtype=dtype
+            for i, ok in enumerate(occ_keys):
+                rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
+                snap = make_one_snapshot(
+                    conv_cell=conv,
+                    supercell_diag=sc_diag,
+                    replace_element=replace_element,
+                    counts=counts,
+                    rng=rng,
                 )
-            except Exception as exc:
-                problems.append(f"group[{gi}] occ_key={ok}: {exc}")
-                continue
+                ok2 = occ_key_for_atoms(snap)
+                if ok2 != ok:
+                    raise ValueError(
+                        f"occ_key mismatch in group[{gi}] at index={i}: expected {ok}, rebuilt {ok2}. "
+                        "This indicates a change in snapshot generation or inputs."
+                    )
 
-            energies.append(e)
-            train_refs.append(
-                {
-                    "set_id": set_id,
-                    "occ_key": ok,
-                    "model": model,
-                    "relax_cell": relax_cell,
-                    "dtype": dtype,
-                }
-            )
-            hash_records.append((set_id, ok, e))
+                # Convert to pymatgen Structure
+                pmg = AseAtomsAdaptor.get_structure(snap)  # pyright: ignore[reportArgumentType]
+                structures.append(pmg)
+
+                try:
+                    e = _lookup_energy_and_check_converged(
+                        set_id=set_id, occ_key=ok, model=model, relax_cell=relax_cell, dtype=dtype
+                    )
+                except Exception as exc:
+                    problems.append(f"group[{gi}] occ_key={ok}: {exc}")
+                    continue
+
+                energies.append(e)
+                train_refs.append(
+                    {
+                        "set_id": set_id,
+                        "occ_key": ok,
+                        "model": model,
+                        "relax_cell": relax_cell,
+                        "dtype": dtype,
+                    }
+                )
+                hash_records.append((set_id, ok, e))
 
     if problems:
         raise RuntimeError(

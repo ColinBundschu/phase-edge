@@ -14,7 +14,7 @@ Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping, Any, cast, Dict, List, Set
+from typing import Callable, Mapping, Any, cast, dict, list, Set
 
 import hashlib
 import numpy as np
@@ -98,8 +98,8 @@ class InfiniteWangLandau(MCKernel):
 
         # Optional sparse capture of occupancy samples per bin (UNIQUE)
         self._samples_per_bin: int = max(0, int(samples_per_bin))
-        self._bin_samples_d: Dict[int, List[list[int]]] = {}
-        self._bin_sample_hashes_d: Dict[int, Set[str]] = {}  # transient; not serialized
+        self._bin_samples_d: dict[int, list[list[int]]] = {}
+        self._bin_sample_hashes_d: dict[int, Set[str]] = {}  # transient; not serialized
 
         # Keep the last accepted occupancy so we can record it in _do_post_step
         self._last_accepted_occupancy: np.ndarray | None = None
@@ -294,7 +294,7 @@ class InfiniteWangLandau(MCKernel):
         self._mod_updates_buf = []
         return ev
 
-    def pop_bin_samples(self) -> Dict[int, List[list[int]]]:
+    def pop_bin_samples(self) -> dict[int, list[list[int]]]:
         """Return and clear the per-bin UNIQUE occupancy snapshots captured since last call."""
         out = self._bin_samples_d
         self._bin_samples_d = {}

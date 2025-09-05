@@ -1,6 +1,7 @@
 import hashlib
 import json
 from typing import Any, Mapping, Sequence, cast
+
 import numpy as np
 from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
@@ -87,7 +88,49 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
     return v
 
 
-# -------------------- unified CE key over arbitrary sources --------------------
+# -------------------- refined-WL INTENT normalization --------------------
+
+def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
+    """
+    Canonicalize a refined-WL *intent* source:
+
+      {
+        "type": "wl_refined_intent",
+        "base_ce_key": str,
+        "endpoints": [counts_map, ...],                 # canonicalized and sorted
+        "wl_policy": {bin_width, step_type, check_period, update_period, seed},
+        "ensure": {steps_to_run, samples_per_bin},
+        "refine": {mode, n_total|null, per_bin_cap|null, strategy},
+        "dopt": {budget, ridge, tie_breaker},
+        "versions": {refine, dopt, sampler}
+      }
+    """
+    base_ce_key = str(src["base_ce_key"])
+
+    # endpoints: canonicalize counts, stable order
+    endpoints_raw = list(src.get("endpoints", []))
+    endpoints = [canonical_counts(e) for e in endpoints_raw]
+    endpoints.sort(key=lambda m: json.dumps(m, sort_keys=True, separators=(",", ":")))
+
+    wl_policy = _json_canon(_canon_num(dict(src.get("wl_policy", {}))))
+    ensure = _json_canon(_canon_num(dict(src.get("ensure", {}))))
+    refine = _json_canon(_canon_num(dict(src.get("refine", {}))))
+    dopt = _json_canon(_canon_num(dict(src.get("dopt", {}))))
+    versions = _json_canon(_canon_num(dict(src.get("versions", {}))))
+
+    return {
+        "type": "wl_refined_intent",
+        "base_ce_key": base_ce_key,
+        "endpoints": endpoints,
+        "wl_policy": wl_policy,
+        "ensure": ensure,
+        "refine": refine,
+        "dopt": dopt,
+        "versions": versions,
+    }
+
+
+# -------------------- unified CE key over arbitrary sources (intent only) --------------------
 
 def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """
@@ -95,10 +138,7 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
 
     Supported source types:
       - {"type": "composition", "elements": [{"counts": {...}, "K": int, "seed": int}, ...]}
-      - {"type": "wl_chunked",
-         "chunks": [{"wl_key": str, "step_end": int}, ...],
-         "selection": <arbitrary dict, canonicalized deterministically>}
-      - {"type": "specified", "occ_keys": [str, ...]}
+      - {"type": "wl_refined_intent", ...}
     """
     norm: list[dict[str, Any]] = []
 
@@ -115,41 +155,20 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
                 elems_norm.append({"counts": cnts, "K": K, "seed": seed})
 
             # stable sort: by (counts_json, seed, K)
-            def _ekey(e: Mapping[str, Any]) -> tuple[str, int, int]:
-                cj = json.dumps(e["counts"], sort_keys=True, separators=(",", ":"))
-                return (cj, int(e["seed"]), int(e["K"]))
-            elems_norm = sorted(elems_norm, key=_ekey)
+            def _ekey(e_: Mapping[str, Any]) -> tuple[str, int, int]:
+                cj = json.dumps(e_["counts"], sort_keys=True, separators=(",", ":"))
+                return (cj, int(e_["seed"]), int(e_["K"]))
 
+            elems_norm = sorted(elems_norm, key=_ekey)
             norm.append({"type": "composition", "elements": elems_norm})
 
-        elif t == "wl_chunked":
-            chunks_in = list(src.get("chunks", []))
-            chunks_norm: list[dict[str, Any]] = []
-            for ch in chunks_in:
-                wl_key = str(ch["wl_key"])
-                step_end = int(ch["step_end"])
-                chunks_norm.append({"wl_key": wl_key, "step_end": step_end})
-            # sort deterministically
-            chunks_norm = sorted(chunks_norm, key=lambda c: (c["wl_key"], c["step_end"]))
-
-            # selection: accept arbitrary keys; drop None; canonicalize + numeric-round
-            sel_in = dict(src.get("selection", {}))
-            sel_drop_none = {str(k): v for k, v in sel_in.items() if v is not None}
-            selection = _json_canon(_canon_num(sel_drop_none))
-
-            norm.append({"type": "wl_chunked", "chunks": chunks_norm, "selection": selection})
-
-        elif t == "specified":
-            occ_keys_in = [str(x) for x in src.get("occ_keys", [])]
-            occ_keys_norm = sorted(set(occ_keys_in))
-            norm.append({"type": "specified", "occ_keys": occ_keys_norm})
+        elif t == "wl_refined_intent":
+            norm.append(_normalize_wl_refined_intent(src))
 
         else:
             raise ValueError(f"Unknown source type: {t!r}")
 
-    # sort the sources list deterministically:
-    #  - primary by type
-    #  - then by full JSON of the inner payload
+    # sort sources deterministically by type then JSON payload
     def _src_key(s: Mapping[str, Any]) -> tuple[str, str]:
         t = str(s.get("type", ""))
         j = json.dumps(_json_canon(s), sort_keys=True, separators=(",", ":"))
@@ -177,6 +196,8 @@ def compute_ce_key(
     """
     Deterministic key for a CE trained from an arbitrary set of sampling sources.
     Identity includes: system, canonicalized `sources`, engine, hyperparams (incl. weighting), and algo_version.
+
+    NOTE: For refined CE runs, only the *intent* (type="wl_refined_intent") is hashed.
     """
     norm_sources = _normalize_sources(sources)
 

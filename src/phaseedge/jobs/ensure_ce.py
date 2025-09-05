@@ -185,6 +185,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
             model=spec.model,
             relax_cell=spec.relax_cell,
             dtype=spec.dtype,
+            ce_key_for_rebuild=ce_key,
         ),
     )
     j_fetch.name = "fetch_training_set_multi"

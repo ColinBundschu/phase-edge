@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, Dict, cast, List
+from typing import Any, Mapping, cast
 
 import numpy as np
 from pymongo.errors import DuplicateKeyError
@@ -67,7 +67,7 @@ def _initial_occupancy_from_counts(
 
 # ---- Chunk runner ---------------------------------------------------------
 
-def run_wl_chunk(spec: WLSamplerSpec) -> Dict[str, Any]:
+def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a checkpoint."""
     ensure_indexes()
     tip = get_tip(spec.wl_key)
@@ -132,7 +132,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> Dict[str, Any]:
     mod_updates = [{"step": int(st), "m": float(m)} for (st, m) in updates_local]
 
     # capture any per-bin samples harvested this chunk
-    bin_samples: Dict[int, List[list[int]]] = k.pop_bin_samples()
+    bin_samples: dict[int, list[list[int]]] = k.pop_bin_samples()
 
     step_end = step_start + spec.steps
 

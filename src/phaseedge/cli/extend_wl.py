@@ -1,6 +1,6 @@
 import argparse
 import json
-from typing import Any, Dict
+from typing import Any
 
 from fireworks import LaunchPad
 from jobflow.core.flow import Flow
@@ -54,7 +54,7 @@ def main() -> int:
     p = build_parser()
     args = p.parse_args()
 
-    composition_counts: Dict[str, int] = parse_counts_arg(args.composition_counts)
+    composition_counts: dict[str, int] = parse_counts_arg(args.composition_counts)
 
     # wl_key encodes chain identity only (no steps, no samples_per_bin).
     wl_key: str = compute_wl_key(
@@ -96,7 +96,7 @@ def main() -> int:
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "submitted_workflow_id": wf_id,
         "wl_key": wl_key,
         "ce_key": args.ce_key,

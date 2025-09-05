@@ -11,6 +11,7 @@ pe-ensure-ce = "phaseedge.cli.ensure_ce:main"
 pe-extend-wl = "phaseedge.cli.extend_wl:main"
 pe-refine-wl-samples = "phaseedge.cli.refine_wl_samples:main"
 pe-ensure-wl-from-ce = "phaseedge.cli.ensure_wl_from_ce:main"
+pe-ensure-ce-from-refined-wl = "phaseedge.cli.ensure_ce_from_refined_wl:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

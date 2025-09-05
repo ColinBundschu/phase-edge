@@ -39,14 +39,14 @@ class EnsureWLSamplesFromCESpec(MSONable):
             "@class": type(self).__name__,
             "ce_spec": self.ce_spec.as_dict(),
             "endpoints": [canonical_counts(e) for e in self.endpoints],
-            "wl_bin_width": self.wl_bin_width,
-            "wl_steps_to_run": self.wl_steps_to_run,
-            "wl_samples_per_bin": self.wl_samples_per_bin,
-            "wl_step_type": self.wl_step_type,
-            "wl_check_period": self.wl_check_period,
-            "wl_update_period": self.wl_update_period,
-            "wl_seed": self.wl_seed,
-            "category": self.category,
+            "wl_bin_width": float(self.wl_bin_width),
+            "wl_steps_to_run": int(self.wl_steps_to_run),
+            "wl_samples_per_bin": int(self.wl_samples_per_bin),
+            "wl_step_type": str(self.wl_step_type),
+            "wl_check_period": int(self.wl_check_period),
+            "wl_update_period": int(self.wl_update_period),
+            "wl_seed": int(self.wl_seed),
+            "category": str(self.category),
         }
 
     @classmethod
@@ -85,7 +85,7 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     for e in endpoints_canon:
         canon_mix.append({"counts": e, "K": 1, "seed": 0})
 
-    # 2) Compute ce_key (for output transparency)
+    # 2) Compute ce_key (deterministic, for transparency + wl_key computation)
     algo: Final = "randgen-3-comp-1"
     sources = [{"type": "composition", "elements": canon_mix}]
     ce_key = compute_ce_key(
@@ -111,15 +111,15 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
         supercell_diag=ce_spec.supercell_diag,
         replace_element=ce_spec.replace_element,
         mixture=canon_mix,
-        default_seed=ce_spec.default_seed,
+        default_seed=int(ce_spec.default_seed),
         model=ce_spec.model,
-        relax_cell=ce_spec.relax_cell,
+        relax_cell=bool(ce_spec.relax_cell),
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
         extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         weighting=dict(ce_spec.weighting or {}) if ce_spec.weighting else None,
-        category=spec.category,
+        category=str(spec.category),
     )
     j_ce: Job = ensure_ce(ce_spec_for_run)  # type: ignore[assignment]
     j_ce.name = "ensure_ce"
@@ -128,8 +128,10 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     # 4) Ensure WL once per unique, non-endpoint composition
     endpoint_fps = {_counts_sig(e) for e in endpoints_canon}
     seen: set[str] = set()
+
     wl_jobs: list[Job | Flow] = []
     wl_manifest: list[Mapping[str, Any]] = []
+    wl_chunks: list[Mapping[str, Any]] = []  # minimal, safe fields only
 
     for elem in ce_spec.mixture:
         counts = canonical_counts(elem.get("counts", {}))
@@ -155,7 +157,7 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
 
         run_spec = WLSamplerSpec(
             wl_key=wl_key,
-            ce_key=ce_key,  # dependency on CE
+            ce_key=ce_key,  # pass the resolved string; barrier enforced by linear flow below
             bin_width=float(spec.wl_bin_width),
             steps=int(spec.wl_steps_to_run),
             composition_counts=counts,
@@ -165,17 +167,35 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
             seed=int(spec.wl_seed),
             samples_per_bin=int(spec.wl_samples_per_bin),
         )
+
         j_wl: Job = ensure_wl_samples(run_spec)  # type: ignore[assignment]
         j_wl.name = f"ensure_wl_samples::{short}::{sig}"
         j_wl.update_metadata({"_category": spec.category, "wl_key": wl_key})
         wl_jobs.append(j_wl)
+
         wl_manifest.append({"counts": sig, "wl_key": wl_key})
 
-    if wl_jobs:
-        wl_flow = Flow(wl_jobs, name="WL jobs (parallel)")  # inner flow runs WL jobs in parallel
-        flow = Flow([j_ce, wl_flow], name="Ensure WL samples from CE", order=JobOrder.LINEAR)
-    else:
-        flow = Flow([j_ce], name="Ensure WL samples from CE")
+        # IMPORTANT: expose only the fields we NEED as references.
+        # Avoid referencing child outputs like "samples_per_bin" that may not be present
+        # in add_wl_chunk job output.
+        wl_chunks.append({
+            "counts": sig,       # static
+            "wl_key": wl_key,    # static
+            "hash": j_wl.output["hash"],        # reference (exists for both found+new)
+            # if you ever want to include samples_per_bin, set it to the POLICY value:
+            # "samples_per_bin": int(spec.wl_samples_per_bin),
+            # likewise for chunk_size:
+            # "chunk_size": int(spec.wl_steps_to_run),
+        })
 
-    out = {"ce_key": ce_key, "wl": wl_manifest, "endpoints": sorted(endpoint_fps)}
+    # WL jobs run in parallel after CE completes (linear barrier at outer level)
+    flow_inner = Flow(wl_jobs, name="WL jobs (parallel)")
+    flow = Flow([j_ce, flow_inner], name="Ensure WL samples from CE", order=JobOrder.LINEAR)
+
+    out = {
+        "ce_key": ce_key,
+        "wl": wl_manifest,
+        "wl_chunks": wl_chunks,          # <-- orchestrators use wl_chunks[i]['hash']
+        "endpoints": sorted(endpoint_fps),
+    }
     return Response(replace=flow, output=out)

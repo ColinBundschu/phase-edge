@@ -1,4 +1,4 @@
-from typing import Any, Mapping, Sequence, Tuple, List, Dict
+from typing import Any, Mapping, Sequence, Tuple, list, dict
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -75,7 +75,7 @@ def insert_checkpoint(
     payload_bytes = canonical_payload(wl_key, step_end, chunk_size, state, occupancy)
     this_hash = sha256_hex(payload_bytes)
 
-    doc: Dict[str, Any] = {
+    doc: dict[str, Any] = {
         "schema_version": 2,  # optional but helpful
         "created_at": datetime.now(timezone.utc).isoformat(),  # optional but helpful
         "wl_key": wl_key,
