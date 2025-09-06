@@ -180,12 +180,22 @@ def main() -> int:
 
     # Deterministic base (random/composition) CE key, including endpoints as K=1, seed=0
     algo_base = "randgen-3-comp-1"
+    # Canonicalise mixture seeds for preview CE key: elements missing "seed"
+    # should default to the CLI-level --seed (args.seed).  Without this,
+    # compute_ce_key defaults seeds to 0, causing preview keys to differ
+    # from runtime keys (where CEEnsureMixtureSpec applies default_seed).
+    canon_mix_for_key: list[dict[str, Any]] = []
+    for elem in compositions:
+        elem_counts = dict(elem["counts"])
+        K_val = int(elem.get("K", 0))
+        seed_eff = int(elem.get("seed", args.seed))
+        canon_mix_for_key.append({"counts": elem_counts, "K": K_val, "seed": seed_eff})
+    # Inject endpoints as K=1, seed=0
+    for ep in endpoints:
+        canon_mix_for_key.append({"counts": ep, "K": 1, "seed": 0})
     sources_base = [{
         "type": "composition",
-        "elements": [
-            *compositions,
-            *({"counts": ep, "K": 1, "seed": 0} for ep in endpoints)
-        ],
+        "elements": canon_mix_for_key,
     }]
     base_ce_key = compute_ce_key(
         prototype=args.prototype,

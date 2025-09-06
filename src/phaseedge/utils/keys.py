@@ -92,13 +92,13 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
 
 def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     """
-    Canonicalize a refined-WL *intent* source:
+    Canonicalize a refined-WL *intent* source and REQUIRE a seed:
 
       {
         "type": "wl_refined_intent",
         "base_ce_key": str,
         "endpoints": [counts_map, ...],                 # canonicalized and sorted
-        "wl_policy": {bin_width, step_type, check_period, update_period, seed},
+        "wl_policy": {bin_width, step_type, check_period, update_period, seed},  # seed REQUIRED
         "ensure": {steps_to_run, samples_per_bin},
         "refine": {mode, n_total|null, per_bin_cap|null, strategy},
         "dopt": {budget, ridge, tie_breaker},
@@ -112,7 +112,14 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     endpoints = [canonical_counts(e) for e in endpoints_raw]
     endpoints.sort(key=lambda m: json.dumps(m, sort_keys=True, separators=(",", ":")))
 
-    wl_policy = _json_canon(_canon_num(dict(src.get("wl_policy", {}))))
+    # wl_policy: must include a seed
+    raw_wl_policy = dict(src.get("wl_policy", {}))
+    if "seed" not in raw_wl_policy:
+        raise ValueError("wl_refined_intent.wl_policy must include an integer 'seed'.")
+    # Normalize/round numerics but keep exact int for seed after casting
+    wl_policy = _json_canon(_canon_num(raw_wl_policy))
+    wl_policy["seed"] = int(raw_wl_policy["seed"])
+
     ensure = _json_canon(_canon_num(dict(src.get("ensure", {}))))
     refine = _json_canon(_canon_num(dict(src.get("refine", {}))))
     dopt = _json_canon(_canon_num(dict(src.get("dopt", {}))))
@@ -149,9 +156,14 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
             elems_in = list(src.get("elements", []))
             elems_norm: list[dict[str, Any]] = []
             for e in elems_in:
+                if "seed" not in e:
+                    raise ValueError("composition.elements[*] must include an integer 'seed'.")
                 cnts = canonical_counts(e.get("counts", {}))
-                K = int(e.get("K", 0))
-                seed = int(e.get("seed", 0))
+                K = int(e.get("K", 0))  # K may remain optional; seed may not.
+                try:
+                    seed = int(e["seed"])
+                except Exception as exc:
+                    raise ValueError("composition.elements[*].seed must be an integer.") from exc
                 elems_norm.append({"counts": cnts, "K": K, "seed": seed})
 
             # stable sort: by (counts_json, seed, K)
