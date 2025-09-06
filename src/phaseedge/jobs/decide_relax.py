@@ -1,4 +1,5 @@
-from typing import cast
+from dataclasses import dataclass
+from typing import Any, cast
 
 from jobflow.core.job import job, Response, Job
 from atomate2.forcefields.jobs import ForceFieldRelaxMaker
@@ -9,24 +10,62 @@ from phaseedge.storage import store
 
 
 def lookup_ff_task(
-    *, set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str
+    *,
+    set_id: str,
+    occ_key: str,
+    model: str,
+    relax_cell: bool,
+    dtype: str,
+    require_converged: bool = True,
 ) -> ForceFieldTaskDocument | None:
     """
-    Find an Atomate2 ForceFieldTaskDocument by metadata we inject at job submission.
-    We only treat a doc as 'existing' if it has a final structure (finished run).
+    Assumes the Atomate2 ForceFieldTaskDocument is embedded under 'output'.
+    Returns that embedded document if it exists (and is finished/converged per flags).
     """
-    return store.db_rw()["outputs"].find_one(  # type: ignore[return-value]
-        {
-            "metadata.set_id": set_id,
-            "metadata.occ_key": occ_key,
-            "metadata.model": model,
-            "metadata.relax_cell": relax_cell,
-            "metadata.dtype": dtype,
-            # Ensure it actually finished
-            "structure": {"$exists": True},
-            "output.energy": {"$exists": True},
-        }
-    )
+    q: dict[str, object] = {
+        "metadata.set_id": set_id,
+        "metadata.occ_key": occ_key,
+        "metadata.model": model,          # keep the full unsplit string
+        "metadata.relax_cell": relax_cell,
+        "metadata.dtype": dtype,
+        # FINISHED (embedded)
+        "output.structure": {"$exists": True},
+        "output.output.energy": {"$exists": True},
+    }
+    if require_converged:
+        q["output.is_force_converged"] = True
+
+    # Only pull the embedded TD
+    doc = store.db_rw()["outputs"].find_one(q, {"_id": 0, "output": 1})
+    if not doc or "output" not in doc:
+        return None
+    return cast(ForceFieldTaskDocument, doc["output"])
+
+
+@dataclass(frozen=True)
+class _FFSpec:
+    force_field_name: str
+    calculator_kwargs: dict[str, Any]
+
+
+def _parse_model_spec(model: str, *, dtype: str) -> _FFSpec:
+    """
+    Interpret the user 'model' string.
+
+    Semantics:
+      - 'NAME'                       -> force_field_name='NAME'
+      - 'NAME;EXTRA'                 -> force_field_name='NAME', calculator_kwargs['model']='EXTRA'
+    Everything before the first ';' is the force-field name. Everything after (if non-empty)
+    is passed through as the 'model' kwarg to the calculator. Whitespace is stripped.
+
+    We always add {'default_dtype': dtype}.
+    """
+    head, sep, tail = model.partition(";")
+    ff_name = head.strip()
+    calc_kwargs: dict[str, Any] = {"default_dtype": dtype}
+    if sep and tail.strip():
+        calc_kwargs["model"] = tail.strip()
+    return _FFSpec(force_field_name=ff_name, calculator_kwargs=calc_kwargs)
 
 
 @job
@@ -40,34 +79,28 @@ def check_or_schedule_relax(
     dtype: str,
     category: str,
 ) -> ForceFieldTaskDocument | Response:
-    """
-    If a ForceFieldTaskDocument already exists for (set_id, occ_key, model, relax_cell, dtype),
-    return that doc. Otherwise schedule a new relax job and alias our output to its TaskDocument.
-    """
     existing = lookup_ff_task(
-        set_id=set_id, occ_key=occ_key, model=model, relax_cell=relax_cell, dtype=dtype
+        set_id=set_id, occ_key=occ_key, model=model,
+        relax_cell=relax_cell, dtype=dtype, require_converged=True
     )
     if existing:
         return existing
 
+    ff_spec = _parse_model_spec(model, dtype=dtype)
     maker = ForceFieldRelaxMaker(
-        force_field_name=model,
+        force_field_name=ff_spec.force_field_name,
         relax_cell=relax_cell,
-        calculator_kwargs={"default_dtype": dtype},
+        calculator_kwargs=ff_spec.calculator_kwargs,
     )
     j_relax = cast(Job, maker.make(structure))
-
-    # Queue routing only; assumed to be persisted onto the stored TaskDocument as 'metadata'
     j_relax.update_metadata(
         {
             "_category": category,
             "set_id": set_id,
             "occ_key": occ_key,
-            "model": model,
+            "model": model,       # keep full string
             "relax_cell": relax_cell,
             "dtype": dtype,
         }
     )
-
-    # Alias our output to the TaskDocument produced by Atomate2
     return Response(replace=j_relax, output=j_relax.output)
