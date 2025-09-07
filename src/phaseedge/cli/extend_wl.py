@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.schemas.wl import WLSamplerSpec
-from phaseedge.jobs.add_wl_chunk import add_wl_chunk
+from phaseedge.jobs.add_wl_chunk import add_wl_chunk, add_wl_chain
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg
 
@@ -31,8 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
 
     # Capture up to K samples per visited enthalpy bin (0 = disabled)
-    p.add_argument("--samples-per-bin", type=int, default=0,
-                   help="Max snapshots to capture per enthalpy bin (0 disables).")
+    p.add_argument(
+        "--samples-per-bin",
+        type=int,
+        default=0,
+        help="Max snapshots to capture per enthalpy bin (0 disables).",
+    )
 
     p.add_argument("--category", default="cpu")
 
@@ -43,6 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         type=int,
         help="Number of WL steps to add in this checkpoint block.",
+    )
+
+    # Optional chaining: repeat the same chunk sequentially
+    p.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="If >1, create a linear chain of this many WL chunks run back-to-back.",
     )
 
     # Output mode
@@ -83,13 +95,24 @@ def main() -> int:
         samples_per_bin=int(args.samples_per_bin),
     )
 
-    j = add_wl_chunk(run_spec)
-    j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
-    j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
+    # Build either a single-chunk flow or a linear chain of chunks.
+    repeats = int(args.repeats)
+    if repeats > 1:
+        flow = add_wl_chain(run_spec, repeats=repeats)
+        # Decorate each job with metadata and a clearer name; CLI has access to wl_key/category.
+        for idx, j in enumerate(flow):
+            j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
+            j.name = f"extend_wl::{short}::chunk{idx + 1}/{repeats}::+{int(args.steps_to_run):,}"
+        flow.name = f"Extend WL :: {short} :: +{int(args.steps_to_run):,} × {repeats}"
+    else:
+        j = add_wl_chunk(run_spec)
+        j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
+        j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
+        flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")
 
-    flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")
     wf = flow_to_workflow(flow)
     for fw in wf.fws:
+        # Append short wl_key to each FireWork name and propagate routing metadata to the manager.
         fw.name = f"{fw.name}::{short}"
         fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": wl_key}
 
@@ -109,16 +132,32 @@ def main() -> int:
         "samples_per_bin": int(args.samples_per_bin),  # transparency
         "category": str(args.category),
         "steps_to_run": int(args.steps_to_run),
+        "repeats": repeats,
     }
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     else:
         print("Submitted WL extension workflow:", wf_id)
-        print({k: payload[k] for k in (
-            "wl_key", "ce_key", "bin_width", "composition_counts", "step_type",
-            "check_period", "update_period", "seed", "samples_per_bin", "category", "steps_to_run"
-        )})
+        print(
+            {
+                k: payload[k]
+                for k in (
+                    "wl_key",
+                    "ce_key",
+                    "bin_width",
+                    "composition_counts",
+                    "step_type",
+                    "check_period",
+                    "update_period",
+                    "seed",
+                    "samples_per_bin",
+                    "category",
+                    "steps_to_run",
+                    "repeats",
+                )
+            }
+        )
 
     return 0
 
