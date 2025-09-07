@@ -13,13 +13,7 @@ from pymatgen.entries.computed_entries import ComputedStructureEntry
 
 from ase.atoms import Atoms
 
-
-class FitStats(TypedDict):
-    n: int
-    mae_per_site: float
-    rmse_per_site: float
-    max_abs_per_site: float
-
+from phaseedge.storage.ce_store import CEStats
 
 @dataclass(slots=True)
 class BasisSpec:
@@ -163,7 +157,7 @@ def predict_from_features(X: NDArray[np.float64], coefs: NDArray[np.float64]) ->
     return cast(NDArray[np.float64], (X @ coefs).astype(np.float64, copy=False))
 
 
-def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> FitStats:
+def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
     if len(y_true) != len(y_pred) or len(y_true) == 0:
         raise ValueError("Stats require non-empty equal-length arrays.")
     n = len(y_true)

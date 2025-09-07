@@ -1,4 +1,6 @@
-from typing import Any, Mapping, Sequence, TypedDict, Literal, cast
+# select_d_optimal_basis.py
+
+from typing import Any, Mapping, Sequence, TypedDict, Literal, cast, Optional
 
 import hashlib
 import math
@@ -65,7 +67,8 @@ def _occ_for_counts(
         counts=counts_clean,
         rng=rng,
     )
-    struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
+    from pymatgen.io.ase import AseAtomsAdaptor as _Adaptor
+    struct = _Adaptor.get_structure(snap)  # type: ignore[arg-type]
 
     proc = ensemble.processor
     occ = proc.cluster_subspace.occupancy_from_structure(struct, encode=True)
@@ -76,6 +79,10 @@ def _corr_from_occ(ensemble: Ensemble, occ: Sequence[int]) -> np.ndarray:
     struct = ensemble.processor.structure_from_occupancy(np.asarray(occ, dtype=np.int32))
     vec = ensemble.processor.cluster_subspace.corr_from_structure(struct)
     return np.asarray(vec, dtype=float).ravel()
+
+
+def _sig_from_counts(counts: Mapping[str, int]) -> str:
+    return ",".join(f"{k}:{int(v)}" for k, v in sorted(counts.items()))
 
 
 @job
@@ -91,7 +98,17 @@ def select_d_optimal_basis(
     chains: Sequence[Mapping[str, Any]],
     budget: int,
     ridge: float = 1e-10,
+    # NEW: map every WL chain to its composition counts so we can group by composition
+    wl_counts_map: Mapping[str, Mapping[str, int]] | None = None,
 ) -> Mapping[str, Any]:
+    """
+    Round-robin greedy D-opt selection by composition group.
+
+    Seeds with the endpoint structures, then performs sweeps over composition
+    groups; in each sweep we select at most one candidate per group, picking
+    the candidate that maximizes Δ log det(XᵀX + ridge I), with deterministic
+    tie-breaking by (bin, occ_hash). Uses Sherman–Morrison updates.
+    """
     if budget <= 0:
         raise ValueError("budget must be positive.")
 
@@ -100,9 +117,12 @@ def select_d_optimal_basis(
         raise RuntimeError(f"No CE found for ce_key={ce_key}")
     ensemble = _rehydrate_ensemble(ce_doc)
 
+    # -------------------------
+    # Build and deduplicate pool
+    # -------------------------
     candidates: list[Candidate] = []
 
-    # Endpoints (forced in seed) — include counts for grouping later
+    # Endpoints (forced seed) — include counts for grouping
     for ep in endpoints:
         occ = _occ_for_counts(
             ensemble=ensemble,
@@ -140,7 +160,7 @@ def select_d_optimal_basis(
                     wl_key=wl_key,
                     checkpoint_hash=ck_hash,
                     bin=b,
-                    counts=None,
+                    counts=None,  # will be resolved via wl_counts_map
                 )
             )
 
@@ -149,33 +169,12 @@ def select_d_optimal_basis(
     for c in candidates:
         uniq.setdefault(c["occ_hash"], c)
     pool: list[Candidate] = list(uniq.values())
-
     if not pool:
         raise ValueError("No candidate configurations found (check endpoints/chains inputs).")
 
-    # Seed: endpoints + lowest-bin per chain
-    seeds: list[Candidate] = [c for c in pool if c["source"] == "endpoint"]
-
-    by_chain: dict[str, list[Candidate]] = {}
-    for c in pool:
-        if c["source"] != "wl":
-            continue
-        # safe: for WL candidates wl_key is not None
-        by_chain.setdefault(cast(str, c["wl_key"]), []).append(c)
-
-    for arr in by_chain.values():
-        # All candidates in arr are WL → bin is not None
-        arr.sort(key=lambda x: (cast(int, x["bin"]), x["occ_hash"]))
-        if arr:
-            seeds.append(arr[0])
-
-    seed_size = len(seeds)
-    total_candidates = len(pool)
-    if budget < seed_size:
-        raise ValueError(f"budget={budget} is smaller than seed size {seed_size}.")
-    if budget > total_candidates:
-        raise ValueError(f"budget={budget} exceeds total available {total_candidates}.")
-
+    # -------------------------
+    # Feature cache
+    # -------------------------
     feat_cache: dict[str, np.ndarray] = {}
 
     def feat(occ_hash: str, occ: Sequence[int]) -> np.ndarray:
@@ -187,47 +186,114 @@ def select_d_optimal_basis(
 
     some_vec = feat(pool[0]["occ_hash"], pool[0]["occ"])
     p = int(some_vec.size)
-    A_inv = np.eye(p) / float(ridge)
+
+    # -------------------------
+    # Grouping by composition signature
+    # -------------------------
+    def comp_sig_for_candidate(c: Candidate) -> str:
+        if c["source"] == "endpoint":
+            assert c["counts"] is not None
+            return _sig_from_counts(c["counts"])
+        # WL: resolve via the wl_counts_map
+        if wl_counts_map is None:
+            return "unknown"
+        wk = cast(Optional[str], c["wl_key"])
+        if wk is None or wk not in wl_counts_map:
+            return "unknown"
+        return _sig_from_counts(wl_counts_map[wk])
+
+    groups: dict[str, list[int]] = {}
+    for i, c in enumerate(pool):
+        sig = comp_sig_for_candidate(c)
+        groups.setdefault(sig, []).append(i)
+
+    group_order = sorted(groups)  # deterministic round-robin
+
+    # -------------------------
+    # Initialize inverse info matrix; seed with endpoints only
+    # -------------------------
+    A_inv = np.eye(p, dtype=np.float64) / float(ridge)
 
     def sm_update(Ainv: np.ndarray, x: np.ndarray) -> np.ndarray:
         Ax = Ainv @ x
         denom = 1.0 + float(x.T @ Ax)
         return Ainv - np.outer(Ax, Ax) / denom
 
-    chosen: list[Candidate] = []
-    for s in seeds:
-        x = feat(s["occ_hash"], s["occ"])
-        A_inv = sm_update(A_inv, x)
-        chosen.append(s)
+    chosen_indices: list[int] = []
 
-    chosen_hashes = {c["occ_hash"] for c in chosen}
-    remaining: list[Candidate] = [c for c in pool if c["occ_hash"] not in chosen_hashes]
-
-    need = budget - len(chosen)
-    for _ in range(need):
-        best_idx = -1
-        best_gain = -math.inf
-        best_key = ("~", "~")
-        for i, c in enumerate(remaining):
+    # Seed with all endpoints (exactly as requested)
+    for i, c in enumerate(pool):
+        if c["source"] == "endpoint":
             x = feat(c["occ_hash"], c["occ"])
-            lev = float(x.T @ (A_inv @ x))
-            gain = math.log1p(lev)
-            # Prefer lower bins, then hash. For endpoints (bin=None), use a sentinel.
-            bval = c["bin"]
-            tie = (str(bval).zfill(12) if bval is not None else "~~~~", c["occ_hash"])
-            if gain > best_gain or (abs(gain - best_gain) < 1e-15 and tie < best_key):
-                best_idx = i
-                best_gain = gain
-                best_key = tie
-        if best_idx < 0:
+            A_inv = sm_update(A_inv, x)
+            chosen_indices.append(i)
+
+    if budget < len(chosen_indices):
+        raise ValueError(f"budget={budget} is smaller than endpoint seed size {len(chosen_indices)}.")
+
+    # Mark remaining per-group candidate lists (exclude already chosen)
+    chosen_set = set(chosen_indices)
+    remaining_by_group: dict[str, list[int]] = {
+        g: [i for i in idxs if i not in chosen_set] for g, idxs in groups.items()
+    }
+
+    # -------------------------
+    # Round-robin greedy sweeps
+    # -------------------------
+    def gain_for(i: int) -> tuple[float, tuple[str, str]]:
+        c = pool[i]
+        x = feat(c["occ_hash"], c["occ"])
+        lev = float(x.T @ (A_inv @ x))
+        gain = math.log1p(lev)
+        # tie-break: (bin asc, hash asc). Endpoints have bin=None → place last.
+        b = c["bin"]
+        tb = (str(b).zfill(12) if b is not None else "~~~~", c["occ_hash"])
+        return gain, tb
+
+    while len(chosen_indices) < budget:
+        picked_this_sweep = False
+        for g in group_order:
+            if len(chosen_indices) >= budget:
+                break
+            cand_idx_list = remaining_by_group.get(g, [])
+            if not cand_idx_list:
+                continue
+
+            # Evaluate gain over this group's remaining candidates
+            best_i = -1
+            best_gain = -math.inf
+            best_tb = ("~", "~")
+            for i in cand_idx_list:
+                gain, tb = gain_for(i)
+                if gain > best_gain or (abs(gain - best_gain) < 1e-15 and tb < best_tb):
+                    best_gain = gain
+                    best_tb = tb
+                    best_i = i
+
+            if best_i < 0:
+                continue
+
+            # Commit pick
+            x = feat(pool[best_i]["occ_hash"], pool[best_i]["occ"])
+            A_inv = sm_update(A_inv, x)
+            chosen_indices.append(best_i)
+            picked_this_sweep = True
+            # remove from the group's remaining list
+            cand_idx_list.remove(best_i)
+
+            if len(chosen_indices) >= budget:
+                break
+
+        if not picked_this_sweep:
+            # No group had candidates left → done
             break
-        cstar = remaining.pop(best_idx)
-        chosen.append(cstar)
-        A_inv = sm_update(A_inv, feat(cstar["occ_hash"], cstar["occ"]))
+
+    # Assemble chosen candidates in the order they were selected
+    chosen: list[Candidate] = [pool[i] for i in chosen_indices]
 
     return {
-        "chosen": chosen,  # endpoints include "counts"
-        "seed_size": seed_size,
+        "chosen": chosen,  # endpoints include "counts"; WL get composition via wl_counts_map downstream
+        "seed_size": sum(1 for i in chosen_indices if pool[i]["source"] == "endpoint"),
         "budget": budget,
-        "design_summary": {"p": p, "n_candidates": total_candidates},
+        "design_summary": {"p": p, "n_candidates": len(pool), "n_groups": len(group_order)},
     }

@@ -25,9 +25,9 @@ __all__ = ["train_ce"]
 
 
 class TrainStats(TypedDict):
-    in_sample: CEStats
-    five_fold_cv: CEStats
-    by_composition: dict[str, Mapping[str, CEStats]]  # {"Co:75,Mn:25": {"in_sample": ..., "five_fold_cv": ...}, ...}
+    in_sample: CEStats                 # per-site metrics
+    five_fold_cv: CEStats              # per-site metrics
+    by_composition: dict[str, Mapping[str, CEStats]]  # {"Fe:128,Mg:128": {"in_sample": ..., "five_fold_cv": ...}, ...}
 
 
 class _TrainOutput(TypedDict, total=False):
@@ -53,16 +53,21 @@ def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> l
 
 
 def _n_replace_sites_from_prototype(
+    *,
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     replace_element: str,
 ) -> int:
+    """
+    Count the number of active (replace_element) sites in the **supercell** built
+    by replicating the prototype conventional cell by supercell_diag.
+    """
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
     if n_per_prim <= 0:
         raise ValueError(f"Prototype has no sites for replace_element='{replace_element}'.")
-    nx, ny, nz = supercell_diag
+    nx, ny, nz = map(int, supercell_diag)
     return int(n_per_prim) * int(nx) * int(ny) * int(nz)
 
 
@@ -98,11 +103,21 @@ def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
     return ",".join(parts)
 
 
-def _stats_for_group(idxs: Sequence[int], y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
+def _stats_for_group(
+    idxs: Sequence[int],
+    y_true_per_prim: Sequence[float],
+    y_pred_per_prim: Sequence[float],
+    *,
+    sites_per_prim: int,
+) -> CEStats:
+    """
+    Compute per-site stats for a subset `idxs`, given inputs in per-prim units.
+    """
     if not idxs:
         return cast(CEStats, {"n": 0, "mae_per_site": 0.0, "rmse_per_site": 0.0, "max_abs_per_site": 0.0})
-    yt = [y_true[i] for i in idxs]
-    yp = [y_pred[i] for i in idxs]
+    scale = 1.0 / float(sites_per_prim)
+    yt = [y_true_per_prim[i] * scale for i in idxs]
+    yp = [y_pred_per_prim[i] * scale for i in idxs]
     return cast(CEStats, compute_stats(yt, yp))
 
 
@@ -124,19 +139,16 @@ def _build_sample_weights(
     alpha = float(weighting.get("alpha", 1.0))
 
     if scheme in ("inv_count", "inverse_count", "balanced_by_composition", "balance_by_comp"):
-        # assign base weights per-group
         for idxs in comp_to_indices.values():
             n_g = max(1, len(idxs))
             base = (1.0 / float(n_g)) ** alpha
             for i in idxs:
                 w[int(i)] = base
-        # normalize to mean 1
         s = float(w.sum())
         if s > 0:
             w *= (n_total / s)
         return w
 
-    # Unknown scheme -> default to uniform
     return w
 
 
@@ -161,12 +173,13 @@ def train_ce(
     cv_seed: int | None = None,
 ) -> _TrainOutput:
     """
-    Train a per-site Cluster Expansion model and return:
-      - overall in-sample stats (unweighted metrics)
-      - stitched 5-fold-CV stats (unweighted metrics)
-      - per-composition breakdown for both
-      - design diagnostics of the training feature matrix (with weights applied)
-    Weighted fitting is implemented via pre-scaling: X *= sqrt(w), y *= sqrt(w).
+    Train a Cluster Expansion with targets **normalized per primitive/conventional cell**:
+
+        y_cell = E_total / (nx * ny * nz)
+
+    Using this intensive scale aligns with SMOL’s MC normalization. All **stored stats**
+    (in_sample, five_fold_cv, by_composition) are reported in **per-site** units to match
+    common CE practice (meV/site), by scaling y vectors before computing metrics.
     """
     # -------- basic validation --------
     if not structures:
@@ -180,74 +193,84 @@ def train_ce(
     except Exception as exc:
         raise ValueError(f"supercell_diag must be a length-3 tuple of ints; got {supercell_diag!r}") from exc
 
+    n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
+
     # Convert any Monty-serialized dicts into real Structures
     structures_pm: list[Structure] = _ensure_structures(structures)
 
-    # -------- 1) per-site targets via constant site count from prototype --------
-    n_sites = _n_replace_sites_from_prototype(
+    # -------- 1) per-primitive/conventional-cell targets (training unit) --------
+    y_cell = [float(E) / float(n_prims) for E in energies]
+
+    # -------- 2) figure out sites_per_prim so we can report per-site metrics --------
+    n_sites_const = _n_replace_sites_from_prototype(
         prototype=prototype,
         prototype_params=prototype_params,
         supercell_diag=supercell_diag,
         replace_element=replace_element,
     )
-    if n_sites <= 0:
-        raise ValueError("Computed zero replaceable sites from prototype (unexpected).")
-    y_site = [float(E) / float(n_sites) for E in energies]
+    if n_sites_const % n_prims != 0:
+        raise ValueError(
+            f"Active-site count ({n_sites_const}) is not divisible by number of prim cells ({n_prims})."
+        )
+    sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
 
-    # -------- 2) prototype conv cell + allowed species inference --------
+    # -------- 3) prototype conv cell + allowed species inference --------
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     allowed_species = _infer_allowed_species(conv_cell, replace_element, structures_pm)
     primitive_cfg = build_disordered_primitive(
         conv_cell=conv_cell, replace_element=replace_element, allowed_species=allowed_species
     )
 
-    # -------- 3) subspace --------
+    # -------- 4) subspace --------
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
     subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
 
-    # -------- 4) featurization (build once; re-used across CV folds) --------
+    # -------- 5) featurization (build once; re-used across CV folds) --------
     _, X = featurize_structures(subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag)
     if X.size == 0 or X.shape[1] == 0:
         raise ValueError(
             "Feature matrix is empty (no clusters generated). "
             "Try increasing cutoffs or adjusting the basis specification."
         )
-    if X.shape[0] != len(y_site):
-        raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_site)}.")
+    if X.shape[0] != len(y_cell):
+        raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_cell)}.")
 
-    # -------- group membership by composition signature --------
+    # -------- 6) group membership by composition signature --------
     comp_to_indices: dict[str, list[int]] = {}
     for i, s in enumerate(structures_pm):
         sig = _composition_signature(s, allowed_species)
         comp_to_indices.setdefault(sig, []).append(i)
 
-    # -------- weights (per-sample) --------
+    # -------- 7) weights (per-sample) --------
     n = X.shape[0]
-    y = np.asarray(y_site, dtype=np.float64)
+    y = np.asarray(y_cell, dtype=np.float64)  # per-prim
     w = _build_sample_weights(comp_to_indices, n_total=n, weighting=weighting)
     sqrt_w = np.sqrt(w, dtype=np.float64)
 
-    # -------- compute design diagnostics on the same matrix used for fitting --------
-    # We follow the training scheme: apply sqrt(w) row-scaling, then compute SVD/QR-based metrics.
-    # To make comparisons meaningful across runs, we z-score columns BEFORE metrics.
+    # -------- 8) design diagnostics on the same matrix used for fitting --------
     design = compute_design_metrics(X=X, w=w, options=MetricOptions(standardize=True, eps=1e-12))
 
-    # -------- 5) fit linear model on full set (in-sample, weighted) --------
+    # -------- 9) fit linear model on full set (in-sample, weighted) --------
     Xw = X * sqrt_w[:, None]
     yw = y * sqrt_w
     reg = Regularization(**cast(Mapping[str, Any], regularization))
     coefs = fit_linear_model(Xw, yw, reg)
 
-    # in-sample stats (overall; unweighted metrics on original targets)
+    # In-sample predictions in training unit (per-prim)
     y_pred_in = predict_from_features(X, coefs).tolist()
-    stats_in = compute_stats(y_site, y_pred_in)
 
-    # per-composition in-sample
+    # ------ Report per-site metrics (scale both true and pred by 1/sites_per_prim) ------
+    scale = 1.0 / float(sites_per_prim)
+    y_true_site_vec = [v * scale for v in y_cell]
+    y_pred_site_vec = [v * scale for v in y_pred_in]
+    stats_in = compute_stats(y_true_site_vec, y_pred_site_vec)
+
+    # per-composition in-sample (per-site)
     by_comp_in: dict[str, CEStats] = {}
     for sig, idxs in comp_to_indices.items():
-        by_comp_in[sig] = _stats_for_group(idxs, y_site, y_pred_in)
+        by_comp_in[sig] = _stats_for_group(idxs, y_cell, y_pred_in, sites_per_prim=sites_per_prim)
 
-    # -------- 6) 5-fold CV (stitched oof predictions; weighted fits) --------
+    # -------- 10) 5-fold CV (stitched oof predictions; weighted fits) --------
     k_splits = min(5, n)
     if k_splits >= 2:
         kf = KFold(n_splits=k_splits, shuffle=True, random_state=int(cv_seed) if cv_seed is not None else None)
@@ -263,17 +286,23 @@ def train_ce(
             y_pred_oof[test_idx] = predict_from_features(X[test_idx], coefs_fold)
         if np.isnan(y_pred_oof).any():
             y_pred_oof = np.where(np.isnan(y_pred_oof), np.asarray(y_pred_in, dtype=np.float64), y_pred_oof)
-        stats_cv = compute_stats(y_site, y_pred_oof.tolist())
-        # per-composition CV
+
+        # Per-site CV stats
+        stats_cv = compute_stats(
+            [v * scale for v in y_cell],
+            [float(v) * scale for v in y_pred_oof],
+        )
+
+        # per-composition CV (per-site)
         by_comp_cv: dict[str, CEStats] = {}
         y_oof_list = y_pred_oof.tolist()
         for sig, idxs in comp_to_indices.items():
-            by_comp_cv[sig] = _stats_for_group(idxs, y_site, y_oof_list)
+            by_comp_cv[sig] = _stats_for_group(idxs, y_cell, y_oof_list, sites_per_prim=sites_per_prim)
     else:
         stats_cv = stats_in
         by_comp_cv = by_comp_in
 
-    # -------- 7) assemble CE and payload --------
+    # -------- 11) assemble CE and payload --------
     ce = assemble_ce(subspace, coefs)
     if hasattr(ce, "as_dict"):
         try:
@@ -286,8 +315,8 @@ def train_ce(
     return {
         "payload": payload,
         "stats": {
-            "in_sample": cast(CEStats, stats_in),
-            "five_fold_cv": cast(CEStats, stats_cv),
+            "in_sample": cast(CEStats, stats_in),     # per-site
+            "five_fold_cv": cast(CEStats, stats_cv),  # per-site
             "by_composition": {
                 sig: {"in_sample": cast(CEStats, by_comp_in[sig]), "five_fold_cv": cast(CEStats, by_comp_cv[sig])}
                 for sig in sorted(comp_to_indices)
