@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Mapping, Sequence, TypedDict, cast, Any
+from typing import Any, Mapping, Sequence, cast, Dict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,6 +14,7 @@ from pymatgen.entries.computed_entries import ComputedStructureEntry
 from ase.atoms import Atoms
 
 from phaseedge.storage.ce_store import CEStats
+
 
 @dataclass(slots=True)
 class BasisSpec:
@@ -46,17 +47,22 @@ class Regularization:
 def build_disordered_primitive(
     *,
     conv_cell: Atoms,
-    replace_element: str,
+    replace_elements: Sequence[str],
     allowed_species: Sequence[str],
 ) -> Structure:
     """
-    Create the CE parent primitive on the prototype lattice where the replaceable
-    sublattice is a disordered site with the allowed cations.
+    Create the CE parent primitive on the prototype lattice where the
+    replaceable sublattices (all sites whose symbol is in replace_elements)
+    are declared as disordered with the given allowed cations.
 
     IMPORTANT:
       - Use a dict {Element: fraction} for the disordered site, NOT a Composition.
-      - Do not include `replace_element` unless it truly appears in data.
+      - Do not include any species here unless they truly appear in the data.
+      - All replaceable sublattices receive the SAME allowed set; if you need
+        different sets per sublattice, we can extend this later with a per-subl spec.
     """
+    if not replace_elements:
+        raise ValueError("replace_elements must be a non-empty sequence of prototype placeholders.")
     if not allowed_species:
         raise ValueError("allowed_species must be non-empty.")
 
@@ -65,10 +71,12 @@ def build_disordered_primitive(
     # Uniform prior over the allowed cations. The actual fractions do not encode
     # training composition; they just declare the site space.
     frac = 1.0 / float(len(allowed_species))
-    disordered: dict[Element, float] = {Element(el): frac for el in allowed_species}
+    disordered: Dict[Element, float] = {Element(el): frac for el in allowed_species}
 
-    # Replace the prototype cation with the disordered site space
-    prim_cfg.replace_species({Element(replace_element): disordered}) # pyright: ignore[reportArgumentType]
+    # Replace every placeholder symbol in replace_elements with this disordered site space.
+    mapping = {Element(sym): disordered for sym in replace_elements}
+    prim_cfg.replace_species(mapping)  # type: ignore[arg-type]
+
     return prim_cfg
 
 
@@ -129,6 +137,7 @@ def featurize_structures(
             "Increase cutoffs or adjust the basis specification."
         )
     return wrangler, X
+
 
 def fit_linear_model(
     X: NDArray[np.float64], y: NDArray[np.float64], reg: Regularization

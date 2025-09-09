@@ -5,6 +5,7 @@ from jobflow.core.job import job, Job
 
 from phaseedge.jobs.random_config import RandomConfigSpec, make_random_config
 from phaseedge.jobs.decide_relax import check_or_schedule_relax
+from phaseedge.schemas.sublattice import SublatticeSpec
 from phaseedge.science.prototypes import PrototypeName
 
 __all__ = ["make_ensure_snapshots_composition_flow"]
@@ -39,8 +40,7 @@ def make_ensure_snapshots_composition_flow(
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: Mapping[str, int],
+    sublattices: Sequence[SublatticeSpec],
     seed: int,
     indices: Sequence[int],
     model: str,
@@ -70,8 +70,7 @@ def make_ensure_snapshots_composition_flow(
             prototype=prototype,
             prototype_params=dict(prototype_params),
             supercell_diag=supercell_diag,
-            replace_element=replace_element,
-            counts=dict(counts),
+            sublattices=list(sublattices),
             seed=int(seed),
             index=int(idx),
         )

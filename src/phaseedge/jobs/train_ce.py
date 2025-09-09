@@ -57,41 +57,55 @@ def _n_replace_sites_from_prototype(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
+    replace_elements: Sequence[str],
 ) -> int:
     """
-    Count the number of active (replace_element) sites in the **supercell** built
-    by replicating the prototype conventional cell by supercell_diag.
+    Count the number of active (replaceable) cation sites in the **supercell** built
+    by replicating the prototype conventional cell by supercell_diag. All sites whose
+    symbol is in `replace_elements` are considered replaceable.
     """
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-    n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
+    replace_set = set(replace_elements)
+    n_per_prim = sum(1 for at in conv_cell if at.symbol in replace_set)  # type: ignore[attr-defined]
     if n_per_prim <= 0:
-        raise ValueError(f"Prototype has no sites for replace_element='{replace_element}'.")
+        raise ValueError(f"Prototype has no sites for replace_elements={sorted(replace_set)!r}.")
     nx, ny, nz = map(int, supercell_diag)
     return int(n_per_prim) * int(nx) * int(ny) * int(nz)
 
 
 def _infer_allowed_species(
-    conv_cell: Atoms, replace_element: str, structures: Sequence[Structure]
+    conv_cell: Atoms, replace_elements: Sequence[str], structures: Sequence[Structure]
 ) -> list[str]:
-    anion_symbols = {at.symbol for at in conv_cell if at.symbol != replace_element}  # type: ignore[attr-defined]
+    """
+    Infer the allowed cation set from the training structures by excluding
+    the prototype's non-replaceable species (e.g., O). This works for
+    multiple sublattices: anything not in the prototype's replaceable
+    placeholders is treated as 'non-replaceable/anion' and ignored.
+    """
+    replace_set = set(replace_elements)
+    proto_symbols = {at.symbol for at in conv_cell}  # type: ignore[attr-defined]
+    non_replaceable = proto_symbols - replace_set     # e.g., {'O'}
     seen: set[str] = set()
     for s in structures:
         for site in s.sites:
             sym = getattr(getattr(site, "specie", None), "symbol", None)
             if not isinstance(sym, str):
                 sym = str(getattr(site, "specie", ""))
-            if sym and sym not in anion_symbols:
+            if sym and sym not in non_replaceable:
                 seen.add(sym)
     if not seen:
         raise ValueError(
             "Could not infer allowed species from training structures; got empty set "
-            "(did energies/structures come from the expected cation sublattice?)."
+            "(did energies/structures come from the expected cation sublattices?)."
         )
     return sorted(seen)
 
 
 def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
+    """
+    Grouping signature used for weighting and per-composition reporting.
+    NOTE: This uses **total** cation counts across all replaceable sublattices.
+    """
     counts: dict[str, int] = {el: 0 for el in allowed_species}
     for site in s.sites:
         sym = getattr(getattr(site, "specie", None), "symbol", None)
@@ -162,7 +176,7 @@ def train_ce(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
+    replace_elements: Sequence[str],
     # CE config
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
@@ -180,12 +194,19 @@ def train_ce(
     Using this intensive scale aligns with SMOL’s MC normalization. All **stored stats**
     (in_sample, five_fold_cv, by_composition) are reported in **per-site** units to match
     common CE practice (meV/site), by scaling y vectors before computing metrics.
+
+    MULTI-SUBLATTICE NOTES:
+      - `replace_elements` is the list of prototype placeholder symbols for ALL replaceable
+        cation sublattices (e.g., ["Mg", "Al"] for spinel A/B).
+      - The disordered parent declares the SAME allowed cation set on all replaceable sites.
     """
     # -------- basic validation --------
     if not structures:
         raise ValueError("No structures provided.")
     if len(structures) != len(energies):
         raise ValueError(f"structures and energies length mismatch: {len(structures)} vs {len(energies)}")
+    if not replace_elements:
+        raise ValueError("replace_elements must be a non-empty sequence.")
 
     try:
         nx, ny, nz = map(int, supercell_diag)
@@ -206,19 +227,22 @@ def train_ce(
         prototype=prototype,
         prototype_params=prototype_params,
         supercell_diag=supercell_diag,
-        replace_element=replace_element,
+        replace_elements=replace_elements,
     )
     if n_sites_const % n_prims != 0:
         raise ValueError(
             f"Active-site count ({n_sites_const}) is not divisible by number of prim cells ({n_prims})."
         )
-    sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
+    sites_per_prim = n_sites_const // n_prims  # e.g., total cation sites per conventional cell (all replaceable sublattices)
 
     # -------- 3) prototype conv cell + allowed species inference --------
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-    allowed_species = _infer_allowed_species(conv_cell, replace_element, structures_pm)
+    allowed_species = _infer_allowed_species(conv_cell, replace_elements, structures_pm)
+
     primitive_cfg = build_disordered_primitive(
-        conv_cell=conv_cell, replace_element=replace_element, allowed_species=allowed_species
+        conv_cell=conv_cell,
+        replace_elements=replace_elements,
+        allowed_species=allowed_species,
     )
 
     # -------- 4) subspace --------
@@ -235,7 +259,7 @@ def train_ce(
     if X.shape[0] != len(y_cell):
         raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, y has {len(y_cell)}.")
 
-    # -------- 6) group membership by composition signature --------
+    # -------- 6) group membership by composition signature (totals across all replaceable sublattices) --------
     comp_to_indices: dict[str, list[int]] = {}
     for i, s in enumerate(structures_pm):
         sig = _composition_signature(s, allowed_species)

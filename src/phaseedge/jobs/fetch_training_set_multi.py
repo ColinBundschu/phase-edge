@@ -10,9 +10,10 @@ from ase.atoms import Atoms
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import (
-    make_one_snapshot,
-    validate_counts_for_sublattice,
+    make_one_snapshot,                 # multi-sublattice signature
+    validate_counts_for_sublattice,   # per-sublattice validator
 )
+from phaseedge.schemas.sublattice import SublatticeSpec
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 from phaseedge.storage import store
 from phaseedge.storage.ce_store import lookup_ce_by_key
@@ -65,7 +66,6 @@ def _lookup_energy_and_check_converged(
             f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
         )
 
-    # Optional extra guard
     downhill = out.get("energy_downhill")
     if downhill is False:
         raise RuntimeError(
@@ -111,38 +111,37 @@ def _rehydrate_ensemble_by_ce_key(ce_key: str) -> Ensemble:
 @job
 def fetch_training_set_multi(
     *,
-    # groups can come from RNG (old path) or WL (new path)
     groups: Sequence[Mapping[str, Any]],
     # prototype-only system identity (needed to rebuild RNG snapshots)
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
     # engine identity (for energy lookup)
     model: str,
     relax_cell: bool,
     dtype: str,
-    # optional: required when groups carry "occs" (WL path)
+    # required when groups carry "occs" (WL path)
     ce_key_for_rebuild: str | None = None,
 ) -> dict[str, Any]:
     """
-    Reconstruct EXACT snapshots and fetch relaxed energies.
+    Reconstruct EXACT snapshots (multi-sublattice) and fetch relaxed energies.
 
     Supported input group schemas:
-      RNG groups (legacy):
+
+      RNG groups (current, sublattice-aware):
         {
           "set_id": str,
-          "occ_keys": list[str],         # ordered
-          "counts": dict[str, int],
-          "seed": int,
+          "occ_keys": list[str],             # ordered, one per snapshot
+          "sublattices": [SublatticeSpec, ...],
+          "seed": int
         }
 
-      WL groups (new):
+      WL groups (occupancy-based):
         {
           "set_id": str,
-          "occ_keys": list[str],         # ordered, structure-based keys
-          "counts": dict[str, int],
-          "occs": list[list[int]],       # raw occupancies, length matches occ_keys
+          "occ_keys": list[str],             # ordered, structure-based keys
+          "occs": list[list[int]],           # raw occupancies, length matches occ_keys
+          # optional "sublattices": [SublatticeSpec, ...] (if present, we validate counts)
         }
 
     Returns:
@@ -156,7 +155,7 @@ def fetch_training_set_multi(
     if not groups:
         raise ValueError("fetch_training_set_multi: 'groups' must be a non-empty sequence.")
 
-    # Build prototype conventional cell once for RNG path
+    # Build prototype conventional cell once for reconstruction
     conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
@@ -180,26 +179,34 @@ def fetch_training_set_multi(
     for gi, g in enumerate(groups):
         if not isinstance(g, Mapping):
             raise TypeError(f"group[{gi}] is not a mapping: {type(g)!r}")
+
         set_id = cast(str, g.get("set_id"))
         occ_keys = cast(Sequence[str], g.get("occ_keys"))
-        counts = {str(k): int(v) for k, v in dict(g.get("counts", {})).items()}
 
         if not set_id or not isinstance(set_id, str):
             raise ValueError(f"group[{gi}] missing valid 'set_id'.")
         if not isinstance(occ_keys, Sequence) or not all(isinstance(x, str) for x in occ_keys):
             raise ValueError(f"group[{gi}] 'occ_keys' must be a list[str].")
-        if not counts:
-            raise ValueError(f"group[{gi}] missing or empty 'counts'.")
-
-        # Validate counts vs prototype/supercell (arity-agnostic)
-        validate_counts_for_sublattice(
-            conv_cell=conv,
-            supercell_diag=sc_diag,
-            replace_element=replace_element,
-            counts=counts,
-        )
 
         is_wl_group = "occs" in g
+
+        # Optional sublattice validation (always for RNG groups; optional for WL)
+        subl_raw = g.get("sublattices")
+        if not is_wl_group:
+            if not isinstance(subl_raw, Sequence) or len(subl_raw) == 0:
+                raise ValueError(f"group[{gi}] missing 'sublattices' for RNG reconstruction.")
+        subl_specs: Sequence[SublatticeSpec] = cast(Sequence[SublatticeSpec], subl_raw) if subl_raw else ()
+
+        # If sublattices are present, validate against the prototype+supercell
+        if subl_specs:
+            for sl in subl_specs:
+                validate_counts_for_sublattice(
+                    conv_cell=conv,
+                    supercell_diag=sc_diag,
+                    replace_element=sl.replace_element,
+                    counts=dict(sl.counts),
+                )
+
         if is_wl_group:
             # WL path: rebuild from occupancies via CE ensemble and verify structure-based occ_key
             if ensemble is None:
@@ -245,18 +252,18 @@ def fetch_training_set_multi(
                 hash_records.append((set_id, ok_expected, e))
 
         else:
-            # RNG path: deterministic regeneration via seed/index
+            # RNG path (multi-sublattice): deterministic regeneration via set_id/index
             seed = g.get("seed")
             if not isinstance(seed, int):
                 raise ValueError(f"group[{gi}] missing integer 'seed' for RNG reconstruction.")
 
+            # NOTE: seed is embedded in set_id; rng_for_index uses (set_id, idx, attempt)
             for i, ok in enumerate(occ_keys):
                 rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
                 snap = make_one_snapshot(
                     conv_cell=conv,
                     supercell_diag=sc_diag,
-                    replace_element=replace_element,
-                    counts=counts,
+                    sublattices=subl_specs,  # <-- multi-sublattice
                     rng=rng,
                 )
                 ok2 = occ_key_for_atoms(snap)

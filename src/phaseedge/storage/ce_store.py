@@ -49,15 +49,20 @@ class CESystem(TypedDict):
     prototype: str
     prototype_params: Mapping[str, Any]
     supercell_diag: Sequence[int]
-    replace_element: str  # definition of the sublattice to be replaced/varied
+    # MULTI-SUBLATTICE: all prototype placeholders that are replaceable (e.g., ["Mg", "Al"] for spinel)
+    replace_elements: Sequence[str]
 
 
 class CESampling(TypedDict):
-    """Exact, counts-based sampling identity (NO ratios)."""
-    counts: Mapping[str, int]     # exact integer counts per species (sorted by key at keying time)
-    seed: int
+    """
+    Exact sampling identity.
+
+    For multi-sublattice CE we persist a normalized 'sources' block
+    (e.g., [{"type": "sublattice_composition", "elements": [...]}])
+    plus an explicit algo_version tag.
+    """
+    sources: Sequence[Mapping[str, Any]]   # canonicalized at keying time
     algo_version: str
-    indices: Sequence[int]        # exact membership, e.g., [0, 1, ..., K-1]
 
 
 class CEEngine(TypedDict):
@@ -119,8 +124,7 @@ def ensure_ce_indexes() -> None:
     """Idempotently (re)create helpful indexes. Safe to call many times."""
     coll = _ce_coll()
     coll.create_index("ce_key", unique=True)
-    # Add secondaries as needed (e.g., ("system.prototype", 1), ("hyperparams.basis_spec.order", 1), ...)
-
+    # Optional: coll.create_index([("system.replace_elements", 1)])
 
 def lookup_ce_by_key(ce_key: str) -> CEModelDoc | None:
     """Fetch a CE model by its unique key."""

@@ -1,33 +1,78 @@
+# phaseedge/utils/keys.py
+from __future__ import annotations
+
 import hashlib
 import json
-from typing import Any, Mapping, Sequence, cast
+from dataclasses import dataclass
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
 from pymatgen.io.ase import AseAtomsAdaptor
 
+from phaseedge.schemas.sublattice import SublatticeSpec
+
+
+# -------------------- Public dataclasses (universal CE key spec) --------------------
+
+@dataclass(frozen=True, slots=True)
+class SublatticeMixtureElement:
+    """One mixture element: exact integer counts on one or more sublattices, plus K and seed."""
+    sublattices: Sequence[SublatticeSpec]
+    K: int
+    seed: int
+
+
+@dataclass(frozen=True, slots=True)
+class CEKeySpec:
+    """
+    Universal, strongly-typed identity for a CE training run over sublattice compositions.
+    This is the ONLY input type accepted by compute_ce_key.
+    """
+    # System
+    prototype: str
+    prototype_params: Mapping[str, Any]
+    supercell_diag: tuple[int, int, int]
+
+    # Sampling (only sublattice compositions are supported for CE identity)
+    mixtures: Sequence[SublatticeMixtureElement]   # each has sublattices + K + seed
+
+    # Engine identity
+    model: str
+    relax_cell: bool
+    dtype: str
+
+    # Hyperparameters
+    basis_spec: Mapping[str, Any]
+    regularization: Mapping[str, Any] | None = None
+    extra_hyperparams: Mapping[str, Any] | None = None
+    weighting: Mapping[str, Any] | None = None
+
+    # Version tag for the sampling/key contract
+    algo_version: str = "randgen-4-sublcomp-1"
+
+
+# -------------------- Public helpers (unchanged) --------------------
 
 def compute_set_id_counts(
     *,
     prototype: str,
     prototype_params: dict[str, Any] | None,
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
+    sublattices: Sequence[SublatticeSpec],
     seed: int,
-    algo_version: str = "randgen-2-counts-1",
+    algo_version: str = "randgen-3-subl-1",
 ) -> str:
-    """Deterministic identity for a logical (expandable) snapshot sequence using integer counts."""
-    counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
+    """Deterministic identity for an RNG snapshot sequence (counts on one/more sublattices)."""
+    canon_subl = _canon_sublattice_specs(sublattices)
     payload = {
-        "prototype": prototype,
+        "prototype": str(prototype),
         "proto_params": prototype_params or {},
-        "diag": supercell_diag,
-        "replace": replace_element,
-        "counts": counts_sorted,
-        "seed": seed,
-        "algo": algo_version,
+        "diag": list(supercell_diag),
+        "subl": canon_subl,
+        "seed": int(seed),
+        "algo": str(algo_version),
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
@@ -70,7 +115,7 @@ def _json_canon(obj: Any) -> Any:
 
 
 def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
-    """CE-style canonicalization: sort keys and cast values to int (no zero/neg checks)."""
+    """Sort keys and cast to int (no zero/neg checks)."""
     return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
 
 
@@ -88,157 +133,97 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
     return v
 
 
-# -------------------- refined-WL INTENT normalization --------------------
-
-def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
+def _canon_sublattice_specs(sublattices: Sequence[SublatticeSpec]) -> list[dict[str, Any]]:
     """
-    Canonicalize a refined-WL *intent* source and REQUIRE a seed:
-
-      {
-        "type": "wl_refined_intent",
-        "base_ce_key": str,
-        "endpoints": [counts_map, ...],                 # canonicalized and sorted
-        "wl_policy": {bin_width, step_type, check_period, update_period, seed},  # seed REQUIRED
-        "ensure": {steps_to_run, samples_per_bin},
-        "refine": {mode, n_total|null, per_bin_cap|null, strategy},
-        "dopt": {budget, ridge, tie_breaker},
-        "versions": {refine, dopt, sampler}
-      }
+    Canonicalize SublatticeSpec list into JSON-ready dicts:
+      [{"replace": <str>, "counts": {elem: int, ...}}, ...]
+    Deterministic order: sort by 'replace', then by counts JSON.
     """
-    base_ce_key = str(src["base_ce_key"])
+    canon: list[dict[str, Any]] = []
+    for sl in sublattices:
+        replace = str(sl.replace_element)
+        cnts = canonical_counts(sl.counts)
+        canon.append({"replace": replace, "counts": cnts})
 
-    # endpoints: canonicalize counts, stable order
-    endpoints_raw = list(src.get("endpoints", []))
-    endpoints = [canonical_counts(e) for e in endpoints_raw]
-    endpoints.sort(key=lambda m: json.dumps(m, sort_keys=True, separators=(",", ":")))
+    def _key(d: Mapping[str, Any]) -> tuple[str, str]:
+        cj = json.dumps(d["counts"], sort_keys=True, separators=(",", ":"))
+        return (d["replace"], cj)
 
-    # wl_policy: must include a seed
-    raw_wl_policy = dict(src.get("wl_policy", {}))
-    if "seed" not in raw_wl_policy:
-        raise ValueError("wl_refined_intent.wl_policy must include an integer 'seed'.")
-    # Normalize/round numerics but keep exact int for seed after casting
-    wl_policy = _json_canon(_canon_num(raw_wl_policy))
-    wl_policy["seed"] = int(raw_wl_policy["seed"])
-
-    ensure = _json_canon(_canon_num(dict(src.get("ensure", {}))))
-    refine = _json_canon(_canon_num(dict(src.get("refine", {}))))
-    dopt = _json_canon(_canon_num(dict(src.get("dopt", {}))))
-    versions = _json_canon(_canon_num(dict(src.get("versions", {}))))
-
-    return {
-        "type": "wl_refined_intent",
-        "base_ce_key": base_ce_key,
-        "endpoints": endpoints,
-        "wl_policy": wl_policy,
-        "ensure": ensure,
-        "refine": refine,
-        "dopt": dopt,
-        "versions": versions,
-    }
+    return sorted(canon, key=_key)
 
 
-# -------------------- unified CE key over arbitrary sources (intent only) --------------------
-
-def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _canon_mixtures(mixtures: Sequence[SublatticeMixtureElement]) -> list[dict[str, Any]]:
     """
-    Normalize the 'sources' list into a canonical JSON-ready structure.
-
-    Supported source types:
-      - {"type": "composition", "elements": [{"counts": {...}, "K": int, "seed": int}, ...]}
-      - {"type": "wl_refined_intent", ...}
+    Canonicalize mixture elements:
+      [{"sublattices": [{"replace":..., "counts": {...}}, ...], "K": int, "seed": int}, ...]
+    Stable order: by sublattices JSON, then seed, then K.
     """
-    norm: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
+    for m in mixtures:
+        subls = _canon_sublattice_specs(m.sublattices)
+        out.append({"sublattices": subls, "K": int(m.K), "seed": int(m.seed)})
 
-    for src in sources:
-        t = str(src.get("type", "")).lower()
+    def _ekey(e_: Mapping[str, Any]) -> tuple[str, int, int]:
+        cj = json.dumps(e_["sublattices"], sort_keys=True, separators=(",", ":"))
+        return (cj, int(e_["seed"]), int(e_["K"]))
 
-        if t == "composition":
-            elems_in = list(src.get("elements", []))
-            elems_norm: list[dict[str, Any]] = []
-            for e in elems_in:
-                if "seed" not in e:
-                    raise ValueError("composition.elements[*] must include an integer 'seed'.")
-                cnts = canonical_counts(e.get("counts", {}))
-                K = int(e.get("K", 0))  # K may remain optional; seed may not.
-                try:
-                    seed = int(e["seed"])
-                except Exception as exc:
-                    raise ValueError("composition.elements[*].seed must be an integer.") from exc
-                elems_norm.append({"counts": cnts, "K": K, "seed": seed})
-
-            # stable sort: by (counts_json, seed, K)
-            def _ekey(e_: Mapping[str, Any]) -> tuple[str, int, int]:
-                cj = json.dumps(e_["counts"], sort_keys=True, separators=(",", ":"))
-                return (cj, int(e_["seed"]), int(e_["K"]))
-
-            elems_norm = sorted(elems_norm, key=_ekey)
-            norm.append({"type": "composition", "elements": elems_norm})
-
-        elif t == "wl_refined_intent":
-            norm.append(_normalize_wl_refined_intent(src))
-
-        else:
-            raise ValueError(f"Unknown source type: {t!r}")
-
-    # sort sources deterministically by type then JSON payload
-    def _src_key(s: Mapping[str, Any]) -> tuple[str, str]:
-        t = str(s.get("type", ""))
-        j = json.dumps(_json_canon(s), sort_keys=True, separators=(",", ":"))
-        return (t, j)
-
-    return sorted(norm, key=_src_key)
+    return sorted(out, key=_ekey)
 
 
-def compute_ce_key(
-    *,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
-    supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    sources: Sequence[Mapping[str, Any]],
-    algo_version: str,
-    model: str,
-    relax_cell: bool,
-    dtype: str,
-    basis_spec: Mapping[str, Any],
-    regularization: Mapping[str, Any] | None = None,
-    extra_hyperparams: Mapping[str, Any] | None = None,
-    weighting: Mapping[str, Any] | None = None,
-) -> str:
+def _derive_replace_elements(mixtures: Sequence[SublatticeMixtureElement]) -> list[str]:
+    """Collect and sort the unique placeholder symbols appearing across all sublattices."""
+    seen: set[str] = set()
+    for m in mixtures:
+        for sl in m.sublattices:
+            seen.add(str(sl.replace_element))
+    return sorted(seen)
+
+
+# -------------------- Universal CE key --------------------
+
+def compute_ce_key(*, spec: CEKeySpec) -> str:
     """
-    Deterministic key for a CE trained from an arbitrary set of sampling sources.
-    Identity includes: system, canonicalized `sources`, engine, hyperparams (incl. weighting), and algo_version.
+    Deterministic key for a CE trained from sublattice-composition mixtures.
+    THIS is the sole public interface. All inputs must be provided via `CEKeySpec`.
 
-    NOTE: For refined CE runs, only the *intent* (type="wl_refined_intent") is hashed.
+    Identity includes:
+      - system (prototype, params, supercell, derived replace_elements),
+      - sampling (algo_version, canonical mixtures),
+      - engine (model, relax_cell, dtype),
+      - hyperparameters (basis_spec, regularization, extra_hyperparams, weighting).
     """
-    norm_sources = _normalize_sources(sources)
+    mixtures_canon = _canon_mixtures(spec.mixtures)
+    replace_elements = _derive_replace_elements(spec.mixtures)
 
     payload = {
-        "kind": "ce_key@sources",
+        "kind": "ce_key@sublattice_composition",
         "system": {
-            "prototype": prototype,
-            "proto_params": _json_canon(prototype_params),
-            "supercell": list(supercell_diag),
-            "replace": replace_element,
+            "prototype": str(spec.prototype),
+            "proto_params": _json_canon(spec.prototype_params),
+            "supercell": [int(x) for x in spec.supercell_diag],
+            "replace_elements": replace_elements,
         },
         "sampling": {
-            "algo": algo_version,
-            "sources": norm_sources,
+            "algo": str(spec.algo_version),
+            "elements": mixtures_canon,
         },
-        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
+        "engine": {
+            "model": str(spec.model),
+            "relax_cell": bool(spec.relax_cell),
+            "dtype": str(spec.dtype),
+        },
         "hyperparams": {
-            "basis": _json_canon(basis_spec),
-            "regularization": _json_canon(regularization or {}),
-            "extra": _json_canon(extra_hyperparams or {}),
-            "weighting": _json_canon(weighting or {}),
+            "basis": _json_canon(spec.basis_spec),
+            "regularization": _json_canon(spec.regularization or {}),
+            "extra": _json_canon(spec.extra_hyperparams or {}),
+            "weighting": _json_canon(spec.weighting or {}),
         },
     }
-
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-# -------------------- Wang-Landau chain key (unchanged semantics) --------------------
+# -------------------- WL key (unchanged) --------------------
 
 def compute_wl_key(
     *,
@@ -251,27 +236,16 @@ def compute_wl_key(
     seed: int,
     algo_version: str = "wl-grid-v1",
 ) -> str:
-    """
-    Idempotent identity for a canonical WL run based ONLY on the public contract:
-    CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule (sans steps), and seed.
-    Zero-count species are stripped; at least one positive count is required.
-    """
     comp_counts = canonical_counts(composition_counts)
     comp_counts = {k: int(v) for k, v in comp_counts.items() if int(v) != 0}
     if not comp_counts:
         raise ValueError("composition_counts must include at least one species with a positive count.")
-
     payload = {
         "kind": "wl_key",
         "algo": algo_version,
         "ce_key": str(ce_key),
-        "ensemble": {
-            "type": "canonical",
-            "composition_counts": comp_counts,
-        },
-        "grid": {
-            "bin_width": _round_float(float(bin_width)),
-        },
+        "ensemble": {"type": "canonical", "composition_counts": comp_counts},
+        "grid": {"bin_width": _round_float(float(bin_width))},
         "mc": {
             "step_type": str(step_type),
             "check_period": int(check_period),

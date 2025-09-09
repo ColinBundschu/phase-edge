@@ -1,5 +1,8 @@
 import numpy as np
 from ase.atoms import Atoms
+from typing import Iterable, Mapping
+
+from phaseedge.schemas.sublattice import SublatticeSpec
 
 
 def validate_counts_for_sublattice(
@@ -7,22 +10,19 @@ def validate_counts_for_sublattice(
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
     replace_element: str,
-    counts: dict[str, int],
-) -> int:
+    counts: Mapping[str, int],
+) -> tuple[int, np.ndarray]:
     """
-    Validate that the integer counts sum to the number of replaceable sites
-    in the supercell built from `conv_cell` and `supercell_diag`.
+    Validate that integer counts sum to the number of replaceable sites on the target sublattice.
 
     Returns:
-        n_sites: the number of replaceable sites found in the supercell.
+        (n_sites, target_idx) where target_idx are indices of the replaceable sites in the supercell.
 
     Raises:
-        ValueError: if counts don't sum to n_sites or any count is negative.
+        ValueError if counts don't sum to n_sites or any count is negative.
     """
     sc = conv_cell.repeat(supercell_diag)
-
     symbols = np.array(sc.get_chemical_symbols())
-    # indices on the replaceable sublattice
     target_idx = np.where(symbols == replace_element)[0]
     n_sites = int(target_idx.size)
 
@@ -38,49 +38,66 @@ def validate_counts_for_sublattice(
             f"Counts must sum to replacement sublattice size: got {total}, expected {n_sites}"
         )
 
-    return n_sites
+    return n_sites, target_idx
 
 
 def make_one_snapshot(
     *,
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
+    sublattices: Iterable[SublatticeSpec],
     rng: np.random.Generator,
 ) -> Atoms:
     """
-    Build a supercell, then replace exactly N_i sites on the target sublattice
-    according to integer counts. Deterministic under the provided RNG.
+    Build a supercell, then for each sublattice spec, replace exactly its target sites per integer counts.
+    Deterministic given the provided RNG and a fixed order of `sublattices`.
 
-    - conv_cell: primitive/conv cell ASE Atoms
+    - conv_cell: primitive or conventional prototype Atoms
     - supercell_diag: (nx, ny, nz)
-    - replace_element: species in conv_cell whose sites are replaceable (e.g., "Mg")
-    - counts: e.g. {"Co": 76, "Fe": 32} (MUST sum to number of replaceable sites in the supercell)
+    - sublattices: iterable of SublatticeSpec (one per sublattice you want to modify)
+    - rng: NumPy Generator whose state determines the deterministic assignment
+
+    Returns:
+        A new ASE Atoms with the requested species assigned on each sublattice.
+
+    Raises:
+        ValueError if any sublattice counts don’t sum to its size.
     """
     sc = conv_cell.repeat(supercell_diag)
-
     symbols = np.array(sc.get_chemical_symbols())
-    # indices on the replaceable sublattice
-    target_idx = np.where(symbols == replace_element)[0]
-    n_sites = int(target_idx.size)
 
-    total = sum(int(v) for v in counts.values())
-    if total != n_sites:
-        raise ValueError(
-            f"Counts must sum to replacement sublattice size: got {total}, expected {n_sites}"
-        )
+    # Work on a sorted, concrete list for deterministic traversal order
+    plans = sorted(sublattices, key=lambda s: s.replace_element)
 
-    # deterministic assignment: permute indices, then slice by exact counts
-    perm = rng.permutation(n_sites)
-    start = 0
-    for elem, n in sorted(counts.items()):  # sort for stable order
-        n = int(n)
-        if n < 0:
-            raise ValueError(f"Negative count for {elem}: {n}")
-        idx_slice = target_idx[perm[start:start + n]]
-        symbols[idx_slice] = elem
-        start += n
+    for spec in plans:
+        # locate sublattice
+        target_mask = (symbols == spec.replace_element)
+        target_idx = np.flatnonzero(target_mask)
+        n_sites = int(target_idx.size)
+
+        # validate counts
+        total = 0
+        for elem, n in spec.counts.items():
+            n_int = int(n)
+            if n_int < 0:
+                raise ValueError(f"Negative count for {elem}: {n_int}")
+            total += n_int
+        if total != n_sites:
+            raise ValueError(
+                f"[{spec.replace_element}] counts must sum to {n_sites}, got {total}"
+            )
+
+        # deterministic assignment: shuffle indices, then take exact slices per sorted element
+        perm = rng.permutation(n_sites)
+        start = 0
+        # stable ordering so the same RNG state yields identical assignments across runs
+        for elem, n in sorted(spec.counts.items()):
+            n_int = int(n)
+            if n_int == 0:
+                continue
+            sel = target_idx[perm[start:start + n_int]]
+            symbols[sel] = elem
+            start += n_int
 
     sc.set_chemical_symbols(symbols.tolist())
     return sc
