@@ -1,5 +1,3 @@
-# select_d_optimal_basis.py
-
 from typing import Any, Mapping, Sequence, TypedDict, Literal, cast, Optional
 
 import hashlib
@@ -12,6 +10,7 @@ from smol.moca.ensemble import Ensemble
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot, validate_counts_for_sublattice
 from phaseedge.storage.ce_store import lookup_ce_by_key
+from phaseedge.science.prototypes import make_prototype
 
 
 class Candidate(TypedDict):
@@ -48,9 +47,6 @@ def _occ_for_counts(
     replace_element: str,
     counts: Mapping[str, int],
 ) -> list[int]:
-    from phaseedge.science.prototypes import make_prototype
-    from pymatgen.io.ase import AseAtomsAdaptor
-
     conv = make_prototype(prototype, **dict(prototype_params))
     counts_clean = {str(k): int(v) for k, v in counts.items()}
     validate_counts_for_sublattice(
