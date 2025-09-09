@@ -32,10 +32,6 @@ class CETrainRef(TypedDict):
 def _lookup_energy_and_check_converged(
     *, set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str
 ) -> float:
-    """
-    Find the FF TaskDocument in `outputs` via job metadata and return total energy,
-    but *only* if the relaxation is converged. Raises with a clear message otherwise.
-    """
     coll = store.db_rw()["outputs"]
     doc: Mapping[str, Any] | None = coll.find_one(
         {
@@ -84,10 +80,6 @@ def _lookup_energy_and_check_converged(
 
 
 def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
-    """
-    Canonical hash over sorted (set_id, occ_key, energy) triplets.
-    Guards against occ_key collisions across different set_ids.
-    """
     payload = [
         {"set_id": sid, "occ_key": ok, "energy": float(e)}
         for (sid, ok, e) in sorted(records, key=lambda t: (t[0], t[1]))
@@ -125,42 +117,14 @@ def fetch_training_set_multi(
 ) -> dict[str, Any]:
     """
     Reconstruct EXACT snapshots (multi-sublattice) and fetch relaxed energies.
-
-    Supported input group schemas:
-
-      RNG groups (current, sublattice-aware):
-        {
-          "set_id": str,
-          "occ_keys": list[str],             # ordered, one per snapshot
-          "sublattices": [SublatticeSpec, ...],
-          "seed": int
-        }
-
-      WL groups (occupancy-based):
-        {
-          "set_id": str,
-          "occ_keys": list[str],             # ordered, structure-based keys
-          "occs": list[list[int]],           # raw occupancies, length matches occ_keys
-          # optional "sublattices": [SublatticeSpec, ...] (if present, we validate counts)
-        }
-
-    Returns:
-      {
-        "structures": list[Structure],
-        "energies": list[float],
-        "train_refs": list[CETrainRef],
-        "dataset_hash": str,
-      }
     """
     if not groups:
         raise ValueError("fetch_training_set_multi: 'groups' must be a non-empty sequence.")
 
-    # Build prototype conventional cell once for reconstruction
     conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 
-    # If any group contains 'occs', we need a CE ensemble to rebuild those structures
     needs_ensemble = any(isinstance(g, Mapping) and "occs" in g for g in groups)
     ensemble: Ensemble | None = None
     if needs_ensemble:
@@ -195,9 +159,10 @@ def fetch_training_set_multi(
         if not is_wl_group:
             if not isinstance(subl_raw, Sequence) or len(subl_raw) == 0:
                 raise ValueError(f"group[{gi}] missing 'sublattices' for RNG reconstruction.")
-        subl_specs: Sequence[SublatticeSpec] = cast(Sequence[SublatticeSpec], subl_raw) if subl_raw else ()
 
-        # If sublattices are present, validate against the prototype+supercell
+        # ---- canonical read: SublatticeSpec.from_dict on canonical JSON ----
+        subl_specs = [SublatticeSpec.from_dict(sd) for sd in (subl_raw or [])]
+
         if subl_specs:
             for sl in subl_specs:
                 validate_counts_for_sublattice(
@@ -208,7 +173,6 @@ def fetch_training_set_multi(
                 )
 
         if is_wl_group:
-            # WL path: rebuild from occupancies via CE ensemble and verify structure-based occ_key
             if ensemble is None:
                 raise RuntimeError("Internal error: ensemble is None but WL group encountered.")
             occs = cast(Sequence[Sequence[int]], g["occs"])
@@ -218,19 +182,16 @@ def fetch_training_set_multi(
             for i, (occ_raw, ok_expected) in enumerate(zip(occs, occ_keys)):
                 occ_arr = np.asarray([int(x) for x in occ_raw], dtype=np.int32)
                 pmg_struct = ensemble.processor.structure_from_occupancy(occ_arr)
-                # recompute structure-based key
                 atoms = AseAtomsAdaptor.get_atoms(pmg_struct)
                 ok2 = occ_key_for_atoms(cast(Atoms, atoms))
                 if ok2 != ok_expected:
                     raise ValueError(
                         f"WL group occ_key mismatch in group[{gi}] at index={i}: "
-                        f"expected {ok_expected}, rebuilt {ok2}. "
-                        "This indicates a change in structure hashing or occupancy mapping."
+                        f"expected {ok_expected}, rebuilt {ok2}."
                     )
 
                 structures.append(pmg_struct)
 
-                # Energy lookup from ff_tasks (must exist)
                 try:
                     e = _lookup_energy_and_check_converged(
                         set_id=set_id, occ_key=ok_expected, model=model, relax_cell=relax_cell, dtype=dtype
@@ -252,28 +213,24 @@ def fetch_training_set_multi(
                 hash_records.append((set_id, ok_expected, e))
 
         else:
-            # RNG path (multi-sublattice): deterministic regeneration via set_id/index
             seed = g.get("seed")
             if not isinstance(seed, int):
                 raise ValueError(f"group[{gi}] missing integer 'seed' for RNG reconstruction.")
 
-            # NOTE: seed is embedded in set_id; rng_for_index uses (set_id, idx, attempt)
             for i, ok in enumerate(occ_keys):
-                rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
+                rng = rng_for_index(set_id, int(i), 0)
                 snap = make_one_snapshot(
                     conv_cell=conv,
                     supercell_diag=sc_diag,
-                    sublattices=subl_specs,  # <-- multi-sublattice
+                    sublattices=subl_specs,
                     rng=rng,
                 )
                 ok2 = occ_key_for_atoms(snap)
                 if ok2 != ok:
                     raise ValueError(
-                        f"occ_key mismatch in group[{gi}] at index={i}: expected {ok}, rebuilt {ok2}. "
-                        "This indicates a change in snapshot generation or inputs."
+                        f"occ_key mismatch in group[{gi}] at index={i}: expected {ok}, rebuilt {ok2}."
                     )
 
-                # Convert to pymatgen Structure
                 pmg = AseAtomsAdaptor.get_structure(snap)  # pyright: ignore[reportArgumentType]
                 structures.append(pmg)
 

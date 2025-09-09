@@ -6,8 +6,6 @@ from jobflow.core.job import job, Job
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.jobs.ensure_snapshots_composition import make_ensure_snapshots_composition_flow
 from phaseedge.schemas.sublattice import SublatticeSpec
-# Reuse canonicalization helper from keys to avoid duplication
-from phaseedge.utils.keys import _canon_sublattice_specs
 
 __all__ = ["make_ensure_snapshots_compositions"]
 
@@ -15,8 +13,8 @@ __all__ = ["make_ensure_snapshots_compositions"]
 class SnapshotGroup(TypedDict):
     set_id: str
     occ_keys: list[str]
-    # Canonicalized sublattices (same shape as keys._canon_sublattice_specs):
-    # [{"replace": "<placeholder>", "counts": {elem: int, ...}}, ...]
+    # Canonical sublattices (SublatticeSpec.as_dict):
+    # [{"replace_element": "<placeholder>", "counts": {elem: int, ...}}, ...]
     sublattices: list[dict[str, Any]]
     seed: int
 
@@ -46,7 +44,7 @@ def _gather_groups(groups: Sequence[Any], meta: Sequence[MixtureElement]) -> Gat
           {
             "set_id": str,
             "occ_keys": [str, ...],
-            "sublattices": [{"replace": str, "counts": {str:int}}, ...],
+            "sublattices": [{"replace_element": str, "counts": {str:int}}, ...],
             "seed": int
           },
           ...
@@ -54,7 +52,7 @@ def _gather_groups(groups: Sequence[Any], meta: Sequence[MixtureElement]) -> Gat
       }
 
     Notes:
-      - Reuses phaseedge.utils.keys._canon_sublattice_specs to canonicalize sublattices.
+      - Serializes sublattices with SublatticeSpec.as_dict() (canonical JSON).
       - This job assumes MixtureElement typing; no guess-and-check on dict shapes.
     """
     if len(groups) != len(meta):
@@ -71,13 +69,13 @@ def _gather_groups(groups: Sequence[Any], meta: Sequence[MixtureElement]) -> Gat
         sid = g.get("set_id")
         oks = g.get("occ_keys")
 
-        # Strict typing: sublattices is Sequence[SublatticeSpec] and seed is required
         subl_specs: Sequence[SublatticeSpec] = m["sublattices"]
         if not isinstance(subl_specs, Sequence) or len(subl_specs) == 0:
             bad_idxs.append(i)
             continue
 
-        canon_subls = _canon_sublattice_specs(subl_specs)
+        # Canonical JSON (no utils.keys canonicalization)
+        canon_subls = [sl.as_dict() for sl in subl_specs]
         seed = int(m["seed"])
 
         if not isinstance(sid, str):
@@ -138,7 +136,6 @@ def make_ensure_snapshots_compositions(
 
     subflows: list[Flow] = []
     inner_gathers: list[Job] = []
-    # Canonicalized meta passed to the final gather job—kept minimal and deterministic
     canon_meta: list[MixtureElement] = []
 
     for mi, elem in enumerate(mixture):
@@ -171,10 +168,8 @@ def make_ensure_snapshots_compositions(
         subflows.append(flow_i)
         inner_gathers.append(j_gather_i)
 
-        # Pass through typed meta for the final gather
-        canon_meta.append({"sublattices": list(subl_specs), "K": K, "seed": seed})
+        canon_meta.append({"sublattices": list(subl_specs), "K": K, "seed": int(seed)})
 
-    # Final gather depends on all inner gathers by referencing their outputs
     j_multi = _gather_groups(groups=[jg.output for jg in inner_gathers], meta=canon_meta)
     j_multi.name = "gather_groups"
     j_multi.metadata = {**(j_multi.metadata or {}), "_category": category}

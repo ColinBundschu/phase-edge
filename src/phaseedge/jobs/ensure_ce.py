@@ -16,7 +16,7 @@ from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.schemas.sublattice import SublatticeSpec
 from phaseedge.utils.keys import (
-    compute_ce_key, CEKeySpec, SublatticeMixtureElement, _canon_sublattice_specs
+    compute_ce_key, CEKeySpec, SublatticeMixtureElement
 )
 
 
@@ -155,7 +155,6 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         prototype=proto_name,
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
-        # replace_elements=list(spec.replace_elements),
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
@@ -183,7 +182,11 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
 
     # Persist (store canonical mixtures right next to the key)
     canon_elements = [
-        {"sublattices": _canon_sublattice_specs(e["sublattices"]), "K": int(e["K"]), "seed": int(e["seed"])}
+        {
+            "sublattices": [sl.as_dict() for sl in e["sublattices"]],
+            "K": int(e["K"]),
+            "seed": int(e["seed"]),
+        }
         for e in spec.mixture
     ]
 
