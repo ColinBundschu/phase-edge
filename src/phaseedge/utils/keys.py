@@ -8,7 +8,7 @@ from ase.atoms import Atoms
 from pymatgen.io.ase import AseAtomsAdaptor
 
 
-def compute_set_id_counts(
+def compute_set_id(
     *,
     prototype: str,
     prototype_params: dict[str, Any] | None,

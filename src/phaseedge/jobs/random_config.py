@@ -12,7 +12,7 @@ from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.utils.keys import (
     rng_for_index,
     occ_key_for_atoms,
-    compute_set_id_counts,
+    compute_set_id,
 )
 
 class RandomConfigResult(TypedDict):
@@ -67,7 +67,7 @@ def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
     Uses exact integer counts (no fractions).
     """
     conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
-    set_id = compute_set_id_counts(
+    set_id = compute_set_id(
         prototype=spec.prototype,
         prototype_params=spec.prototype_params if spec.prototype_params else None,
         supercell_diag=spec.supercell_diag,
