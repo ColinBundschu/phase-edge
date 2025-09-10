@@ -13,24 +13,52 @@ def compute_set_id(
     prototype: str,
     prototype_params: dict[str, Any] | None,
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
+    composition_map: dict[str, dict[str, int]],
     seed: int,
-    algo_version: str = "randgen-2-counts-1",
+    algo_version: str = "randgen-3-compmap-1",
 ) -> str:
-    """Deterministic identity for a logical (expandable) snapshot sequence using integer counts."""
-    counts_sorted = {k: int(counts[k]) for k in sorted(counts)}
+    """
+    Deterministic identity for a logical (expandable) snapshot sequence using a
+    multi-sublattice composition map.
+
+    Parameters
+    ----------
+    prototype
+        Prototype name (e.g., "rocksalt").
+    prototype_params
+        Prototype parameters (e.g., {"a": 4.3}).
+    supercell_diag
+        Diagonal replication of the conventional/primitive cell (e.g., (3,3,3)).
+    composition_map
+        Map of each replaceable sublattice label (e.g., "Mg") to its integer
+        counts mapping, e.g. {"Mg": {"Fe": 10, "Mg": 98}, "Al": {...}, ...}.
+        Keys and nested keys are canonically sorted before hashing.
+    seed
+        RNG seed for the sequence of K snapshots under this logical set.
+    algo_version
+        Version tag for the identity algorithm.
+
+    Returns
+    -------
+    str
+        Stable SHA-256 hex digest identifying this logical snapshot set.
+    """
+    # Canonicalize: sort sublattice labels and, within each, sort element labels
+    comp_norm: dict[str, dict[str, int]] = {}
+    for sublat in sorted(composition_map):
+        counts = composition_map[sublat] or {}
+        comp_norm[sublat] = {el: int(counts[el]) for el in sorted(counts)}
+
     payload = {
         "prototype": prototype,
         "proto_params": prototype_params or {},
-        "diag": supercell_diag,
-        "replace": replace_element,
-        "counts": counts_sorted,
-        "seed": seed,
-        "algo": algo_version,
+        "diag": list(map(int, supercell_diag)),
+        "composition_map": comp_norm,
+        "seed": int(seed),
+        "algo": str(algo_version),
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode()).hexdigest()
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def seed_for(set_id: str, index: int, attempt: int = 0) -> int:

@@ -22,12 +22,27 @@ class RandomConfigResult(TypedDict):
 
 @dataclass
 class RandomConfigSpec(MSONable):
+    """
+    Deterministic generation of a single random configuration from a logical set.
+
+    This bottom-up migration moves from (replace_element, counts) to a
+    multi-sublattice `composition_map`:
+        {
+          "<replace_element_A>": {"Elem1": n1, "Elem2": n2, ...},
+          "<replace_element_B>": {"Elem1": m1, "Elem2": m2, ...},
+          ...
+        }
+
+    For now, snapshot generation remains single-sublattice for backward
+    compatibility; multi-sublattice snapshot support will be enabled in this job
+    once the random_configs generator is wired equivalently.
+    """
+
     # inputs that define the snapshot set + which index to generate
     prototype: PrototypeName
     prototype_params: dict[str, Any]
     supercell_diag: tuple[int, int, int]
-    replace_element: str
-    counts: dict[str, int]          # integers, not fractions
+    composition_map: dict[str, dict[str, int]]
     seed: int
     index: int                      # which snapshot index in the set to generate
     attempt: int = 0                # bump only if collision forces a retry
@@ -40,8 +55,7 @@ class RandomConfigSpec(MSONable):
             "prototype": self.prototype,
             "prototype_params": self.prototype_params,
             "supercell_diag": list(self.supercell_diag),
-            "replace_element": self.replace_element,
-            "counts": self.counts,
+            "composition_map": self.composition_map,
             "seed": self.seed,
             "index": self.index,
             "attempt": self.attempt,
@@ -49,12 +63,15 @@ class RandomConfigSpec(MSONable):
 
     @classmethod
     def from_dict(cls, d: dict) -> "RandomConfigSpec":
+        sx, sy, sz = (int(x) for x in d["supercell_diag"])
         return cls(
             prototype=d["prototype"],
             prototype_params=d["prototype_params"],
-            supercell_diag=tuple(d["supercell_diag"]),
-            replace_element=d["replace_element"],
-            counts={k: int(v) for k, v in (d.get("counts") or {}).items()},
+            supercell_diag=(sx, sy, sz),
+            composition_map={
+                str(sublat): {str(k): int(v) for k, v in counts.items()}
+                for sublat, counts in d["composition_map"].items()
+            },
             seed=int(d["seed"]),
             index=int(d["index"]),
             attempt=int(d.get("attempt", 0)),
@@ -63,30 +80,46 @@ class RandomConfigSpec(MSONable):
 @job
 def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
     """
-    Deterministically generate ONE random configuration + metadata.
-    Uses exact integer counts (no fractions).
+    Deterministically generate ONE random configuration + metadata from a logical
+    set, using exact integer counts (no fractions).
+
+    Multi-sublattice note:
+      - If composition_map has exactly one sublattice, we use the existing
+        single-sublattice snapshot generator (non-breaking today).
+      - If it has multiple sublattices, this job deliberately raises until the
+        multi-sublattice snapshot generator is plugged in here.
     """
     conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
+
     set_id = compute_set_id(
         prototype=spec.prototype,
         prototype_params=spec.prototype_params if spec.prototype_params else None,
         supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
-        counts=spec.counts,
+        composition_map=spec.composition_map,
         seed=spec.seed,
     )
 
     rng = rng_for_index(set_id, spec.index, spec.attempt)
 
-    snapshot = make_one_snapshot(
-        conv_cell=conv_cell,
-        supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
-        counts=spec.counts,
-        rng=rng,
-    )
+    # Single-sublattice fast path (non-breaking)
+    if len(spec.composition_map) == 1:
+        (replace_element, counts), = spec.composition_map.items()
+        snapshot = make_one_snapshot(
+            conv_cell=conv_cell,
+            supercell_diag=spec.supercell_diag,
+            replace_element=str(replace_element),
+            counts={str(k): int(v) for k, v in (counts or {}).items()},
+            rng=rng,
+        )
+    else:
+        # TODO(colin): when random_configs.make_one_snapshot supports
+        #   sublattices=[SublatticeSpec(...), ...], call that path here.
+        raise NotImplementedError(
+            "make_random_config: multi-sublattice composition_map provided, "
+            "but this job currently only generates single-sublattice snapshots. "
+            "Wire the multi-sublattice snapshot generator here next."
+        )
 
     occ_key = occ_key_for_atoms(snapshot)
-    structure = AseAtomsAdaptor.get_structure(snapshot) # pyright: ignore[reportArgumentType]
-
+    structure = AseAtomsAdaptor.get_structure(snapshot)  # pyright: ignore[reportArgumentType]
     return {"structure": structure, "set_id": set_id, "occ_key": occ_key}
