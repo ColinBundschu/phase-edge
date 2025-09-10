@@ -32,6 +32,17 @@ class CETrainRef(TypedDict):
 def _lookup_energy_and_check_converged(
     *, set_id: str, occ_key: str, model: str, relax_cell: bool, dtype: str
 ) -> float:
+    """
+    Fetch a completed output and apply convergence policy.
+
+    Policy:
+      - Always require a stored total energy.
+      - If ionic relaxation was performed:
+          * require is_force_converged == True
+          * if relax_cell == True and energy_downhill == False -> ERROR
+          * if relax_cell == False and energy_downhill == False -> WARN (accept)
+      - If no ionic relaxation (single-point), skip force & downhill checks.
+    """
     coll = store.db_rw()["outputs"]
     doc: Mapping[str, Any] | None = coll.find_one(
         {
@@ -45,6 +56,9 @@ def _lookup_energy_and_check_converged(
             "output.is_force_converged": 1,
             "output.energy_downhill": 1,
             "output.output.energy": 1,
+            # bring in ionic step metadata to detect single-point vs relax
+            "output.output.n_steps": 1,
+            "output.output.ionic_steps": 1,
         },
     )
 
@@ -55,6 +69,32 @@ def _lookup_energy_and_check_converged(
         )
 
     out = doc.get("output", {}) if isinstance(doc, Mapping) else {}
+    out_inner = out.get("output", {}) if isinstance(out, Mapping) else {}
+
+    # Determine whether any ionic relaxation actually happened
+    n_steps = out_inner.get("n_steps")
+    ionic_steps = out_inner.get("ionic_steps")
+    n_ionic: int | None = None
+    if isinstance(n_steps, (int, np.integer)):
+        n_ionic = int(n_steps)
+    elif isinstance(ionic_steps, list):
+        n_ionic = len(ionic_steps)
+
+    did_relax = isinstance(n_ionic, int) and n_ionic > 1
+
+    # Energy must be present
+    energy = out_inner.get("energy")
+    if energy is None:
+        raise RuntimeError(
+            f"No total energy stored for set_id={set_id} occ_key={occ_key} "
+            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
+        )
+
+    # For single-point (no ionic relaxation), skip force & downhill logic
+    if not did_relax:
+        return float(energy)
+
+    # For relaxations, require force convergence
     is_conv = bool(out.get("is_force_converged"))
     if not is_conv:
         raise RuntimeError(
@@ -62,19 +102,23 @@ def _lookup_energy_and_check_converged(
             f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
         )
 
+    # Downhill policy depends on whether cell was allowed to change
     downhill = out.get("energy_downhill")
-    if downhill is False:
-        raise RuntimeError(
-            f"Relaxation ended uphill in energy for set_id={set_id} occ_key={occ_key} "
-            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
-        )
-
-    energy = out.get("output", {}).get("energy")
-    if energy is None:
-        raise RuntimeError(
-            f"No total energy stored for set_id={set_id} occ_key={occ_key} "
-            f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
-        )
+    if relax_cell:
+        # With cell relax, uphill almost always indicates a broken run
+        if downhill is False:
+            raise RuntimeError(
+                f"Relaxation ended uphill in energy for set_id={set_id} occ_key={occ_key} "
+                f"(model={model}, relax_cell={relax_cell}, dtype={dtype})."
+            )
+    else:
+        # Fixed-cell: allow slight uphill; keep as a warning in logs (non-fatal)
+        if downhill is False:
+            # You can switch to a proper logger if available
+            print(
+                f"[WARN] Fixed-cell relaxation ended uphill for set_id={set_id} occ_key={occ_key} "
+                f"(model={model}, dtype={dtype}). Accepting final energy."
+            )
 
     return float(energy)
 
