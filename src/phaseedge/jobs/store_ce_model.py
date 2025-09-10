@@ -1,7 +1,9 @@
 from typing import Any, Mapping, Sequence, TypedDict, cast
+import json
 
 from jobflow.core.job import job
 from phaseedge.storage import store
+from monty.json import MontyEncoder
 
 
 class _StoredCE(TypedDict, total=False):
@@ -23,7 +25,7 @@ def _payload_to_dict(payload: Any) -> Mapping[str, Any]:
     Accept either a Mapping, a smol ClusterExpansion, or anything else.
     Prefer a proper dict via .as_dict(); fall back to repr().
     """
-    if isinstance(payload, dict):
+    if isinstance(payload, Mapping):
         return payload
     # smol ClusterExpansion and most monty objects implement as_dict()
     as_dict = getattr(payload, "as_dict", None)
@@ -74,6 +76,9 @@ def store_ce_model(
         "design_metrics": dict(design_metrics),
         "success": True,
     }
+
+    # Clean, canonical conversion of *all* nested MSONable/NumPy/etc to pure Python
+    doc = cast(_StoredCE, json.loads(json.dumps(doc, cls=MontyEncoder)))
 
     coll = _ce_coll()
     coll.update_one({"ce_key": ce_key}, {"$set": doc}, upsert=True)

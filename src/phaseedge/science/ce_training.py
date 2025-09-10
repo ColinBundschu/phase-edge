@@ -95,40 +95,31 @@ def build_subspace(
 
 def featurize_structures(
     *,
-    subspace,
+    subspace: ClusterSubspace,
     structures: Sequence[Structure],
     supercell_diag: tuple[int, int, int],
-):
+) -> tuple[StructureWrangler, NDArray[np.float64]]:
     """
     Build a StructureWrangler and feature matrix X for the given structures.
-    Ensures we pass ComputedStructureEntry (not bare Structure) to smol.
 
-    Returns
-    -------
-    wrangler : StructureWrangler
-    X        : np.ndarray  (n_structures, n_features)
+    Critical details:
+      - Always pass the explicit supercell matrix so SMOL maps each entry
+        to the subspace parent deterministically.
+      - Do NOT reuse a site_mapping from another entry; mappings are entry-specific.
     """
-
-    # supercell as an integer diagonal matrix
     nx, ny, nz = map(int, supercell_diag)
     sc_mat = np.diag((nx, ny, nz))
 
     wrangler = StructureWrangler(subspace)
-    site_map = None  # keep first mapping to stabilize features across entries
-
-    for s in structures:
+    for i, s in enumerate(structures):
         if not isinstance(s, Structure):
-            raise TypeError(f"Expected pymatgen Structure, got {type(s)!r}")
-        entry = ComputedStructureEntry(structure=s, energy=0.0)  # energy unused for X
+            raise TypeError(f"Expected pymatgen Structure at index {i}, got {type(s)!r}")
+        entry = ComputedStructureEntry(structure=s, energy=0.0)
         wrangler.add_entry(
             entry,
-            supercell_matrix=sc_mat,
-            site_mapping=site_map,   # reuse mapping after first add
+            supercell_matrix=sc_mat,  # <--- explicit transform (key to fix)
             verbose=False,
         )
-        if site_map is None and wrangler.entries:
-            # Persist the site mapping discovered on the first entry
-            site_map = wrangler.entries[-1].data.get("site_mapping")
 
     X = wrangler.feature_matrix
     if X.size == 0 or X.shape[1] == 0:
@@ -136,6 +127,8 @@ def featurize_structures(
             "Feature matrix is empty (no clusters generated). "
             "Increase cutoffs or adjust the basis specification."
         )
+    if X.shape[0] != len(structures):
+        raise RuntimeError(f"Feature/target mismatch: X has {X.shape[0]} rows, structures={len(structures)}.")
     return wrangler, X
 
 

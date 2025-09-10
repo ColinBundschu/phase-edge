@@ -160,8 +160,8 @@ def fetch_training_set_multi(
             if not isinstance(subl_raw, Sequence) or len(subl_raw) == 0:
                 raise ValueError(f"group[{gi}] missing 'sublattices' for RNG reconstruction.")
 
-        # ---- canonical read: SublatticeSpec.from_dict on canonical JSON ----
-        subl_specs = [SublatticeSpec.from_dict(sd) for sd in (subl_raw or [])]
+        # ---- NEW data format already passes SublatticeSpec instances; do not deserialize again ----
+        subl_specs: list[SublatticeSpec] = list(cast(Sequence[SublatticeSpec], (subl_raw or [])))
 
         if subl_specs:
             for sl in subl_specs:

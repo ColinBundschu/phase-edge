@@ -92,7 +92,7 @@ def main() -> int:
         prototype=args.prototype,
         prototype_params=proto_params,
         supercell_diag=supercell_diag,
-        sublattices=sublats,
+        sublattices=list(sublats),
         seed=seed,
         index=int(args.index),
     )
