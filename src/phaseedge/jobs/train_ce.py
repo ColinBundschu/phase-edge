@@ -166,7 +166,6 @@ def train_ce(
     # CE config
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
-    extra_hyperparams: Mapping[str, Any],
     # weighting
     weighting: Mapping[str, Any] | None = None,
     # CV config

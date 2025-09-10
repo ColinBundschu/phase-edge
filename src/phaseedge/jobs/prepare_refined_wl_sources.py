@@ -18,7 +18,6 @@ def prepare_refined_wl_sources(
     # CE hyperparameters (same basis/regs used for final CE key)
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None,
-    extra_hyperparams: Mapping[str, Any] | None,
     weighting: Mapping[str, Any] | None,
 
     # Final training engine identity (goes into final ce_key)
@@ -133,7 +132,6 @@ def prepare_refined_wl_sources(
         dtype=train_dtype,
         basis_spec=dict(basis_spec),
         regularization=dict(regularization or {}),
-        extra_hyperparams=dict(extra_hyperparams or {}),
         algo_version=str(algo_version),
         weighting=dict(weighting or {}),
     )

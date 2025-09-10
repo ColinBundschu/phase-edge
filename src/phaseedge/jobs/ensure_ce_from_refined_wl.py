@@ -73,7 +73,6 @@ def ensure_ce_from_refined_wl(
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         algo_version="randgen-3-comp-1",
         weighting=dict(ce_spec.weighting or {}),
     )
@@ -125,7 +124,6 @@ def ensure_ce_from_refined_wl(
         dtype=str(train_dtype),
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         algo_version="refined-wl-dopt-v2",
         weighting=dict(ce_spec.weighting or {}),
     )
@@ -168,7 +166,6 @@ def ensure_ce_from_refined_wl(
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         algo_version=algo_base,
         weighting=dict(ce_spec.weighting or {}),
     )
@@ -276,7 +273,6 @@ def ensure_ce_from_refined_wl(
         replace_element=ce_spec.replace_element,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         weighting=dict(ce_spec.weighting or {}),
         train_model=str(train_model),
         train_relax_cell=bool(train_relax_cell),
@@ -333,7 +329,6 @@ def ensure_ce_from_refined_wl(
         replace_element=ce_spec.replace_element,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         cv_seed=int(ce_spec.default_seed),
         weighting=dict(ce_spec.weighting or {}),
     )  # type: ignore[assignment]
@@ -357,7 +352,6 @@ def ensure_ce_from_refined_wl(
         hyperparams={
             "basis_spec": dict(ce_spec.basis_spec),
             "regularization": dict(ce_spec.regularization or {}),
-            "extra": dict(ce_spec.extra_hyperparams or {}),
             "weighting": dict(ce_spec.weighting or {}),
         },
         train_refs=j_fetch.output["train_refs"],

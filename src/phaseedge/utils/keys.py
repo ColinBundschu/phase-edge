@@ -202,7 +202,6 @@ def compute_ce_key(
     dtype: str,
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None = None,
-    extra_hyperparams: Mapping[str, Any] | None = None,
     weighting: Mapping[str, Any] | None = None,
 ) -> str:
     """
@@ -229,7 +228,6 @@ def compute_ce_key(
         "hyperparams": {
             "basis": _json_canon(basis_spec),
             "regularization": _json_canon(regularization or {}),
-            "extra": _json_canon(extra_hyperparams or {}),
             "weighting": _json_canon(weighting or {}),
         },
     }

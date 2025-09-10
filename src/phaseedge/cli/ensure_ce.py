@@ -138,7 +138,6 @@ def main() -> None:
         dtype=args.dtype,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
-        extra_hyperparams={},
         weighting=weighting,
     )
 
@@ -155,7 +154,6 @@ def main() -> None:
         dtype=args.dtype,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
-        extra_hyperparams={},
         category=args.category,
         weighting=weighting,
     )

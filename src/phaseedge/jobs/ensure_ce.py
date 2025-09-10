@@ -38,7 +38,6 @@ class CEEnsureMixtureSpec(MSONable):
     # CE hyperparameters (all knobs that distinguish models)
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
-    extra_hyperparams: Mapping[str, Any] | None = None
     weighting: Mapping[str, Any] | None = None
 
     # scheduling
@@ -67,7 +66,6 @@ class CEEnsureMixtureSpec(MSONable):
             "dtype": self.dtype,
             "basis_spec": dict(self.basis_spec),
             "regularization": dict(self.regularization or {}),
-            "extra_hyperparams": dict(self.extra_hyperparams or {}),
             "weighting": dict(self.weighting or {}),
             "category": self.category,
         }
@@ -96,7 +94,6 @@ class CEEnsureMixtureSpec(MSONable):
             dtype=str(d["dtype"]),
             basis_spec=dict(d.get("basis_spec", {})),
             regularization=dict(d.get("regularization", {})),
-            extra_hyperparams=dict(d.get("extra_hyperparams", {})),
             weighting=dict(d.get("weighting", {})) or None,
             category=str(d.get("category", "gpu")),
         )
@@ -149,7 +146,6 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         dtype=spec.dtype,
         basis_spec=dict(spec.basis_spec),
         regularization=dict(spec.regularization or {}),
-        extra_hyperparams=dict(spec.extra_hyperparams or {}),
         algo_version=algo,
         weighting=dict(spec.weighting or {}),
     )
@@ -203,7 +199,6 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
             replace_element=spec.replace_element,
             basis_spec=dict(spec.basis_spec),
             regularization=dict(spec.regularization or {}),
-            extra_hyperparams=dict(spec.extra_hyperparams or {}),
             cv_seed=int(spec.default_seed),
             weighting=dict(spec.weighting or {}),
         ),
@@ -239,7 +234,6 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
             hyperparams={
                 "basis_spec": dict(spec.basis_spec),
                 "regularization": dict(spec.regularization or {}),
-                "extra": dict(spec.extra_hyperparams or {}),
                 "weighting": dict(spec.weighting or {}),
             },
             train_refs=j_fetch.output["train_refs"],
