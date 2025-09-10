@@ -99,7 +99,6 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         algo_version=algo,
         weighting=dict(ce_spec.weighting or {}),
     )
@@ -117,7 +116,6 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
         dtype=ce_spec.dtype,
         basis_spec=dict(ce_spec.basis_spec),
         regularization=dict(ce_spec.regularization or {}),
-        extra_hyperparams=dict(ce_spec.extra_hyperparams or {}),
         weighting=dict(ce_spec.weighting or {}) if ce_spec.weighting else None,
         category=str(spec.category),
     )

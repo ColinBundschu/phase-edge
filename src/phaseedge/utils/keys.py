@@ -46,7 +46,6 @@ class CEKeySpec:
     # Hyperparameters
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
-    extra_hyperparams: Mapping[str, Any] | None = None
     weighting: Mapping[str, Any] | None = None
 
     # Version tag for the sampling/key contract
@@ -190,7 +189,7 @@ def compute_ce_key(*, spec: CEKeySpec) -> str:
       - system (prototype, params, supercell, derived replace_elements),
       - sampling (algo_version, canonical mixtures),
       - engine (model, relax_cell, dtype),
-      - hyperparameters (basis_spec, regularization, extra_hyperparams, weighting).
+      - hyperparameters (basis_spec, regularization, weighting).
     """
     mixtures_canon = _canon_mixtures(spec.mixtures)
     replace_elements = _derive_replace_elements(spec.mixtures)
@@ -215,7 +214,6 @@ def compute_ce_key(*, spec: CEKeySpec) -> str:
         "hyperparams": {
             "basis": _json_canon(spec.basis_spec),
             "regularization": _json_canon(spec.regularization or {}),
-            "extra": _json_canon(spec.extra_hyperparams or {}),
             "weighting": _json_canon(spec.weighting or {}),
         },
     }

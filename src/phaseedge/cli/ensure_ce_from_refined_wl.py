@@ -173,7 +173,6 @@ def main() -> int:
         dtype=args.dtype,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": float(args.alpha), "l1_ratio": float(args.l1_ratio)},
-        extra_hyperparams={},
         category=str(args.category),
         weighting=weighting,
     )
@@ -209,7 +208,6 @@ def main() -> int:
         dtype=args.dtype,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": float(args.alpha), "l1_ratio": float(args.l1_ratio)},
-        extra_hyperparams={},
         weighting=weighting or {},
     )
 
@@ -292,7 +290,6 @@ def main() -> int:
         dtype=str(args.train_dtype),
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": float(args.alpha), "l1_ratio": float(args.l1_ratio)},
-        extra_hyperparams={},
         weighting=weighting or {},
     )
 
