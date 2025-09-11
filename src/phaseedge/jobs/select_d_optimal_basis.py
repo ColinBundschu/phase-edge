@@ -8,7 +8,7 @@ from smol.cofe import ClusterExpansion
 from smol.moca.ensemble import Ensemble
 
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.science.random_configs import make_one_snapshot, validate_counts_for_sublattice
+from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.science.prototypes import make_prototype
 
@@ -44,23 +44,14 @@ def _occ_for_counts(
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: Mapping[str, int],
+    composition_map: dict[str, dict[str, int]],
 ) -> list[int]:
     conv = make_prototype(prototype, **dict(prototype_params))
-    counts_clean = {str(k): int(v) for k, v in counts.items()}
-    validate_counts_for_sublattice(
-        conv_cell=conv,
-        supercell_diag=supercell_diag,
-        replace_element=replace_element,
-        counts=counts_clean,
-    )
     rng = np.random.default_rng(0)  # deterministic
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=supercell_diag,
-        replace_element=replace_element,
-        counts=counts_clean,
+        composition_map=composition_map,
         rng=rng,
     )
     from pymatgen.io.ase import AseAtomsAdaptor as _Adaptor
@@ -120,13 +111,13 @@ def select_d_optimal_basis(
 
     # Endpoints (forced seed) — include counts for grouping
     for ep in endpoints:
+        counts_clean = {str(k): int(v) for k, v in ep.items()}
         occ = _occ_for_counts(
             ensemble=ensemble,
             prototype=prototype,
             prototype_params=prototype_params,
             supercell_diag=supercell_diag,
-            replace_element=replace_element,
-            counts=ep,
+            composition_map={replace_element: counts_clean},
         )
         candidates.append(
             Candidate(

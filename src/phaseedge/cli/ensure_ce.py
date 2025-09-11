@@ -8,7 +8,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
 from phaseedge.science.prototypes import make_prototype
-from phaseedge.science.random_configs import validate_counts_for_sublattice
+from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.utils.keys import compute_ce_key
 from phaseedge.cli.common import parse_counts_arg
 
@@ -108,12 +108,11 @@ def main() -> None:
     # Optional early validation
     conv = make_prototype(args.prototype, a=args.a)
     for elem in compositions:
-        cts = dict(elem["counts"])
-        validate_counts_for_sublattice(
+        counts_clean = {str(k): int(v) for k, v in elem["counts"].items()}
+        validate_counts_for_sublattices(
             conv_cell=conv,
             supercell_diag=tuple(args.supercell),
-            replace_element=args.replace_element,
-            counts=cts,
+            composition_map={args.replace_element: counts_clean},
         )
 
     # Weighting config payload

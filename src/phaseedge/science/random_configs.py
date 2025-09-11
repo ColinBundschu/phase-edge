@@ -2,85 +2,100 @@ import numpy as np
 from ase.atoms import Atoms
 
 
-def validate_counts_for_sublattice(
+def validate_counts_for_sublattices(
     *,
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
-) -> int:
+    composition_map: dict[str, dict[str, int]],
+) -> None:
     """
-    Validate that the integer counts sum to the number of replaceable sites
-    in the supercell built from `conv_cell` and `supercell_diag`.
+    Validate that, for each replace_element key in `composition_map`, the integer
+    counts sum to the number of replaceable sites on that sublattice in the
+    supercell (conv_cell repeated by supercell_diag).
 
-    Returns:
-        n_sites: the number of replaceable sites found in the supercell.
-
-    Raises:
-        ValueError: if counts don't sum to n_sites or any count is negative.
+    Raises
+    ------
+    ValueError
+        If any count is negative or if the counts do not sum to the number
+        of sites on that sublattice.
     """
     sc = conv_cell.repeat(supercell_diag)
-
     symbols = np.array(sc.get_chemical_symbols())
-    # indices on the replaceable sublattice
-    target_idx = np.where(symbols == replace_element)[0]
-    n_sites = int(target_idx.size)
 
-    total = 0
-    for elem, n in counts.items():
-        n_int = int(n)
-        if n_int < 0:
-            raise ValueError(f"Negative count for {elem}: {n_int}")
-        total += n_int
+    for replace_element, counts in composition_map.items():
+        target_idx = np.where(symbols == replace_element)[0]
+        n_sites = int(target_idx.size)
 
-    if total != n_sites:
-        raise ValueError(
-            f"Counts must sum to replacement sublattice size: got {total}, expected {n_sites}"
-        )
+        if any(int(v) < 0 for v in counts.values()):
+            raise ValueError(f"Negative count in counts for {replace_element}: {counts}")
 
-    return n_sites
+        total = sum(int(v) for v in counts.values())
+        if total != n_sites:
+            raise ValueError(
+                f"[{replace_element}] counts must sum to sublattice size: "
+                f"got {total}, expected {n_sites}"
+            )
 
 
 def make_one_snapshot(
     *,
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    counts: dict[str, int],
+    composition_map: dict[str, dict[str, int]],
     rng: np.random.Generator,
 ) -> Atoms:
     """
-    Build a supercell, then replace exactly N_i sites on the target sublattice
-    according to integer counts. Deterministic under the provided RNG.
+    Build a supercell, then for each sublattice (identified by its placeholder
+    `replace_element` symbol), assign exact integer counts by permuting that
+    sublattice's indices once and filling contiguous slices of the permutation.
 
-    - conv_cell: primitive/conv cell ASE Atoms
-    - supercell_diag: (nx, ny, nz)
-    - replace_element: species in conv_cell whose sites are replaceable (e.g., "Mg")
-    - counts: e.g. {"Co": 76, "Fe": 32} (MUST sum to number of replaceable sites in the supercell)
+    Determinism
+    -----------
+    - Deterministic given (conv_cell, supercell_diag, composition_map, rng state).
+    - We iterate both sublattices and element labels in sorted order.
+    - Each call to `rng.permutation(...)` advances the RNG state, so two
+      sublattices with the same size still receive different permutations.
+
+    Notes
+    -----
+    This selector uses **element symbol equality** to define a sublattice:
+        target_idx = np.where(symbols == replace_element)
+    If multiple distinct sublattices share the *same* placeholder symbol in the
+    prototype, they will be merged. For true multi-sublattice separation you’ll
+    need distinct placeholders in the prototype or an index-mask approach.
     """
+    validate_counts_for_sublattices(
+        conv_cell=conv_cell,
+        supercell_diag=supercell_diag,
+        composition_map=composition_map,
+    )
+
     sc = conv_cell.repeat(supercell_diag)
-
     symbols = np.array(sc.get_chemical_symbols())
-    # indices on the replaceable sublattice
-    target_idx = np.where(symbols == replace_element)[0]
-    n_sites = int(target_idx.size)
 
-    total = sum(int(v) for v in counts.values())
-    if total != n_sites:
-        raise ValueError(
-            f"Counts must sum to replacement sublattice size: got {total}, expected {n_sites}"
-        )
+    # Deterministic order across dicts
+    for replace_element, counts in sorted(composition_map.items()):
+        target_idx = np.where(symbols == replace_element)[0]
+        n_sites = int(target_idx.size)
 
-    # deterministic assignment: permute indices, then slice by exact counts
-    perm = rng.permutation(n_sites)
-    start = 0
-    for elem, n in sorted(counts.items()):  # sort for stable order
-        n = int(n)
-        if n < 0:
-            raise ValueError(f"Negative count for {elem}: {n}")
-        idx_slice = target_idx[perm[start:start + n]]
-        symbols[idx_slice] = elem
-        start += n
+        # One permutation per sublattice; RNG state advances per call.
+        perm = rng.permutation(n_sites)
+
+        start = 0
+        for elem, n in sorted(counts.items()):  # stable element order
+            n_int = int(n)
+            if n_int <= 0:
+                raise ValueError(f"Zero or negative count for {elem}: {n_int}")
+
+            idx_slice = target_idx[perm[start:start + n_int]]
+            symbols[idx_slice] = elem
+            start += n_int
+
+        # Safety: ensure we consumed exactly n_sites entries on this sublattice
+        if start != n_sites:
+            raise RuntimeError(
+                f"[{replace_element}] count slices consumed {start} out of {n_sites} sites."
+            )
 
     sc.set_chemical_symbols(symbols.tolist())
     return sc

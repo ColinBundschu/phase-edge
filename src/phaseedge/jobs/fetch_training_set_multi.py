@@ -11,7 +11,7 @@ from ase.atoms import Atoms
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import (
     make_one_snapshot,
-    validate_counts_for_sublattice,
+    validate_counts_for_sublattices,
 )
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 from phaseedge.storage import store
@@ -192,11 +192,10 @@ def fetch_training_set_multi(
             raise ValueError(f"group[{gi}] missing or empty 'counts'.")
 
         # Validate counts vs prototype/supercell (arity-agnostic)
-        validate_counts_for_sublattice(
+        validate_counts_for_sublattices(
             conv_cell=conv,
             supercell_diag=sc_diag,
-            replace_element=replace_element,
-            counts=counts,
+            composition_map={replace_element: counts},
         )
 
         is_wl_group = "occs" in g
@@ -255,8 +254,7 @@ def fetch_training_set_multi(
                 snap = make_one_snapshot(
                     conv_cell=conv,
                     supercell_diag=sc_diag,
-                    replace_element=replace_element,
-                    counts=counts,
+                    composition_map={replace_element: counts},
                     rng=rng,
                 )
                 ok2 = occ_key_for_atoms(snap)

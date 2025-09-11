@@ -14,7 +14,7 @@ from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
 from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint
 from phaseedge.science.prototypes import make_prototype, PrototypeName
-from phaseedge.science.random_configs import make_one_snapshot, validate_counts_for_sublattice
+from phaseedge.science.random_configs import make_one_snapshot
 
 
 # ---- shared helpers -------------------------------------------------------
@@ -36,17 +36,10 @@ def _initial_occupancy_from_counts(
 
     conv = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     counts_clean = {str(k): int(v) for k, v in counts.items()}
-    validate_counts_for_sublattice(
-        conv_cell=conv,
-        supercell_diag=tuple(supercell_diag),
-        replace_element=replace_element,
-        counts=counts_clean,
-    )
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=tuple(supercell_diag),
-        replace_element=replace_element,
-        counts=counts_clean,
+        composition_map={replace_element: counts_clean},
         rng=rng,
     )
     struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]

@@ -100,26 +100,12 @@ def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
     )
 
     rng = rng_for_index(set_id, spec.index, spec.attempt)
-
-    # Single-sublattice fast path (non-breaking)
-    if len(spec.composition_map) == 1:
-        (replace_element, counts), = spec.composition_map.items()
-        snapshot = make_one_snapshot(
-            conv_cell=conv_cell,
-            supercell_diag=spec.supercell_diag,
-            replace_element=str(replace_element),
-            counts={str(k): int(v) for k, v in (counts or {}).items()},
-            rng=rng,
-        )
-    else:
-        # TODO(colin): when random_configs.make_one_snapshot supports
-        #   sublattices=[SublatticeSpec(...), ...], call that path here.
-        raise NotImplementedError(
-            "make_random_config: multi-sublattice composition_map provided, "
-            "but this job currently only generates single-sublattice snapshots. "
-            "Wire the multi-sublattice snapshot generator here next."
-        )
-
+    snapshot = make_one_snapshot(
+        conv_cell=conv_cell,
+        supercell_diag=spec.supercell_diag,
+        composition_map=spec.composition_map,
+        rng=rng,
+    )
     occ_key = occ_key_for_atoms(snapshot)
     structure = AseAtomsAdaptor.get_structure(snapshot)  # pyright: ignore[reportArgumentType]
     return {"structure": structure, "set_id": set_id, "occ_key": occ_key}
