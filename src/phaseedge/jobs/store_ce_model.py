@@ -1,15 +1,23 @@
 from typing import Any, Mapping, Sequence, TypedDict, cast
 
 from jobflow.core.job import job
+from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage import store
 from monty.json import jsanitize
 
-class _StoredCE(TypedDict, total=False):
+class CEModelDoc(TypedDict, total=True):
     ce_key: str
-    system: Mapping[str, Any]
-    sampling: Mapping[str, Any]
-    engine: Mapping[str, Any]
-    hyperparams: Mapping[str, Any]
+    prototype: PrototypeName
+    prototype_params: Mapping[str, Any]
+    supercell_diag: tuple[int, int, int]
+    algo_version: str
+    sources: Sequence[Mapping[str, Any]]  # e.g., training set fetch params
+    model: str
+    relax_cell: bool
+    dtype: str
+    basis_spec: Mapping[str, Any]
+    regularization: Mapping[str, Any]
+    weighting: Mapping[str, Any]
     train_refs: Sequence[Mapping[str, Any]]
     dataset_hash: str
     payload: Mapping[str, Any]
@@ -39,34 +47,61 @@ def _payload_to_dict(payload: Any) -> Mapping[str, Any]:
 
 
 def _ce_coll():
-    return store.db_rw()["ce_models"]
+    coll = store.db_rw()["ce_models"]
+    coll.create_index("ce_key", unique=True, background=True)
+    return coll
+
+
+def lookup_ce_by_key(ce_key: str) -> CEModelDoc | None:
+    """Fetch a CE model by its unique key."""
+    doc = _ce_coll().find_one({"ce_key": ce_key})
+    return cast(CEModelDoc | None, doc)
 
 
 @job
 def store_ce_model(
     *,
     ce_key: str,
-    system: Mapping[str, Any],
-    sampling: Mapping[str, Any],
-    engine: Mapping[str, Any],
-    hyperparams: Mapping[str, Any],
+    
+    prototype: PrototypeName,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+
+    algo_version: str,
+    sources: Sequence[Mapping[str, Any]],
+
+    model: str,
+    relax_cell: bool,
+    dtype: str,
+
+    basis_spec: Mapping[str, Any],
+    regularization: Mapping[str, Any],
+    weighting: Mapping[str, Any],
+
     train_refs: Sequence[Mapping[str, Any]],
     dataset_hash: str,
     payload: Any,          # may be a dict or a ClusterExpansion object
     stats: Mapping[str, Any],
     design_metrics: Mapping[str, Any],
-) -> _StoredCE:
+) -> CEModelDoc:
     """
     Idempotently persist a trained CE (mixture-friendly).
     If a doc with ce_key exists, we overwrite fields (upsert semantics).
     Returns the stored document from DB.
     """
-    doc: _StoredCE = {
+    doc: CEModelDoc = {
         "ce_key": ce_key,
-        "system": dict(system),
-        "sampling": dict(sampling),
-        "engine": dict(engine),
-        "hyperparams": dict(hyperparams),
+        "prototype": prototype,
+        "prototype_params": dict(prototype_params),
+        "supercell_diag": supercell_diag,
+        "algo_version": algo_version,
+        "sources": [dict(s) for s in sources],
+        "model": model,
+        "relax_cell": relax_cell,
+        "dtype": dtype,
+        "basis_spec": dict(basis_spec),
+        "regularization": dict(regularization),
+        "weighting": dict(weighting),
         "train_refs": [dict(r) for r in train_refs],
         "dataset_hash": str(dataset_hash),
         "payload": _payload_to_dict(payload),
@@ -81,4 +116,4 @@ def store_ce_model(
     coll = _ce_coll()
     coll.update_one({"ce_key": ce_key}, {"$set": doc_sanitized}, upsert=True)
     stored = coll.find_one({"ce_key": ce_key}) or doc_sanitized
-    return cast(_StoredCE, stored)
+    return cast(CEModelDoc, stored)

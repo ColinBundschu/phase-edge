@@ -1,3 +1,5 @@
+from typing import Mapping
+
 import numpy as np
 from ase.atoms import Atoms
 
@@ -6,7 +8,7 @@ def validate_counts_for_sublattices(
     *,
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
-    composition_map: dict[str, dict[str, int]],
+    composition_map: Mapping[str, Mapping[str, int]],
 ) -> None:
     """
     Validate that, for each replace_element key in `composition_map`, the integer
@@ -41,7 +43,7 @@ def make_one_snapshot(
     *,
     conv_cell: Atoms,
     supercell_diag: tuple[int, int, int],
-    composition_map: dict[str, dict[str, int]],
+    composition_map: Mapping[str, Mapping[str, int]],
     rng: np.random.Generator,
 ) -> Atoms:
     """

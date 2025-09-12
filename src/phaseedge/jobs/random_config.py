@@ -24,9 +24,7 @@ class RandomConfigResult(TypedDict):
 class RandomConfigSpec(MSONable):
     """
     Deterministic generation of a single random configuration from a logical set.
-
-    This bottom-up migration moves from (replace_element, counts) to a
-    multi-sublattice `composition_map`:
+    This supports a multi-sublattice `composition_map`:
         {
           "<replace_element_A>": {"Elem1": n1, "Elem2": n2, ...},
           "<replace_element_B>": {"Elem1": m1, "Elem2": m2, ...},

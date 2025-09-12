@@ -44,9 +44,6 @@ def canonical_payload(wl_key: str, step_end: int, chunk_size: int,
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
-def sha256_hex(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
-
 
 def get_tip(wl_key: str) -> Mapping[str, Any] | None:
     return _coll().find_one({"wl_key": wl_key}, sort=[("step_end", -1)])
@@ -73,7 +70,7 @@ def insert_checkpoint(
     """
     coll = _coll()
     payload_bytes = canonical_payload(wl_key, step_end, chunk_size, state, occupancy)
-    this_hash = sha256_hex(payload_bytes)
+    this_hash = hashlib.sha256(payload_bytes).hexdigest()
 
     doc: dict[str, Any] = {
         "schema_version": 2,  # optional but helpful

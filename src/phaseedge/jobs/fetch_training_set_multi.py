@@ -15,9 +15,9 @@ from phaseedge.science.random_configs import (
 )
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 from phaseedge.storage import store
-from phaseedge.storage.ce_store import lookup_ce_by_key
-from smol.cofe import ClusterExpansion
 from smol.moca.ensemble import Ensemble
+
+from phaseedge.utils.rehydrators import rehydrate_ensemble_by_ce_key
 
 
 class CETrainRef(TypedDict):
@@ -96,18 +96,6 @@ def _dataset_hash(records: Sequence[tuple[str, str, float]]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _rehydrate_ensemble_by_ce_key(ce_key: str) -> Ensemble:
-    doc = lookup_ce_by_key(ce_key)
-    if not doc:
-        raise RuntimeError(f"No CE found for ce_key={ce_key}")
-    payload = cast(Mapping[str, Any], doc["payload"])
-    ce = ClusterExpansion.from_dict(dict(payload))
-    system = cast(Mapping[str, Any], doc["system"])
-    sc = tuple(int(x) for x in cast(Sequence[int], system["supercell_diag"]))
-    sc_matrix = np.diag(sc)
-    return Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
-
-
 @job
 def fetch_training_set_multi(
     *,
@@ -168,7 +156,7 @@ def fetch_training_set_multi(
             raise ValueError(
                 "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
             )
-        ensemble = _rehydrate_ensemble_by_ce_key(str(ce_key_for_rebuild))
+        ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
 
     structures: list[Structure] = []
     energies: list[float] = []

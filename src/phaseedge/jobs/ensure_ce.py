@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence, cast, Final
+from typing import Any, Mapping, cast, Final
 
 from monty.json import MSONable
 from jobflow.core.job import Response, job, Job
@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 
 from phaseedge.schemas.mixture import Mixture, sublattices_from_mixtures
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.storage.ce_store import lookup_ce_by_key
+from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.jobs.ensure_snapshots_compositions import make_ensure_snapshots_compositions
 from phaseedge.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.jobs.train_ce import train_ce
@@ -188,33 +188,25 @@ def ensure_ce(spec: CEEnsureMixturesSpec) -> Any:
         Job,
         store_ce_model(
             ce_key=ce_key,
-            system={
-                "prototype": proto_name,
-                "prototype_params": proto_params,
-                "supercell_diag": list(spec.supercell_diag),
-            },
-            sampling={
-                "algo_version": algo,
-                "sources": [
-                    {
-                        "type": "composition",
-                        "mixtures": [
-                            {"composition_map": m.composition_map, "K": m.K, "seed": m.seed}
-                            for m in spec.mixtures
-                        ],
-                    }
-                ],
-            },
-            engine={
-                "model": spec.model,
-                "relax_cell": spec.relax_cell,
-                "dtype": spec.dtype,
-            },
-            hyperparams={
-                "basis_spec": dict(spec.basis_spec),
-                "regularization": dict(spec.regularization or {}),
-                "weighting": dict(spec.weighting or {}),
-            },
+            prototype=proto_name,
+            prototype_params=proto_params,
+            supercell_diag=list(spec.supercell_diag),
+            algo_version=algo,
+            sources = [
+                {
+                    "type": "composition",
+                    "mixtures": [
+                        {"composition_map": m.composition_map, "K": m.K, "seed": m.seed}
+                        for m in spec.mixtures
+                    ],
+                }
+            ],
+            model=spec.model,
+            relax_cell=spec.relax_cell,
+            dtype=spec.dtype,
+            basis_spec=dict(spec.basis_spec),
+            regularization=dict(spec.regularization or {}),
+            weighting=dict(spec.weighting or {}),
             train_refs=j_fetch.output["train_refs"],
             dataset_hash=j_fetch.output["dataset_hash"],
             payload=j_train.output["payload"],
