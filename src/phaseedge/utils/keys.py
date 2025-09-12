@@ -1,11 +1,13 @@
 import hashlib
 import json
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
 from pymatgen.io.ase import AseAtomsAdaptor
+
+from phaseedge.schemas.mixture import Mixture, canonical_counts
 
 
 def compute_set_id(
@@ -97,11 +99,6 @@ def _json_canon(obj: Any) -> Any:
     return obj
 
 
-def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
-    """CE-style canonicalization: sort keys and cast values to int (no zero/neg checks)."""
-    return {str(k): int(v) for k, v in sorted(counts.items(), key=lambda kv: kv[0])}
-
-
 def _round_float(x: float, ndigits: int = 12) -> float:
     return float(f"{x:.{ndigits}g}")
 
@@ -172,8 +169,10 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
     Normalize the 'sources' list into a canonical JSON-ready structure.
 
     Supported source types:
-      - {"type": "composition", "elements": [{"counts": {...}, "K": int, "seed": int}, ...]}
+      - {"type": "composition", "mixtures": list[Mixture]}
       - {"type": "wl_refined_intent", ...}
+
+    BREAKING CHANGE: 'elements' replaced by 'mixtures'.
     """
     norm: list[dict[str, Any]] = []
 
@@ -181,26 +180,23 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
         t = str(src.get("type", "")).lower()
 
         if t == "composition":
-            elems_in = list(src.get("elements", []))
-            elems_norm: list[dict[str, Any]] = []
-            for e in elems_in:
-                if "seed" not in e:
-                    raise ValueError("composition.elements[*] must include an integer 'seed'.")
-                cnts = canonical_counts(e.get("counts", {}))
-                K = int(e.get("K", 0))  # K may remain optional; seed may not.
-                try:
-                    seed = int(e["seed"])
-                except Exception as exc:
-                    raise ValueError("composition.elements[*].seed must be an integer.") from exc
-                elems_norm.append({"counts": cnts, "K": K, "seed": seed})
+            mixtures_in = src.get("mixtures")
+            if mixtures_in is None:
+                raise ValueError("composition.mixtures is required")
 
-            # stable sort: by (counts_json, seed, K)
-            def _ekey(e_: Mapping[str, Any]) -> tuple[str, int, int]:
-                cj = json.dumps(e_["counts"], sort_keys=True, separators=(",", ":"))
-                return (cj, int(e_["seed"]), int(e_["K"]))
+            mixtures: list[Mixture] = list(mixtures_in)
+            if not all(isinstance(m, Mixture) for m in mixtures):
+                raise TypeError("composition.mixtures must be a list of Mixture objects")
 
-            elems_norm = sorted(elems_norm, key=_ekey)
-            norm.append({"type": "composition", "elements": elems_norm})
+            mixtures_sorted = sorted(mixtures, key=lambda m: m.sort_key())
+
+            # Emit a plain, MSON-friendly payload (no @module/@class noise)
+            mixtures_payload: list[dict[str, Any]] = [
+                {"composition_map": m.composition_map, "K": m.K, "seed": m.seed}
+                for m in mixtures_sorted
+            ]
+
+            norm.append({"type": "composition", "mixtures": mixtures_payload})
 
         elif t == "wl_refined_intent":
             norm.append(_normalize_wl_refined_intent(src))
@@ -210,9 +206,9 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
 
     # sort sources deterministically by type then JSON payload
     def _src_key(s: Mapping[str, Any]) -> tuple[str, str]:
-        t = str(s.get("type", ""))
+        tt = str(s.get("type", ""))
         j = json.dumps(_json_canon(s), sort_keys=True, separators=(",", ":"))
-        return (t, j)
+        return (tt, j)
 
     return sorted(norm, key=_src_key)
 
@@ -222,7 +218,6 @@ def compute_ce_key(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
     sources: Sequence[Mapping[str, Any]],
     algo_version: str,
     model: str,
@@ -246,7 +241,6 @@ def compute_ce_key(
             "prototype": prototype,
             "proto_params": _json_canon(prototype_params),
             "supercell": list(supercell_diag),
-            "replace": replace_element,
         },
         "sampling": {
             "algo": algo_version,

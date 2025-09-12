@@ -11,6 +11,7 @@ from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.science.prototypes import make_prototype
+from phaseedge.schemas.mixture import canonical_counts
 
 
 class Candidate(TypedDict):
@@ -111,13 +112,12 @@ def select_d_optimal_basis(
 
     # Endpoints (forced seed) — include counts for grouping
     for ep in endpoints:
-        counts_clean = {str(k): int(v) for k, v in ep.items()}
         occ = _occ_for_counts(
             ensemble=ensemble,
             prototype=prototype,
             prototype_params=prototype_params,
             supercell_diag=supercell_diag,
-            composition_map={replace_element: counts_clean},
+            composition_map={replace_element: canonical_counts(ep)},
         )
         candidates.append(
             Candidate(

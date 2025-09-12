@@ -117,7 +117,6 @@ def fetch_training_set_multi(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
     # engine identity (for energy lookup)
     model: str,
     relax_cell: bool,
@@ -129,11 +128,11 @@ def fetch_training_set_multi(
     Reconstruct EXACT snapshots and fetch relaxed energies.
 
     Supported input group schemas:
-      RNG groups (legacy):
+      RNG groups:
         {
           "set_id": str,
           "occ_keys": list[str],         # ordered
-          "counts": dict[str, int],
+          "composition_map": dict[str, dict[str, int]],
           "seed": int,
         }
 
@@ -182,20 +181,20 @@ def fetch_training_set_multi(
             raise TypeError(f"group[{gi}] is not a mapping: {type(g)!r}")
         set_id = cast(str, g.get("set_id"))
         occ_keys = cast(Sequence[str], g.get("occ_keys"))
-        counts = {str(k): int(v) for k, v in dict(g.get("counts", {})).items()}
+        composition_map = g.get("composition_map")
 
         if not set_id or not isinstance(set_id, str):
             raise ValueError(f"group[{gi}] missing valid 'set_id'.")
         if not isinstance(occ_keys, Sequence) or not all(isinstance(x, str) for x in occ_keys):
             raise ValueError(f"group[{gi}] 'occ_keys' must be a list[str].")
-        if not counts:
-            raise ValueError(f"group[{gi}] missing or empty 'counts'.")
+        if not composition_map:
+            raise ValueError(f"group[{gi}] missing or empty 'composition_map'.")
 
         # Validate counts vs prototype/supercell (arity-agnostic)
         validate_counts_for_sublattices(
             conv_cell=conv,
             supercell_diag=sc_diag,
-            composition_map={replace_element: counts},
+            composition_map=composition_map,
         )
 
         is_wl_group = "occs" in g
@@ -254,7 +253,7 @@ def fetch_training_set_multi(
                 snap = make_one_snapshot(
                     conv_cell=conv,
                     supercell_diag=sc_diag,
-                    composition_map={replace_element: counts},
+                    composition_map=composition_map,
                     rng=rng,
                 )
                 ok2 = occ_key_for_atoms(snap)

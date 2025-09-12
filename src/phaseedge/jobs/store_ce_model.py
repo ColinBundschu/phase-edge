@@ -2,7 +2,7 @@ from typing import Any, Mapping, Sequence, TypedDict, cast
 
 from jobflow.core.job import job
 from phaseedge.storage import store
-
+from monty.json import jsanitize
 
 class _StoredCE(TypedDict, total=False):
     ce_key: str
@@ -67,7 +67,7 @@ def store_ce_model(
         "sampling": dict(sampling),
         "engine": dict(engine),
         "hyperparams": dict(hyperparams),
-        "train_refs": list(train_refs),
+        "train_refs": [dict(r) for r in train_refs],
         "dataset_hash": str(dataset_hash),
         "payload": _payload_to_dict(payload),
         "stats": dict(stats),
@@ -75,7 +75,10 @@ def store_ce_model(
         "success": True,
     }
 
+    # ---- Sanitize everything to Mongo-safe primitives ----
+    doc_sanitized = jsanitize(doc, strict=True)
+
     coll = _ce_coll()
-    coll.update_one({"ce_key": ce_key}, {"$set": doc}, upsert=True)
-    stored = coll.find_one({"ce_key": ce_key}) or doc
+    coll.update_one({"ce_key": ce_key}, {"$set": doc_sanitized}, upsert=True)
+    stored = coll.find_one({"ce_key": ce_key}) or doc_sanitized
     return cast(_StoredCE, stored)

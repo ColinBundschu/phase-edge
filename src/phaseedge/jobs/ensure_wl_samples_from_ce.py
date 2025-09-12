@@ -5,7 +5,7 @@ from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow, JobOrder
 from monty.json import MSONable
 
-from phaseedge.jobs.ensure_ce import CEEnsureMixtureSpec, ensure_ce
+from phaseedge.jobs.ensure_ce import CEEnsureMixturesSpec, ensure_ce
 from phaseedge.jobs.ensure_wl_samples import ensure_wl_samples
 from phaseedge.schemas.wl import WLSamplerSpec
 from phaseedge.utils.keys import compute_ce_key, compute_wl_key, canonical_counts
@@ -18,7 +18,7 @@ def _counts_sig(counts: Mapping[str, int]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class EnsureWLSamplesFromCESpec(MSONable):
-    ce_spec: CEEnsureMixtureSpec
+    ce_spec: CEEnsureMixturesSpec
     endpoints: Sequence[Mapping[str, int]]
 
     wl_bin_width: float
@@ -52,10 +52,10 @@ class EnsureWLSamplesFromCESpec(MSONable):
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "EnsureWLSamplesFromCESpec":
         ce_spec = d.get("ce_spec")
-        if not isinstance(ce_spec, CEEnsureMixtureSpec):
-            ce_spec = CEEnsureMixtureSpec.from_dict(cast(Mapping[str, Any], ce_spec))
+        if not isinstance(ce_spec, CEEnsureMixturesSpec):
+            ce_spec = CEEnsureMixturesSpec.from_dict(cast(Mapping[str, Any], ce_spec))
         return cls(
-            ce_spec=cast(CEEnsureMixtureSpec, ce_spec),
+            ce_spec=cast(CEEnsureMixturesSpec, ce_spec),
             endpoints=cast(Sequence[Mapping[str, int]], d.get("endpoints", [])),
             wl_bin_width=float(d["wl_bin_width"]),
             wl_steps_to_run=int(d["wl_steps_to_run"]),
@@ -104,7 +104,7 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     )
 
     # 3) Ensure CE; pass unified category into the CE spec so inner jobs adopt it
-    ce_spec_for_run = CEEnsureMixtureSpec(
+    ce_spec_for_run = CEEnsureMixturesSpec(
         prototype=ce_spec.prototype,
         prototype_params=dict(ce_spec.prototype_params),
         supercell_diag=ce_spec.supercell_diag,

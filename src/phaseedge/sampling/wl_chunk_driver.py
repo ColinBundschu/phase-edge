@@ -15,6 +15,7 @@ from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure
 from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
+from phaseedge.schemas.mixture import canonical_counts
 
 
 # ---- shared helpers -------------------------------------------------------
@@ -35,11 +36,10 @@ def _initial_occupancy_from_counts(
     replace_element = cast(str, system["replace_element"])
 
     conv = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-    counts_clean = {str(k): int(v) for k, v in counts.items()}
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=tuple(supercell_diag),
-        composition_map={replace_element: counts_clean},
+        composition_map={replace_element: canonical_counts(counts)},
         rng=rng,
     )
     struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]

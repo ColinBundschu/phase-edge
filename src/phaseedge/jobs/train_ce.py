@@ -57,48 +57,29 @@ def _n_replace_sites_from_prototype(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
+    sublattices: dict[str, tuple[str, ...]],
 ) -> int:
     """
     Count the number of active (replace_element) sites in the **supercell** built
     by replicating the prototype conventional cell by supercell_diag.
     """
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-    n_per_prim = sum(1 for at in conv_cell if at.symbol == replace_element)  # type: ignore[attr-defined]
+    n_per_prim = sum(1 for at in conv_cell if at.symbol in sublattices)
     if n_per_prim <= 0:
-        raise ValueError(f"Prototype has no sites for replace_element='{replace_element}'.")
-    nx, ny, nz = map(int, supercell_diag)
-    return int(n_per_prim) * int(nx) * int(ny) * int(nz)
+        raise ValueError(f"Prototype has no sites for sublattices='{sublattices}'.")
+    nx, ny, nz = supercell_diag
+    return int(n_per_prim) * nx * ny * nz
 
 
-def _infer_allowed_species(
-    conv_cell: Atoms, replace_element: str, structures: Sequence[Structure]
-) -> list[str]:
-    anion_symbols = {at.symbol for at in conv_cell if at.symbol != replace_element}  # type: ignore[attr-defined]
-    seen: set[str] = set()
-    for s in structures:
-        for site in s.sites:
-            sym = getattr(getattr(site, "specie", None), "symbol", None)
-            if not isinstance(sym, str):
-                sym = str(getattr(site, "specie", ""))
-            if sym and sym not in anion_symbols:
-                seen.add(sym)
-    if not seen:
-        raise ValueError(
-            "Could not infer allowed species from training structures; got empty set "
-            "(did energies/structures come from the expected cation sublattice?)."
-        )
-    return sorted(seen)
-
-
-def _composition_signature(s: Structure, allowed_species: Sequence[str]) -> str:
-    counts: dict[str, int] = {el: 0 for el in allowed_species}
+def _composition_signature(s: Structure) -> str:
+    counts: dict[str, int] = {}
     for site in s.sites:
         sym = getattr(getattr(site, "specie", None), "symbol", None)
         if not isinstance(sym, str):
             sym = str(getattr(site, "specie", ""))
-        if sym in counts:
-            counts[sym] += 1
+        if sym not in counts:
+            counts[sym] = 0
+        counts[sym] += 1
     parts = [f"{el}:{int(counts[el])}" for el in sorted(counts)]
     return ",".join(parts)
 
@@ -138,7 +119,7 @@ def _build_sample_weights(
     scheme = str(weighting.get("scheme", "")).lower()
     alpha = float(weighting.get("alpha", 1.0))
 
-    if scheme in ("inv_count", "inverse_count", "balanced_by_composition", "balance_by_comp"):
+    if scheme in ("balance_by_comp"):
         for idxs in comp_to_indices.values():
             n_g = max(1, len(idxs))
             base = (1.0 / float(n_g)) ** alpha
@@ -148,8 +129,8 @@ def _build_sample_weights(
         if s > 0:
             w *= (n_total / s)
         return w
-
-    return w
+    
+    raise ValueError(f"Unknown weighting scheme: {scheme!r}")
 
 
 @job
@@ -162,7 +143,7 @@ def train_ce(
     prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
+    sublattices: dict[str, tuple[str, ...]],
     # CE config
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
@@ -186,12 +167,6 @@ def train_ce(
     if len(structures) != len(energies):
         raise ValueError(f"structures and energies length mismatch: {len(structures)} vs {len(energies)}")
 
-    try:
-        nx, ny, nz = map(int, supercell_diag)
-        supercell_diag = (nx, ny, nz)
-    except Exception as exc:
-        raise ValueError(f"supercell_diag must be a length-3 tuple of ints; got {supercell_diag!r}") from exc
-
     n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
 
     # Convert any Monty-serialized dicts into real Structures
@@ -205,7 +180,7 @@ def train_ce(
         prototype=prototype,
         prototype_params=prototype_params,
         supercell_diag=supercell_diag,
-        replace_element=replace_element,
+        sublattices=sublattices,
     )
     if n_sites_const % n_prims != 0:
         raise ValueError(
@@ -215,10 +190,7 @@ def train_ce(
 
     # -------- 3) prototype conv cell + allowed species inference --------
     conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
-    allowed_species = _infer_allowed_species(conv_cell, replace_element, structures_pm)
-    primitive_cfg = build_disordered_primitive(
-        conv_cell=conv_cell, replace_element=replace_element, allowed_species=allowed_species
-    )
+    primitive_cfg = build_disordered_primitive(conv_cell=conv_cell, sublattices=sublattices)
 
     # -------- 4) subspace --------
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
@@ -237,7 +209,7 @@ def train_ce(
     # -------- 6) group membership by composition signature --------
     comp_to_indices: dict[str, list[int]] = {}
     for i, s in enumerate(structures_pm):
-        sig = _composition_signature(s, allowed_species)
+        sig = _composition_signature(s)
         comp_to_indices.setdefault(sig, []).append(i)
 
     # -------- 7) weights (per-sample) --------

@@ -25,7 +25,7 @@ from phaseedge.jobs.fetch_training_set_multi import fetch_training_set_multi
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.jobs.prepare_refined_wl_sources import prepare_refined_wl_sources
-from phaseedge.utils.keys import canonical_counts, compute_ce_key, compute_wl_key
+from phaseedge.schemas.mixture import canonical_counts, compute_ce_key, compute_wl_key
 from phaseedge.storage.ce_store import lookup_ce_by_key
 
 

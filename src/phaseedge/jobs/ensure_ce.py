@@ -5,6 +5,7 @@ from monty.json import MSONable
 from jobflow.core.job import Response, job, Job
 from jobflow.core.flow import Flow
 
+from phaseedge.schemas.mixture import Mixture, sublattices_from_mixtures
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.jobs.ensure_snapshots_compositions import make_ensure_snapshots_compositions
@@ -16,121 +17,100 @@ from phaseedge.utils.keys import compute_ce_key
 
 # --------------------------------------------------------------------------------------
 # Spec for a compositions-based CE ensure (MSON-serializable)
-# (Retains existing class name for minimal churn; field names unchanged)
 # --------------------------------------------------------------------------------------
 
-@dataclass(slots=True)
-class CEEnsureMixtureSpec(MSONable):
+@dataclass(frozen=True, slots=True)
+class CEEnsureMixturesSpec(MSONable):
     prototype: str
     prototype_params: Mapping[str, Any]
     supercell_diag: tuple[int, int, int]
-    replace_element: str
+    mixtures: tuple[Mixture, ...]
+    seed: int
 
-    # compositions list: each element has counts, K, and optional seed
-    mixture: Sequence[Mapping[str, Any]]
-    default_seed: int  # used when an element doesn't specify its own seed
-
-    # relax/engine identity (for training energies)
     model: str
     relax_cell: bool
     dtype: str
 
-    # CE hyperparameters (all knobs that distinguish models)
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
     weighting: Mapping[str, Any] | None = None
 
-    # scheduling
-    category: str = "gpu"  # FireWorks category tag
+    category: str = "gpu"
 
-    # --- MSON hooks ---
-    def as_dict(self) -> dict[str, Any]:  # type: ignore[override]
-        return {
+    def __post_init__(self) -> None:
+        # canonicalize/cast
+        sc = tuple(int(x) for x in self.supercell_diag)
+        if len(sc) != 3:
+            raise ValueError("supercell_diag must be length-3 (a, b, c).")
+
+        mix_tuple = tuple(sorted(self.mixtures, key=lambda m: m.sort_key()))
+
+        object.__setattr__(self, "supercell_diag", sc)
+        object.__setattr__(self, "mixtures", mix_tuple)
+        object.__setattr__(self, "relax_cell", bool(self.relax_cell))
+
+    # Monty expects plain "dict" here; using it avoids override warnings.
+    def as_dict(self) -> dict:
+        d: dict[str, Any] = {
             "@module": type(self).__module__,
             "@class": type(self).__name__,
             "prototype": self.prototype,
             "prototype_params": dict(self.prototype_params),
             "supercell_diag": list(self.supercell_diag),
-            "replace_element": self.replace_element,
-            "mixture": [
-                {
-                    "counts": {str(k): int(v) for k, v in dict(elem.get("counts", {})).items()},
-                    "K": int(elem.get("K", 0)),
-                    **({"seed": int(elem["seed"])} if "seed" in elem else {}),
-                }
-                for elem in self.mixture
-            ],
-            "default_seed": int(self.default_seed),
+            "mixtures": [m.as_dict() for m in self.mixtures],
+            "seed": int(self.seed),
             "model": self.model,
-            "relax_cell": bool(self.relax_cell),
+            "relax_cell": self.relax_cell,
             "dtype": self.dtype,
             "basis_spec": dict(self.basis_spec),
-            "regularization": dict(self.regularization or {}),
-            "weighting": dict(self.weighting or {}),
             "category": self.category,
         }
+        if self.regularization is not None:
+            d["regularization"] = dict(self.regularization)
+        if self.weighting is not None:
+            d["weighting"] = dict(self.weighting)
+        return d
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "CEEnsureMixtureSpec":  # type: ignore[override]
-        raw_mix = list(d.get("mixture", []))
-        mixture: list[dict[str, Any]] = []
-        for elem in raw_mix:
-            counts = {str(k): int(v) for k, v in dict(elem.get("counts", {})).items()}
-            k_val = int(elem.get("K", 0))
-            out = {"counts": counts, "K": k_val}
-            if "seed" in elem:
-                out["seed"] = int(elem["seed"])
-            mixture.append(out)
-
+    def from_dict(cls, d: dict) -> "CEEnsureMixturesSpec":
+        sx, sy, sz = (int(x) for x in d["supercell_diag"])
         return cls(
             prototype=str(d["prototype"]),
             prototype_params=dict(d.get("prototype_params", {})),
-            supercell_diag=tuple(d["supercell_diag"]),  # type: ignore[arg-type]
-            replace_element=str(d["replace_element"]),
-            mixture=mixture,
-            default_seed=int(d["default_seed"]),
+            supercell_diag=(sx, sy, sz),
+            mixtures=tuple(Mixture.from_dict(m) for m in d.get("mixtures", [])),
+            seed=int(d["seed"]),
             model=str(d["model"]),
             relax_cell=bool(d["relax_cell"]),
             dtype=str(d["dtype"]),
             basis_spec=dict(d.get("basis_spec", {})),
-            regularization=dict(d.get("regularization", {})),
-            weighting=dict(d.get("weighting", {})) or None,
+            regularization=(dict(d["regularization"]) if "regularization" in d else None),
+            weighting=(dict(d["weighting"]) if "weighting" in d else None),
             category=str(d.get("category", "gpu")),
         )
-
 
 # --------------------------------------------------------------------------------------
 # Decision job: ensure CE over compositions (idempotent)
 # --------------------------------------------------------------------------------------
 
 @job
-def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
+def ensure_ce(spec: CEEnsureMixturesSpec) -> Any:
     """
     Idempotent CE training over compositions:
-      - Canonicalize the composition list and compute ce_key (sources-aware).
+      - Canonicalize mixtures and compute ce_key (sources-aware).
       - If a CE already exists for ce_key, return it.
-      - Otherwise replace this job with a single Flow:
+      - Otherwise replace this job with a Flow:
           ensure_snapshots_compositions -> fetch_training_set_multi -> train_ce -> store_ce_model
     """
     proto_name = cast(str, spec.prototype)
     proto_params = dict(spec.prototype_params)  # Mapping -> dict for typed helpers
     algo: Final[str] = "randgen-3-comp-1"
 
-    # Canonicalize composition elements: counts dict[str,int], K:int >= 1, seed:int (fallback to default)
-    canon_elems: list[dict[str, Any]] = []
-    for elem in spec.mixture:
-        counts = {str(k): int(v) for k, v in dict(elem.get("counts", {})).items()}
-        K = int(elem.get("K", 0))
-        if not counts or K <= 0:
-            raise ValueError(f"Invalid composition element: counts={counts}, K={K}")
-        seed_eff = int(elem.get("seed", spec.default_seed))
-        canon_elems.append({"counts": counts, "K": K, "seed": seed_eff})
-
     # Unified sources block (only composition source for now)
     sources = [
         {
             "type": "composition",
-            "elements": canon_elems,
+            "mixtures": spec.mixtures,  # Mixture objects; normalized downstream
         }
     ]
 
@@ -139,7 +119,6 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
         prototype=proto_name,
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
         sources=sources,
         model=spec.model,
         relax_cell=spec.relax_cell,
@@ -155,17 +134,15 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     if existing:
         return existing
 
-    # 3) Ensure snapshots for all composition elements (barriered per element)
-    f_ensure_all, j_groups = make_ensure_snapshots_compositions(
+    # 3) Ensure snapshots for all mixtures (each subflow barriers via emit job)
+    f_ensure_all: Flow = make_ensure_snapshots_compositions(
         prototype=cast(PrototypeName, proto_name),
         prototype_params=proto_params,
         supercell_diag=spec.supercell_diag,
-        replace_element=spec.replace_element,
-        mixture=canon_elems,  # function still uses 'mixture' param name internally
+        mixtures=spec.mixtures,
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
-        default_seed=int(spec.default_seed),
         category=spec.category,
     )
 
@@ -173,11 +150,10 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     j_fetch: Job = cast(
         Job,
         fetch_training_set_multi(
-            groups=j_groups.output["groups"],
+            groups=f_ensure_all.output["groups"],
             prototype=proto_name,
             prototype_params=proto_params,
             supercell_diag=spec.supercell_diag,
-            replace_element=spec.replace_element,
             model=spec.model,
             relax_cell=spec.relax_cell,
             dtype=spec.dtype,
@@ -188,6 +164,7 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
     j_fetch.update_metadata({"_category": spec.category})
 
     # 5) Train CE (pooled); pass cv_seed for deterministic folds
+    sublattices = sublattices_from_mixtures(spec.mixtures)
     j_train: Job = cast(
         Job,
         train_ce(
@@ -196,10 +173,10 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
             prototype=proto_name,
             prototype_params=proto_params,
             supercell_diag=spec.supercell_diag,
-            replace_element=spec.replace_element,
+            sublattices=sublattices,
             basis_spec=dict(spec.basis_spec),
             regularization=dict(spec.regularization or {}),
-            cv_seed=int(spec.default_seed),
+            cv_seed=int(spec.seed),
             weighting=dict(spec.weighting or {}),
         ),
     )
@@ -215,14 +192,16 @@ def ensure_ce(spec: CEEnsureMixtureSpec) -> Any:
                 "prototype": proto_name,
                 "prototype_params": proto_params,
                 "supercell_diag": list(spec.supercell_diag),
-                "replace_element": spec.replace_element,
             },
             sampling={
                 "algo_version": algo,
                 "sources": [
                     {
                         "type": "composition",
-                        "elements": canon_elems,
+                        "mixtures": [
+                            {"composition_map": m.composition_map, "K": m.K, "seed": m.seed}
+                            for m in spec.mixtures
+                        ],
                     }
                 ],
             },

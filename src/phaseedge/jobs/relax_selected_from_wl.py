@@ -10,7 +10,7 @@ from ase.atoms import Atoms
 
 from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.jobs.decide_relax import check_or_schedule_relax
-from phaseedge.utils.keys import canonical_counts, occ_key_for_atoms
+from phaseedge.schemas.mixture import canonical_counts, occ_key_for_atoms
 
 
 def _counts_sig(counts: Mapping[str, int]) -> str:

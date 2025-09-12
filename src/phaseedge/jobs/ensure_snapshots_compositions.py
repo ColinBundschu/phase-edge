@@ -1,79 +1,108 @@
-from typing import Any, Mapping, Sequence, TypedDict, cast
+from typing import Any, Mapping, Sequence, TypedDict
+from jobflow.core.flow import Flow, JobOrder
+from jobflow.core.job import Job, job
 
-from jobflow.core.flow import Flow
-from jobflow.core.job import job, Job
-
+from phaseedge.schemas.mixture import Mixture
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.jobs.ensure_snapshots_composition import make_ensure_snapshots_composition_flow
-
-__all__ = ["make_ensure_snapshots_compositions"]
+from phaseedge.jobs.random_config import RandomConfigSpec, make_random_config
+from phaseedge.jobs.decide_relax import check_or_schedule_relax
 
 
 class SnapshotGroup(TypedDict):
     set_id: str
     occ_keys: list[str]
-    counts: dict[str, int]
+    composition_map: dict[str, dict[str, int]]
     seed: int
 
 
-class GatheredGroups(TypedDict):
-    groups: list[SnapshotGroup]
-
-
 @job
-def _gather_groups(groups: Sequence[Any], meta: Sequence[Mapping[str, Any]]) -> GatheredGroups:
+def _emit_group(group: SnapshotGroup) -> SnapshotGroup:
     """
-    Validate and normalize inner-gather outputs + aligned meta into:
-      {
-        "groups": [
-          {"set_id": str, "occ_keys": [str, ...], "counts": {str:int}, "seed": int},
-          ...
-        ]
-      }
+    Final barrier/emit: returns the group payload.
+    Placed in an OUTER flow after the inner parallel flow so it only runs
+    once all generate→relax jobs have completed.
     """
-    if len(groups) != len(meta):
-        raise ValueError(f"gather_groups: groups/meta length mismatch: {len(groups)} vs {len(meta)}")
+    return group
 
-    out: list[SnapshotGroup] = []
-    bad_idxs: list[int] = []
 
-    for i, (g, m) in enumerate(zip(groups, meta)):
-        if not isinstance(g, Mapping):
-            bad_idxs.append(i)
-            continue
+def make_ensure_snapshots_composition_flow(
+    *,
+    prototype: PrototypeName,
+    prototype_params: Mapping[str, Any],
+    supercell_diag: tuple[int, int, int],
+    composition_map: dict[str, dict[str, int]],
+    seed: int,
+    indices: Sequence[int],
+    model: str,
+    relax_cell: bool,
+    dtype: str,
+    category: str = "gpu",
+) -> Flow:
+    """
+    Ensure an exact, ordered set of snapshots (by `indices`) have relax results
+    in the DB. Returns a Flow whose `output` is a SnapshotGroup.
 
-        sid = g.get("set_id")
-        oks = g.get("occ_keys")
-        counts = {str(k): int(v) for k, v in dict(m.get("counts", {})).items()}
-        seed = int(m.get("seed", 0))
+    Structure:
+      - INNER flow (AUTO order): per-index generate → relax in parallel.
+      - OUTER flow (LINEAR): [INNER, _emit_group] so emit runs only after INNER completes.
+    """
+    inner_nodes: list[Flow | Job] = []
+    ordered_occ_keys: list[Any] = []
+    first_set_id_ref: Any | None = None
 
-        if not isinstance(sid, str):
-            bad_idxs.append(i)
-            continue
-        if not isinstance(oks, list) or not all(isinstance(x, str) for x in oks):
-            bad_idxs.append(i)
-            continue
-        if not counts:
-            bad_idxs.append(i)
-            continue
-
-        out.append(
-            {
-                "set_id": cast(str, sid),
-                "occ_keys": cast(list[str], oks),
-                "counts": counts,
-                "seed": seed,
-            }
+    for idx in indices:
+        spec = RandomConfigSpec(
+            prototype=prototype,
+            prototype_params=dict(prototype_params),
+            supercell_diag=supercell_diag,
+            composition_map=composition_map,
+            seed=int(seed),
+            index=int(idx),
         )
 
-    if bad_idxs:
-        raise ValueError(
-            "gather_groups: Missing or invalid inner results at indices "
-            f"{bad_idxs}. Upstream ensure_snapshots flows must return "
-            "{{'set_id': str, 'occ_keys': [str, ...]}}, and meta must provide counts/seed."
-        )
+        j_gen = make_random_config(spec)
+        j_gen.name = f"generate_random_config[{idx}]"
+        j_gen.update_metadata({"_category": category})
 
-    return {"groups": out}
+        if first_set_id_ref is None:
+            first_set_id_ref = j_gen.output["set_id"]
+        ordered_occ_keys.append(j_gen.output["occ_key"])
+
+        j_relax = check_or_schedule_relax(
+            set_id=j_gen.output["set_id"],
+            occ_key=j_gen.output["occ_key"],
+            structure=j_gen.output["structure"],
+            model=model,
+            relax_cell=relax_cell,
+            dtype=dtype,
+            category=category,
+        )
+        j_relax.name = f"ff_check_or_schedule[{idx}]"
+        j_relax.update_metadata({"_category": category})
+
+        # Keep per-index parallelism: only depend relax on its generator
+        inner_nodes.extend([j_gen, j_relax])
+
+    assert first_set_id_ref is not None, "indices must be non-empty"
+
+    # Inner parallel flow: lets all per-index pipelines run concurrently
+    inner_parallel = Flow(inner_nodes, name="Ensure snapshots (parallel)")
+
+    group_payload: SnapshotGroup = {
+        "set_id": first_set_id_ref,
+        "occ_keys": ordered_occ_keys,        # OutputReferences -> resolves to list[str]
+        "composition_map": composition_map,  # already canonical upstream
+        "seed": int(seed),
+    }
+
+    j_emit = _emit_group(group=group_payload)
+    j_emit.name = "emit_group"
+    j_emit.update_metadata({"_category": category})
+
+    # OUTER flow: enforce barrier INNER -> EMIT via LINEAR order
+    outer = Flow([inner_parallel, j_emit], name="Ensure snapshots (barriered)", order=JobOrder.LINEAR)
+    outer.output = j_emit.output
+    return outer
 
 
 def make_ensure_snapshots_compositions(
@@ -81,66 +110,36 @@ def make_ensure_snapshots_compositions(
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    # Mixture: each element has counts, K (num snapshots), and optional seed override
-    mixture: Sequence[Mapping[str, Any]],
-    # Relax/engine identity
+    mixtures: Sequence[Mixture],
     model: str,
     relax_cell: bool,
     dtype: str,
-    # Scheduling / defaults
-    default_seed: int,
     category: str = "gpu",
-) -> tuple[Flow, Job]:
+) -> Flow:
     """
-    For each mixture element, ensure K snapshots exist (barriered), then gather
-    all groups into a single output:
-        {"groups": [{"set_id": ..., "occ_keys": [...], "counts": {...}, "seed": ...}, ...]}.
-
-    Thin wrapper around make_ensure_snapshots_composition_flow (single-composition).
+    For each mixture, ensure K snapshots exist (barriered), then publish:
+      {"groups": [SnapshotGroup, ...]} as the outer flow's output.
     """
-    if not mixture:
-        raise ValueError("mixture must be a non-empty sequence.")
+    if not mixtures:
+        raise ValueError("mixtures must be a non-empty sequence.")
 
-    subflows: list[Flow] = []
-    inner_gathers: list[Job] = []
-    canon_mix: list[dict[str, Any]] = []
-
-    for mi, elem in enumerate(mixture):
-        counts = {str(k): int(v) for k, v in dict(elem.get("counts", {})).items()}
-        if not counts:
-            raise ValueError(f"mixture[{mi}] has empty or missing 'counts'.")
-
-        K = int(elem.get("K", 0))
-        if K <= 0:
-            raise ValueError(f"mixture[{mi}] must specify K >= 1, got {K}.")
-
-        seed = int(elem.get("seed", default_seed))
-        indices = [int(i) for i in range(K)]
-
-        flow_i, j_gather_i = make_ensure_snapshots_composition_flow(
+    subflows: list[Job | Flow] = []
+    for mi, mixture in enumerate(mixtures):
+        flow_i = make_ensure_snapshots_composition_flow(
             prototype=prototype,
             prototype_params=prototype_params,
             supercell_diag=supercell_diag,
-            composition_map={replace_element: counts},
-            seed=seed,
-            indices=indices,
+            composition_map=mixture.composition_map,
+            seed=mixture.seed,
+            indices=[int(i) for i in range(mixture.K)],
             model=model,
             relax_cell=relax_cell,
             dtype=dtype,
             category=category,
         )
-        flow_i.name = f"Ensure snapshots (comp#{mi})"
-        j_gather_i.name = f"gather_occ_keys[comp#{mi}]"
-
+        flow_i.name = f"Ensure snapshots (mix#{mi})"
         subflows.append(flow_i)
-        inner_gathers.append(j_gather_i)
-        canon_mix.append({"counts": counts, "K": K, "seed": seed})
 
-    # Final gather depends on all inner gathers by referencing their outputs
-    j_multi = _gather_groups(groups=[jg.output for jg in inner_gathers], meta=canon_mix)
-    j_multi.name = "gather_groups"
-    j_multi.metadata = {**(j_multi.metadata or {}), "_category": category}
-
-    flow_all = Flow([*subflows, j_multi], name="Ensure snapshots (mixture)")
-    return flow_all, j_multi
+    flow_all = Flow(subflows, name="Ensure snapshots (mixtures)")
+    flow_all.output = {"groups": [f.output for f in subflows]}
+    return flow_all

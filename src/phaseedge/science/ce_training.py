@@ -46,8 +46,7 @@ class Regularization:
 def build_disordered_primitive(
     *,
     conv_cell: Atoms,
-    replace_element: str,
-    allowed_species: Sequence[str],
+    sublattices: dict[str, tuple[str, ...]],
 ) -> Structure:
     """
     Create the CE parent primitive on the prototype lattice where the replaceable
@@ -57,18 +56,19 @@ def build_disordered_primitive(
       - Use a dict {Element: fraction} for the disordered site, NOT a Composition.
       - Do not include `replace_element` unless it truly appears in data.
     """
-    if not allowed_species:
-        raise ValueError("allowed_species must be non-empty.")
+    if not sublattices:
+        raise ValueError("sublattices must be non-empty.")
 
     prim_cfg = AseAtomsAdaptor.get_structure(conv_cell)  # type: ignore[arg-type]
 
-    # Uniform prior over the allowed cations. The actual fractions do not encode
-    # training composition; they just declare the site space.
-    frac = 1.0 / float(len(allowed_species))
-    disordered: dict[Element, float] = {Element(el): frac for el in allowed_species}
+    for replace_element, allowed_species in sublattices.items():
+        # Uniform prior over the allowed cations. The actual fractions do not encode
+        # training composition; they just declare the site space.
+        frac = 1.0 / float(len(allowed_species))
+        disordered: dict[Element, float] = {Element(el): frac for el in allowed_species}
 
-    # Replace the prototype cation with the disordered site space
-    prim_cfg.replace_species({Element(replace_element): disordered}) # pyright: ignore[reportArgumentType]
+        # Replace the prototype cation with the disordered site space
+        prim_cfg.replace_species({Element(replace_element): disordered}) # pyright: ignore[reportArgumentType]
     return prim_cfg
 
 

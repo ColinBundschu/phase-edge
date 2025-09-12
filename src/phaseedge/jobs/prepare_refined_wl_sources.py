@@ -3,7 +3,7 @@ from typing import Any, Mapping, Sequence, cast
 from jobflow.core.job import job
 
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.utils.keys import canonical_counts, compute_ce_key
+from phaseedge.schemas.mixture import canonical_counts, compute_ce_key
 
 
 @job

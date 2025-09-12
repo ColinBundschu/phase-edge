@@ -5,28 +5,13 @@ from fireworks import LaunchPad
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
-from phaseedge.cli.common import parse_counts_arg
-from phaseedge.jobs.ensure_ce import CEEnsureMixtureSpec
+from phaseedge.cli.common import parse_counts_arg, parse_cutoffs_arg
+from phaseedge.jobs.ensure_ce import CEEnsureMixturesSpec
 from phaseedge.jobs.ensure_wl_samples_from_ce import (
     EnsureWLSamplesFromCESpec,
 )
 from phaseedge.jobs.ensure_ce_from_refined_wl import ensure_ce_from_refined_wl
 from phaseedge.utils.keys import compute_ce_key, compute_wl_key, canonical_counts
-
-
-def _parse_cutoffs_arg(s: str) -> dict[int, float]:
-    out: dict[int, float] = {}
-    for kv in s.split(","):
-        kv = kv.strip()
-        if not kv:
-            continue
-        if ":" not in kv:
-            raise ValueError(f"Bad cutoffs token '{kv}' (expected 'ORDER:VALUE').")
-        k, v = kv.split(":", 1)
-        out[int(k.strip())] = float(v.strip())
-    if not out:
-        raise ValueError("Empty --cutoffs.")
-    return out
 
 
 def _parse_mix_item(s: str) -> dict[str, Any]:
@@ -152,22 +137,22 @@ def main() -> int:
             raise SystemExit(f"--mix contains a composition that is also specified as an --endpoint: {sig}")
 
     weighting: dict[str, Any] | None = (
-        {"scheme": "inv_count", "alpha": float(args.weight_alpha)}
+        {"scheme": "balance_by_comp", "alpha": float(args.weight_alpha)}
         if args.balance_by_comp else None
     )
-    cutoffs = _parse_cutoffs_arg(args.cutoffs)
+    cutoffs = parse_cutoffs_arg(args.cutoffs)
 
     supercell_x, supercell_y, supercell_z = tuple(int(x) for x in args.supercell)
     supercell_diag = (supercell_x, supercell_y, supercell_z)
 
     # Build CE spec (endpoints injected later by the job as K=1, seed=0)
-    ce_spec = CEEnsureMixtureSpec(
+    ce_spec = CEEnsureMixturesSpec(
         prototype=args.prototype,
         prototype_params={"a": float(args.a)},
         supercell_diag=supercell_diag,
         replace_element=args.replace_element,
         mixture=compositions,
-        default_seed=int(args.seed),
+        seed=int(args.seed),
         model=args.model,
         relax_cell=bool(args.relax_cell),
         dtype=args.dtype,
@@ -182,7 +167,7 @@ def main() -> int:
     # Canonicalise mixture seeds for preview CE key: elements missing "seed"
     # should default to the CLI-level --seed (args.seed).  Without this,
     # compute_ce_key defaults seeds to 0, causing preview keys to differ
-    # from runtime keys (where CEEnsureMixtureSpec applies default_seed).
+    # from runtime keys (where CEEnsureMixturesSpec applies default_seed).
     canon_mix_for_key: list[dict[str, Any]] = []
     for elem in compositions:
         elem_counts = dict(elem["counts"])
