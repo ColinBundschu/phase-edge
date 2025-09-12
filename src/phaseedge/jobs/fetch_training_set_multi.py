@@ -144,7 +144,7 @@ def fetch_training_set_multi(
         raise ValueError("fetch_training_set_multi: 'groups' must be a non-empty sequence.")
 
     # Build prototype conventional cell once for RNG path
-    conv: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
+    conv = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 

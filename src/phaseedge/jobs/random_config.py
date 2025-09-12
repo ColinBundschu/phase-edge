@@ -87,7 +87,7 @@ def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
       - If it has multiple sublattices, this job deliberately raises until the
         multi-sublattice snapshot generator is plugged in here.
     """
-    conv_cell: Atoms = make_prototype(spec.prototype, **(spec.prototype_params or {}))
+    conv_cell = make_prototype(spec.prototype, **(spec.prototype_params or {}))
 
     set_id = compute_set_id(
         prototype=spec.prototype,

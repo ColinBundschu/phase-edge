@@ -1,6 +1,6 @@
 import argparse
 import json
-from typing import Any
+from typing import Any, List
 
 from fireworks import LaunchPad
 from jobflow.core.flow import Flow
@@ -12,6 +12,24 @@ from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg
 
 
+def _parse_sublattice_labels(s: str) -> List[str]:
+    """
+    Parse a comma/space-separated list of sublattice labels (e.g., "Es" or "A,Es").
+    Returns a de-duplicated, order-preserving list of non-empty strings.
+    """
+    raw = [tok.strip() for tok in s.replace(",", " ").split() if tok.strip()]
+    if not raw:
+        raise argparse.ArgumentTypeError("sublattice labels must not be empty")
+    # de-dupe, preserve order
+    seen: set[str] = set()
+    out: list[str] = []
+    for lab in raw:
+        if lab not in seen:
+            seen.add(lab)
+            out.append(lab)
+    return out
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pe-extend-wl",
@@ -20,10 +38,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
     p.add_argument("--bin-width", required=True, type=float, help="Uniform enthalpy bin width (eV).")
+
+    p.add_argument(
+        "--sublattice-labels",
+        required=True,
+        type=_parse_sublattice_labels,
+        help='Comma/space-separated list of sublattice placeholders (e.g., "Es" or "A,Es").',
+    )
+
     p.add_argument(
         "--composition-counts",
         required=True,
-        help="Exact counts per species, e.g. 'Fe:54,Mg:54'.",
+        help="Exact counts per species over the WL supercell, e.g. 'Fe:54,Mg:54'.",
     )
     p.add_argument("--step-type", default="swap", choices=["swap"], help="MC move type (canonical).")
     p.add_argument("--check-period", type=int, default=5_000)
@@ -67,6 +93,7 @@ def main() -> int:
     args = p.parse_args()
 
     composition_counts: dict[str, int] = parse_counts_arg(args.composition_counts)
+    sublattice_labels: list[str] = args.sublattice_labels  # already parsed
 
     # wl_key encodes chain identity only (no steps, no samples_per_bin).
     wl_key: str = compute_wl_key(
@@ -87,6 +114,7 @@ def main() -> int:
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
         steps=int(args.steps_to_run),
+        sublattice_labels=tuple(sublattice_labels),
         composition_counts=composition_counts,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
@@ -124,6 +152,7 @@ def main() -> int:
         "wl_key": wl_key,
         "ce_key": args.ce_key,
         "bin_width": float(args.bin_width),
+        "sublattice_labels": sublattice_labels,
         "composition_counts": composition_counts,
         "step_type": str(args.step_type),
         "check_period": int(args.check_period),
@@ -146,6 +175,7 @@ def main() -> int:
                     "wl_key",
                     "ce_key",
                     "bin_width",
+                    "sublattice_labels",
                     "composition_counts",
                     "step_type",
                     "check_period",

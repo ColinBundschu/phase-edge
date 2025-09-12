@@ -215,7 +215,7 @@ def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> l
 
 def _n_replace_sites_from_prototype(
     *,
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sublattices: dict[str, tuple[str, ...]],
@@ -224,7 +224,7 @@ def _n_replace_sites_from_prototype(
     Count the number of active sites in the **supercell** built
     by replicating the prototype conventional cell by supercell_diag.
     """
-    conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
+    conv_cell = make_prototype(prototype, **dict(prototype_params))
     n_per_prim = sum(1 for at in conv_cell if at.symbol in sublattices)
     if n_per_prim <= 0:
         raise ValueError(f"Prototype has no sites for sublattices='{sublattices}'.")
@@ -301,7 +301,7 @@ def train_ce(
     structures: Sequence[Structure | Mapping[str, Any]],
     energies: Sequence[float],  # total energies (eV) for the supercell
     # prototype-only system identity (needed to build subspace)
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sublattices: dict[str, tuple[str, ...]],
@@ -350,7 +350,7 @@ def train_ce(
     sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
 
     # -------- 3) prototype conv cell + allowed species inference --------
-    conv_cell: Atoms = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
+    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
     primitive_cfg = build_disordered_primitive(conv_cell=conv_cell, sublattices=sublattices)
 
     # -------- 4) subspace --------

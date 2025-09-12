@@ -9,7 +9,7 @@ from smol.moca.ensemble import Ensemble
 
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.storage.ce_store import lookup_ce_by_key
+from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.schemas.mixture import canonical_counts
 
