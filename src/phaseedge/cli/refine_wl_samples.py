@@ -1,4 +1,3 @@
-# ... existing imports ...
 import argparse
 from phaseedge.storage import store
 from phaseedge.science.refine_wl import refine_wl_samples, RefineOptions
@@ -29,7 +28,7 @@ def main() -> int:
     opts = RefineOptions(
         n_total=args.n_total,
         per_bin_cap=args.per_bin_cap,
-        strategy=args.strategy,             # <- forward user’s choice
+        strategy=args.strategy,             # <- forward user's choice
     )
 
     out = refine_wl_samples(ckpt, options=opts)

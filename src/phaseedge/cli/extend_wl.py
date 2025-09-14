@@ -1,6 +1,6 @@
 import argparse
 import json
-from typing import Any, List
+from typing import Any
 
 from fireworks import LaunchPad
 from jobflow.core.flow import Flow
@@ -9,25 +9,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 from phaseedge.schemas.wl import WLSamplerSpec
 from phaseedge.jobs.add_wl_chunk import add_wl_chunk, add_wl_chain
 from phaseedge.utils.keys import compute_wl_key
-from phaseedge.cli.common import parse_counts_arg
-
-
-def _parse_sublattice_labels(s: str) -> List[str]:
-    """
-    Parse a comma/space-separated list of sublattice labels (e.g., "Es" or "A,Es").
-    Returns a de-duplicated, order-preserving list of non-empty strings.
-    """
-    raw = [tok.strip() for tok in s.replace(",", " ").split() if tok.strip()]
-    if not raw:
-        raise argparse.ArgumentTypeError("sublattice labels must not be empty")
-    # de-dupe, preserve order
-    seen: set[str] = set()
-    out: list[str] = []
-    for lab in raw:
-        if lab not in seen:
-            seen.add(lab)
-            out.append(lab)
-    return out
+from phaseedge.cli.common import parse_counts_arg, parse_sublattice_labels
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--sublattice-labels",
         required=True,
-        type=_parse_sublattice_labels,
+        type=parse_sublattice_labels,
         help='Comma/space-separated list of sublattice placeholders (e.g., "Es" or "A,Es").',
     )
 
@@ -92,8 +74,8 @@ def main() -> int:
     p = build_parser()
     args = p.parse_args()
 
-    composition_counts: dict[str, int] = parse_counts_arg(args.composition_counts)
-    sublattice_labels: list[str] = args.sublattice_labels  # already parsed
+    composition_counts = parse_counts_arg(args.composition_counts)
+    sublattice_labels: list[str] = args.sublattice_labels
 
     # wl_key encodes chain identity only (no steps, no samples_per_bin).
     wl_key: str = compute_wl_key(

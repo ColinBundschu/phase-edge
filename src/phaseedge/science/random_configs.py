@@ -35,7 +35,7 @@ def validate_counts_for_sublattices(
         if total != n_sites:
             raise ValueError(
                 f"[{replace_element}] counts must sum to sublattice size: "
-                f"got {total}, expected {n_sites}"
+                f"got {total}, expected {n_sites} \n {composition_map}"
             )
 
 
@@ -63,7 +63,7 @@ def make_one_snapshot(
     This selector uses **element symbol equality** to define a sublattice:
         target_idx = np.where(symbols == replace_element)
     If multiple distinct sublattices share the *same* placeholder symbol in the
-    prototype, they will be merged. For true multi-sublattice separation you’ll
+    prototype, they will be merged. For true multi-sublattice separation you'll
     need distinct placeholders in the prototype or an index-mask approach.
     """
     validate_counts_for_sublattices(

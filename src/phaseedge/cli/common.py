@@ -1,7 +1,13 @@
 from typing import Any
 from phaseedge.schemas.mixture import Mixture, canonical_counts
 
-__all__ = ["parse_counts_arg", "parse_cutoffs_arg", "parse_mix_item"]
+__all__ = [
+    "parse_counts_arg",
+    "parse_cutoffs_arg",
+    "parse_composition_map",
+    "parse_mix_item",
+    "parse_sublattice_labels",
+]
 
 
 def parse_cutoffs_arg(s: str) -> dict[int, float]:
@@ -71,7 +77,7 @@ def _split_on_commas_outside_braces(s: str) -> list[str]:
     return parts
 
 
-def _parse_composition_map_arg(v: str) -> dict[str, dict[str, int]]:
+def parse_composition_map(v: str) -> dict[str, dict[str, int]]:
     comp: dict[str, dict[str, int]] = {}
     tokens = _split_on_commas_outside_braces(v.strip())
     if not tokens:
@@ -116,7 +122,7 @@ def parse_mix_item(s: str) -> Mixture:
         v = v_raw.strip()
 
         if k == "composition_map":
-            item["composition_map"] = _parse_composition_map_arg(v)
+            item["composition_map"] = parse_composition_map(v)
         elif k == "k":
             item["K"] = int(v)
         elif k == "seed":
@@ -128,3 +134,21 @@ def parse_mix_item(s: str) -> Mixture:
         raise ValueError("Each --mix item must include composition_map=... and K=...")
 
     return Mixture(**item)
+
+
+def parse_sublattice_labels(s: str) -> list[str]:
+    """
+    Parse a comma/space-separated list of sublattice labels (e.g., "Es" or "A,Es").
+    Returns a de-duplicated, order-preserving list of non-empty strings.
+    """
+    raw = [tok.strip() for tok in s.replace(",", " ").split() if tok.strip()]
+    if not raw:
+        raise ValueError("sublattice labels must not be empty")
+    # de-dupe, preserve order
+    seen: set[str] = set()
+    out: list[str] = []
+    for lab in raw:
+        if lab not in seen:
+            seen.add(lab)
+            out.append(lab)
+    return out

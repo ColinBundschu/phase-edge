@@ -9,6 +9,42 @@ def canonical_counts(counts: Mapping[str, Any]) -> dict[str, int]:
     return {str(k): int(v) for k, v in sorted(counts.items())}
 
 
+def counts_sig(counts: Mapping[str, int]) -> str:
+    """Stable 'El:cnt,El2:cnt2' signature with canonical ordering."""
+    cc = canonical_counts(counts)
+    return ",".join(f"{k}:{int(v)}" for k, v in cc.items())
+
+
+def composition_counts_from_map(
+    composition_map: Mapping[str, Mapping[str, int]]
+) -> dict[str, int]:
+    """
+    Sum per-sublattice element counts into flat totals.
+
+    Args:
+        composition_map: e.g. {"Es": {"Fe": 10, "Mg": 98}, "B": {"Fe": 5, "Mg": 7}}
+
+    Returns:
+        {"Fe": 15, "Mg": 105} (keys sorted for determinism)
+
+    Raises:
+        TypeError: if any element key is not str.
+        ValueError: if any count is negative.
+    """
+    totals: dict[str, int] = {}
+    for _sublattice, counts in composition_map.items():
+        for elem, n in counts.items():
+            if not isinstance(elem, str):
+                raise TypeError("Element keys in composition_map must be str.")
+            ni = int(n)
+            if ni < 0:
+                raise ValueError(f"Negative count for '{elem}': {ni}")
+            totals[elem] = totals.get(elem, 0) + ni
+
+    # Canonicalize order
+    return canonical_counts(totals)
+
+
 @dataclass(frozen=True)
 class Mixture(MSONable):
     """

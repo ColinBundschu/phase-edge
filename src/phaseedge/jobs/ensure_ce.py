@@ -89,6 +89,26 @@ class CEEnsureMixturesSpec(MSONable):
             category=str(d.get("category", "gpu")),
         )
 
+    @property
+    def ce_key(self) -> str:
+        algo = "randgen-3-comp-1"
+        sources = [
+            {"type": "composition", "mixtures": self.mixtures}
+        ]
+        return compute_ce_key(
+            prototype=self.prototype,
+            prototype_params=self.prototype_params,
+            supercell_diag=self.supercell_diag,
+            sources=sources,
+            model=self.model,
+            relax_cell=self.relax_cell,
+            dtype=self.dtype,
+            basis_spec=self.basis_spec,
+            regularization=self.regularization,
+            algo_version=algo,
+            weighting=self.weighting,
+        )
+
 # --------------------------------------------------------------------------------------
 # Decision job: ensure CE over compositions (idempotent)
 # --------------------------------------------------------------------------------------
@@ -115,19 +135,7 @@ def ensure_ce(spec: CEEnsureMixturesSpec) -> Any:
     ]
 
     # 1) Compute CE key (single source of truth for idempotency)
-    ce_key: str = compute_ce_key(
-        prototype=proto_name,
-        prototype_params=proto_params,
-        supercell_diag=spec.supercell_diag,
-        sources=sources,
-        model=spec.model,
-        relax_cell=spec.relax_cell,
-        dtype=spec.dtype,
-        basis_spec=dict(spec.basis_spec),
-        regularization=dict(spec.regularization or {}),
-        algo_version=algo,
-        weighting=dict(spec.weighting or {}),
-    )
+    ce_key = spec.ce_key
 
     # 2) Cache check: if CE exists, short-circuit
     existing = lookup_ce_by_key(ce_key)

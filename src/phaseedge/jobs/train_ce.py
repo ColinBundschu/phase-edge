@@ -318,7 +318,7 @@ def train_ce(
 
         y_cell = E_total / (nx * ny * nz)
 
-    Using this intensive scale aligns with SMOL’s MC normalization. All **stored stats**
+    Using this intensive scale aligns with SMOL's MC normalization. All **stored stats**
     (in_sample, five_fold_cv, by_composition) are reported in **per-site** units to match
     common CE practice (meV/site), by scaling y vectors before computing metrics.
     """

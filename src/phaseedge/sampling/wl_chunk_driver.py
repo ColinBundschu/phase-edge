@@ -153,7 +153,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     # Run the chunk
     sampler.run(spec.steps, occ, thin_by=thin_by, progress=False)
 
-    # Capture state & occupancy (occupancy returned is last sample’s)
+    # Capture state & occupancy (occupancy returned is last sample's)
     k = sampler.mckernels[0]
     end_state = k.state()
     occ_last = sampler.samples.get_occupancies(flat=False)[-1][0].astype(np.int32)
