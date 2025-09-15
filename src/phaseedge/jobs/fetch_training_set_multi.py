@@ -121,14 +121,12 @@ def fetch_training_set_multi(
           "set_id": str,
           "occ_keys": list[str],         # ordered
           "composition_map": dict[str, dict[str, int]],
-          "seed": int,
         }
 
-      WL groups (new):
+      WL groups:
         {
           "set_id": str,
           "occ_keys": list[str],         # ordered, structure-based keys
-          "counts": dict[str, int],
           "occs": list[list[int]],       # raw occupancies, length matches occ_keys
         }
 
@@ -149,15 +147,7 @@ def fetch_training_set_multi(
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 
     # If any group contains 'occs', we need a CE ensemble to rebuild those structures
-    needs_ensemble = any(isinstance(g, Mapping) and "occs" in g for g in groups)
     ensemble: Ensemble | None = None
-    if needs_ensemble:
-        if not ce_key_for_rebuild:
-            raise ValueError(
-                "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
-            )
-        ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
-
     structures: list[Structure] = []
     energies: list[float] = []
     train_refs: list[CETrainRef] = []
@@ -167,29 +157,18 @@ def fetch_training_set_multi(
     for gi, g in enumerate(groups):
         if not isinstance(g, Mapping):
             raise TypeError(f"group[{gi}] is not a mapping: {type(g)!r}")
-        set_id = cast(str, g.get("set_id"))
-        occ_keys = cast(Sequence[str], g.get("occ_keys"))
-        composition_map = g.get("composition_map")
-
-        if not set_id or not isinstance(set_id, str):
-            raise ValueError(f"group[{gi}] missing valid 'set_id'.")
-        if not isinstance(occ_keys, Sequence) or not all(isinstance(x, str) for x in occ_keys):
-            raise ValueError(f"group[{gi}] 'occ_keys' must be a list[str].")
-        if not composition_map:
-            raise ValueError(f"group[{gi}] missing or empty 'composition_map'.")
-
-        # Validate counts vs prototype/supercell (arity-agnostic)
-        validate_counts_for_sublattices(
-            conv_cell=conv,
-            supercell_diag=sc_diag,
-            composition_map=composition_map,
-        )
+        set_id = str(g["set_id"])
+        occ_keys = list(g["occ_keys"])
 
         is_wl_group = "occs" in g
         if is_wl_group:
             # WL path: rebuild from occupancies via CE ensemble and verify structure-based occ_key
             if ensemble is None:
-                raise RuntimeError("Internal error: ensemble is None but WL group encountered.")
+                if not ce_key_for_rebuild:
+                    raise ValueError(
+                        "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
+                    )
+                ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
             occs = cast(Sequence[Sequence[int]], g["occs"])
             if len(occs) != len(occ_keys):
                 raise ValueError(f"group[{gi}] length mismatch: len(occs) != len(occ_keys).")
@@ -232,16 +211,12 @@ def fetch_training_set_multi(
 
         else:
             # RNG path: deterministic regeneration via seed/index
-            seed = g.get("seed")
-            if not isinstance(seed, int):
-                raise ValueError(f"group[{gi}] missing integer 'seed' for RNG reconstruction.")
-
             for i, ok in enumerate(occ_keys):
-                rng = rng_for_index(set_id, int(i), 0)  # index is 0..len(occ_keys)-1
+                rng = rng_for_index(set_id, int(i))  # index is 0..len(occ_keys)-1
                 snap = make_one_snapshot(
                     conv_cell=conv,
                     supercell_diag=sc_diag,
-                    composition_map=composition_map,
+                    composition_map=g["composition_map"],
                     rng=rng,
                 )
                 ok2 = occ_key_for_atoms(snap)

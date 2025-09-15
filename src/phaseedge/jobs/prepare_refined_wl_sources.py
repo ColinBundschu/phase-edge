@@ -3,7 +3,7 @@ from typing import Any, Mapping, Sequence, cast
 from jobflow.core.job import job
 
 from phaseedge.science.prototypes import PrototypeName
-from phaseedge.schemas.mixture import canonical_counts, compute_ce_key
+from phaseedge.utils.keys import compute_ce_key
 
 
 @job
@@ -13,7 +13,6 @@ def prepare_refined_wl_sources(
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
 
     # CE hyperparameters (same basis/regs used for final CE key)
     basis_spec: Mapping[str, Any],
@@ -27,7 +26,7 @@ def prepare_refined_wl_sources(
 
     # INTENT inputs (submit-time determinism)
     base_ce_key: str,                           # random/composition CE key
-    endpoints: Sequence[Mapping[str, int]],     # canonicalized inside
+    endpoints: tuple[dict[str, dict[str, int]]],     # canonicalized inside
 
     wl_policy: Mapping[str, Any],               # {bin_width, step_type, check_period, update_period, seed}
     ensure: Mapping[str, Any],                  # {steps_to_run, samples_per_bin}
@@ -50,11 +49,10 @@ def prepare_refined_wl_sources(
     no effect on the key (and is not included in sources used for hashing).
     """
     # --- INTENT block (used for hashing) ---
-    endpoints_canon = [canonical_counts(e) for e in endpoints]
     src_intent = {
         "type": "wl_refined_intent",
         "base_ce_key": str(base_ce_key),
-        "endpoints": endpoints_canon,
+        "endpoints": endpoints,
         "wl_policy": {
             "bin_width": float(wl_policy["bin_width"]),
             "step_type": str(wl_policy["step_type"]),
@@ -116,24 +114,23 @@ def prepare_refined_wl_sources(
             }
             for (wl_key, ck_hash), occ_hashes in sorted(chosen_by_chain.items())
         ],
-        "endpoints": endpoints_canon,
+        "endpoints": endpoints,
         "budget": int(dopt.get("budget", 0)),
     }
 
     # --- Compute final key from INTENT only ---
-    final_ce_key: str = compute_ce_key(
+    final_ce_key = compute_ce_key(
         prototype=prototype,
         prototype_params=dict(prototype_params),
         supercell_diag=supercell_diag,
-        replace_element=replace_element,
         sources=sources_intent,
         model=train_model,
         relax_cell=bool(train_relax_cell),
         dtype=train_dtype,
         basis_spec=dict(basis_spec),
-        regularization=dict(regularization or {}),
+        regularization=regularization,
         algo_version=str(algo_version),
-        weighting=dict(weighting or {}),
+        weighting=weighting,
     )
 
     return {

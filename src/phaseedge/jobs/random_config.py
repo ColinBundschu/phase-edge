@@ -43,7 +43,6 @@ class RandomConfigSpec(MSONable):
     composition_map: dict[str, dict[str, int]]
     seed: int
     index: int                      # which snapshot index in the set to generate
-    attempt: int = 0                # bump only if collision forces a retry
 
     # monty JSON hooks
     def as_dict(self) -> dict[str, Any]:
@@ -56,7 +55,6 @@ class RandomConfigSpec(MSONable):
             "composition_map": self.composition_map,
             "seed": self.seed,
             "index": self.index,
-            "attempt": self.attempt,
         }
 
     @classmethod
@@ -72,7 +70,6 @@ class RandomConfigSpec(MSONable):
             },
             seed=int(d["seed"]),
             index=int(d["index"]),
-            attempt=int(d.get("attempt", 0)),
         )
 
 @job
@@ -97,7 +94,7 @@ def make_random_config(spec: RandomConfigSpec) -> RandomConfigResult:
         seed=spec.seed,
     )
 
-    rng = rng_for_index(set_id, spec.index, spec.attempt)
+    rng = rng_for_index(set_id, spec.index)
     snapshot = make_one_snapshot(
         conv_cell=conv_cell,
         supercell_diag=spec.supercell_diag,

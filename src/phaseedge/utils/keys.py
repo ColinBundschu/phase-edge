@@ -7,7 +7,7 @@ from numpy.random import default_rng, Generator
 from ase.atoms import Atoms
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from phaseedge.schemas.mixture import Mixture, canonical_counts
+from phaseedge.schemas.mixture import Mixture, canonical_counts, sorted_composition_maps
 
 
 def compute_set_id(
@@ -63,13 +63,13 @@ def compute_set_id(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def seed_for(set_id: str, index: int, attempt: int = 0) -> int:
-    h = hashlib.sha256(f"{set_id}:{index}:{attempt}".encode()).digest()
+def seed_for(set_id: str, index: int) -> int:
+    h = hashlib.sha256(f"{set_id}:{index}".encode()).digest()
     return int.from_bytes(h[:8], "big", signed=False)
 
 
-def rng_for_index(set_id: str, index: int, attempt: int = 0) -> Generator:
-    return default_rng(seed_for(set_id, index, attempt))
+def rng_for_index(set_id: str, index: int) -> Generator:
+    return default_rng(seed_for(set_id, index))
 
 
 def occ_key_for_atoms(snapshot: Atoms) -> str:
@@ -122,7 +122,7 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
       {
         "type": "wl_refined_intent",
         "base_ce_key": str,
-        "endpoints": [counts_map, ...],                 # canonicalized and sorted
+        "endpoints": [composition_map, ...],
         "wl_policy": {bin_width, step_type, check_period, update_period, seed},  # seed REQUIRED
         "ensure": {steps_to_run, samples_per_bin},
         "refine": {mode, n_total|null, per_bin_cap|null, strategy},
@@ -131,11 +131,6 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
       }
     """
     base_ce_key = str(src["base_ce_key"])
-
-    # endpoints: canonicalize counts, stable order
-    endpoints_raw = list(src.get("endpoints", []))
-    endpoints = [canonical_counts(e) for e in endpoints_raw]
-    endpoints.sort(key=lambda m: json.dumps(m, sort_keys=True, separators=(",", ":")))
 
     # wl_policy: must include a seed
     raw_wl_policy = dict(src.get("wl_policy", {}))
@@ -153,7 +148,7 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "type": "wl_refined_intent",
         "base_ce_key": base_ce_key,
-        "endpoints": endpoints,
+        "endpoints": sorted_composition_maps(src["endpoints"]),
         "wl_policy": wl_policy,
         "ensure": ensure,
         "refine": refine,

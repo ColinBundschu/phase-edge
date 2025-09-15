@@ -7,14 +7,9 @@ from monty.json import MSONable
 
 from phaseedge.jobs.ensure_ce import CEEnsureMixturesSpec, ensure_ce
 from phaseedge.jobs.ensure_wl_samples import ensure_wl_samples
-from phaseedge.schemas.mixture import composition_counts_from_map, counts_sig
+from phaseedge.schemas.mixture import composition_counts_from_map, counts_sig, sorted_composition_maps
 from phaseedge.schemas.wl import WLSamplerSpec
 from phaseedge.utils.keys import compute_wl_key, canonical_counts
-
-
-def _counts_sig(counts: Mapping[str, int]) -> str:
-    c = canonical_counts(counts)
-    return ",".join(f"{k}:{int(v)}" for k, v in c.items())
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +52,7 @@ class EnsureWLSamplesFromCESpec(MSONable):
             ce_spec = CEEnsureMixturesSpec.from_dict(ce_spec)
         return cls(
             ce_spec=cast(CEEnsureMixturesSpec, ce_spec),
-            endpoints=tuple([{
+            endpoints=sorted_composition_maps([{
                 str(sublat): {str(k): int(v) for k, v in counts.items()}
                 for sublat, counts in e.items()
             } for e in d["endpoints"]]),
@@ -70,6 +65,41 @@ class EnsureWLSamplesFromCESpec(MSONable):
             wl_seed=int(d.get("wl_seed", 0)),
             category=str(d.get("category", "gpu")),
         )
+    
+    @property
+    def sublattice_labels(self) -> tuple[str, ...]:
+        all_labels = [tuple(sorted(mixture.composition_map.keys())) for mixture in self.ce_spec.mixtures]
+        # If all the labels are not identical, raise an error
+        first = all_labels[0]
+        for labels in all_labels[1:]:
+            if labels != first:
+                raise ValueError("All mixtures must have the same sublattice labels.")
+        return first
+    
+    @property
+    def wl_key_composition_pairs(self) -> tuple[tuple[str, dict[str, int]], ...]:
+        ce_key = self.ce_spec.ce_key
+        pairs = []
+        seen_sigs = {counts_sig(composition_counts_from_map(ep)) for ep in self.endpoints}
+        for mixture in self.ce_spec.mixtures:
+            composition_counts = composition_counts_from_map(mixture.composition_map)
+            sig = counts_sig(composition_counts)
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+
+            wl_key = compute_wl_key(
+                ce_key=ce_key,
+                bin_width=self.wl_bin_width,
+                step_type=self.wl_step_type,
+                composition_counts=composition_counts,
+                check_period=self.wl_check_period,
+                update_period=self.wl_update_period,
+                seed=self.wl_seed,
+                algo_version="wl-grid-v1",
+            )
+            pairs.append((wl_key, composition_counts))
+        return tuple(sorted(pairs))
 
 
 @job
@@ -80,36 +110,17 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     j_ce.name = "ensure_ce"
     j_ce.update_metadata({"_category": spec.category})
 
-    endpoint_fps = {counts_sig(composition_counts_from_map(ep)) for ep in spec.endpoints}
-
     wl_jobs: list[Job | Flow] = []
     wl_chunks: list[Mapping[str, Any]] = []  # minimal, safe fields only
-
-    seen_sigs = {ep for ep in endpoint_fps}
-    for mixture in spec.ce_spec.mixtures:
-        composition_counts = composition_counts_from_map(mixture.composition_map)
+    
+    for wl_key, composition_counts in spec.wl_key_composition_pairs:
         sig = counts_sig(composition_counts)
-        if sig in seen_sigs:
-            continue
-        seen_sigs.add(sig)
-
-        wl_key = compute_wl_key(
-            ce_key=ce_key,
-            bin_width=spec.wl_bin_width,
-            step_type=spec.wl_step_type,
-            composition_counts=composition_counts,
-            check_period=spec.wl_check_period,
-            update_period=spec.wl_update_period,
-            seed=spec.wl_seed,
-            algo_version="wl-grid-v1",
-        )
-
         run_spec = WLSamplerSpec(
             wl_key=wl_key,
             ce_key=ce_key,  # pass the resolved string; barrier enforced by linear flow below
             bin_width=spec.wl_bin_width,
             steps=spec.wl_steps_to_run,
-            sublattice_labels=tuple(sorted(mixture.composition_map.keys())),
+            sublattice_labels=spec.sublattice_labels,
             composition_counts=composition_counts,
             step_type=spec.wl_step_type,
             check_period=spec.wl_check_period,
@@ -143,6 +154,6 @@ def ensure_wl_samples_from_ce(spec: EnsureWLSamplesFromCESpec) -> Mapping[str, A
     out = {
         "ce_key": ce_key,
         "wl_chunks": wl_chunks,          # <-- orchestrators use wl_chunks[i]['hash']
-        "endpoints": sorted(endpoint_fps),
+        "endpoints": sorted({counts_sig(composition_counts_from_map(ep)) for ep in spec.endpoints}),
     }
     return Response(replace=flow, output=out)

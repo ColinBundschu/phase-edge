@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping, Sequence, Tuple
+from typing import Any, ClassVar, Mapping
 from monty.json import MSONable
 
 
@@ -30,7 +30,7 @@ class WLSamplerSpec(MSONable):
     steps: int
 
     # NEW: which sublattice labels are active for WL sampling (immutable, canonical)
-    sublattice_labels: Tuple[str, ...]
+    sublattice_labels: tuple[str, ...]
 
     # Counts for the *entire* WL supercell (immutable mapping)
     composition_counts: Mapping[str, int]

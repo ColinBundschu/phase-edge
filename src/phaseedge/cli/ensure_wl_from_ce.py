@@ -11,10 +11,9 @@ from phaseedge.jobs.ensure_wl_samples_from_ce import (
     EnsureWLSamplesFromCESpec,
     ensure_wl_samples_from_ce,
 )
-from phaseedge.schemas.mixture import Mixture, composition_counts_from_map, counts_sig
+from phaseedge.schemas.mixture import Mixture, composition_counts_sig, counts_sig, sorted_composition_maps
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
-from phaseedge.utils.keys import compute_wl_key
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,7 +74,7 @@ def main() -> int:
 
     # Parse + canonicalize inputs
     proper_mixtures = [parse_mix_item(s) for s in args.mix]
-    endpoints = tuple(parse_composition_map(s) for s in args.endpoint)
+    endpoints = sorted_composition_maps([parse_composition_map(s) for s in args.endpoint])
     mixtures = (*proper_mixtures, *(Mixture(composition_map=ep, K=1, seed=0) for ep in endpoints))
 
     # Optional early validation
@@ -108,33 +107,6 @@ def main() -> int:
         weighting=weighting,
     )
 
-    ce_key = ce_spec.ce_key
-
-    # Precompute the WL keys for all unique NON-endpoint compositions (once per composition)
-    seen_sigs: set[str] = {counts_sig(composition_counts_from_map(ep)) for ep in endpoints}
-    planned_wl_runs: list[dict[str, Any]] = []
-    for mixture in proper_mixtures:
-        composition_counts = composition_counts_from_map(mixture.composition_map)
-        sig = counts_sig(composition_counts)
-        if sig in seen_sigs:
-            continue
-        seen_sigs.add(sig)
-
-        wl_key = compute_wl_key(
-            ce_key=ce_key,
-            bin_width=float(args.wl_bin_width),
-            step_type=str(args.step_type),
-            composition_counts=composition_counts,
-            check_period=int(args.check_period),
-            update_period=int(args.update_period),
-            seed=int(args.wl_seed),
-            algo_version="wl-grid-v1",
-        )
-        planned_wl_runs.append({
-            "counts_sig": sig,
-            "wl_key": wl_key,
-        })
-
     # Compose the master ensure job
     master_spec = EnsureWLSamplesFromCESpec(
         ce_spec=ce_spec,
@@ -148,6 +120,11 @@ def main() -> int:
         wl_seed=int(args.wl_seed),
         category=str(args.category),
     )
+
+    planned_wl_runs: list[dict[str, Any]] = [{
+        "counts_sig": counts_sig(composition_counts),
+        "wl_key": wl_key,
+    } for wl_key, composition_counts in master_spec.wl_key_composition_pairs]
 
     j = ensure_wl_samples_from_ce(master_spec)
     j.name = "ensure_wl_samples_from_ce"
@@ -163,7 +140,7 @@ def main() -> int:
 
     payload: dict[str, Any] = {
         "submitted_workflow_id": wf_id,
-        "ce_key": ce_key,
+        "ce_key": ce_spec.ce_key,
         "prototype": args.prototype,
         "a": float(args.a),
         "supercell": tuple(int(x) for x in args.supercell),

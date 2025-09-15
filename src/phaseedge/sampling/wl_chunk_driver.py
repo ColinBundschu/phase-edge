@@ -169,7 +169,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     # Defensive: fail fast if tip moved between our read and now
     latest_now = get_tip(spec.wl_key)
     if latest_now is not None and parent_hash != latest_now["hash"]:
-        raise RuntimeError("Tip moved while running; aborting write to avoid fork.")
+        raise RuntimeError(f"Tip moved while running; aborting write to avoid fork. Expected {parent_hash}, found {latest_now['hash']}.")
 
     # Try insert; uniqueness on (wl_key,parent_hash) ensures linear chain
     try:

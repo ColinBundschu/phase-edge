@@ -45,6 +45,43 @@ def composition_counts_from_map(
     return canonical_counts(totals)
 
 
+def composition_counts_sig(
+    composition_map: Mapping[str, Mapping[str, int]],
+    *,
+    outer_sep: str = ",",
+    kv_sep: str = ":",
+    wrap_inner: tuple[str, str] = ("{", "}"),
+) -> str:
+    """
+    Stable signature for a nested composition_map like:
+      {"Es": {"Fe": 108}, "B": {"Mg": 108}}  ->  "B:{Mg:108},Es:{Fe:108}"
+
+    - Outer keys (sublattice labels/placeholders) are sorted.
+    - Inner dict is serialized via `counts_sig` (which sorts elements).
+    - No flattening; structure is preserved as "sublattice:inner_sig".
+    """
+    left, right = wrap_inner
+    parts: list[str] = []
+    for sublat in sorted(composition_map):
+        inner = composition_map[sublat]
+        inner_sig = counts_sig(inner)  # uses your canonical_counts + "El:cnt,..." ordering
+        parts.append(f"{sublat}{kv_sep}{left}{inner_sig}{right}")
+    return outer_sep.join(parts)
+
+
+def sorted_composition_maps(
+    composition_maps: Sequence[Mapping[str, Mapping[str, int]]],
+) -> tuple[dict[str, dict[str, int]], ...]:
+    """
+    Given a sequence of composition_map-like dicts, return a tuple of
+    normalized (canonicalized) dicts with sorted keys and int counts.
+    """
+    normalized_composition_maps = [
+        {str(ok): canonical_counts(inner) for ok, inner in sorted(cm.items())}
+        for cm in composition_maps
+    ]
+    return tuple(sorted(normalized_composition_maps, key=composition_counts_sig))
+
 @dataclass(frozen=True)
 class Mixture(MSONable):
     """

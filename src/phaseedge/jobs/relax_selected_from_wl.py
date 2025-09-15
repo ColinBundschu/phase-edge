@@ -3,28 +3,13 @@ from typing import Any, Mapping, Sequence, cast
 import numpy as np
 from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow
-from smol.cofe import ClusterExpansion
-from smol.moca.ensemble import Ensemble
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 
-from phaseedge.storage.ce_store import lookup_ce_by_key
 from phaseedge.jobs.decide_relax import check_or_schedule_relax
-from phaseedge.schemas.mixture import canonical_counts, occ_key_for_atoms
-
-
-def _counts_sig(counts: Mapping[str, int]) -> str:
-    cc = canonical_counts(counts)
-    return ",".join(f"{k}:{int(v)}" for k, v in cc.items())
-
-
-def _rehydrate_ensemble(ce_doc: Mapping[str, Any]) -> Ensemble:
-    payload = cast(Mapping[str, Any], ce_doc["payload"])
-    ce = ClusterExpansion.from_dict(dict(payload))
-    system = cast(Mapping[str, Any], ce_doc["system"])
-    sc = tuple(int(x) for x in cast(Sequence[int], system["supercell_diag"]))
-    sc_matrix = np.diag(sc)
-    return Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
+from phaseedge.schemas.mixture import canonical_counts, counts_sig
+from phaseedge.utils.keys import occ_key_for_atoms
+from phaseedge.utils.rehydrators import rehydrate_ensemble_by_ce_key
 
 
 @job
@@ -46,40 +31,25 @@ def relax_selected_from_wl(
     relaxes in parallel, and return groups compatible with fetch_training_set_multi:
         groups = [{"set_id": str, "counts": dict[str,int], "occ_keys": [str, ...], "occs": [[int,...], ...]}, ...]
     """
-    ce_doc = lookup_ce_by_key(ce_key)
-    if not ce_doc:
-        raise RuntimeError(f"No CE found for ce_key={ce_key}")
 
-    ensemble = _rehydrate_ensemble(ce_doc)
+    ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
     relax_jobs: list[Job | Flow] = []
-    # key -> {"set_id","counts","occ_keys","occs"}
-    groups_map: dict[str, dict[str, Any]] = {}
-
+    groups_map: dict[str, dict[str, Any]] = {} # counts_sig -> {"set_id","counts","occ_keys","occs"}
     for rec in selected:
-        src = str(rec.get("source", ""))
+        src = rec["source"]
         if src == "wl":
             wl_key = str(rec["wl_key"])
-            counts = wl_counts_map.get(wl_key)
-            if counts is None:
-                raise RuntimeError(f"relax_selected_from_wl: missing counts for wl_key={wl_key}")
+            counts = wl_counts_map[wl_key]
         elif src == "endpoint":
-            counts_raw = cast(Mapping[str, int], rec.get("counts", {}))
-            if not counts_raw:
-                raise RuntimeError("relax_selected_from_wl: endpoint record missing 'counts'.")
-            counts = counts_raw
+            counts = rec["counts"]
         else:
-            # Future-proof: ignore unknown sources
-            continue
+            raise RuntimeError(f"relax_selected_from_wl: unrecognized source='{src}' in record.")
 
-        counts_canon = canonical_counts(counts)
-        sig = _counts_sig(counts_canon)
+        sig = counts_sig(counts)
         set_id = f"{set_id_prefix}::{ce_key}::{sig}"
-
-        grp = groups_map.get(sig)
-        if grp is None:
-            grp = {"set_id": set_id, "counts": counts_canon, "occ_keys": [], "occs": []}
-            groups_map[sig] = grp
+        if sig not in groups_map:
+            groups_map[sig] = {"set_id": set_id, "occ_keys": [], "occs": []}
 
         # Build structure from occupancy via CE processor
         occ_seq = cast(Sequence[int], rec["occ"])
@@ -99,17 +69,15 @@ def relax_selected_from_wl(
             relax_cell=relax_cell,
             dtype=dtype,
             category=category,
-        )  # type: ignore[assignment]
+        )
         j_relax.name = f"relax[{sig}::{occ_key[:12]}]"
         j_relax.update_metadata({"_category": category})
         relax_jobs.append(j_relax)
 
         # Record keys and raw occupancies (for later exact reconstruction)
-        grp["occ_keys"].append(occ_key)
-        grp["occs"].append([int(x) for x in occ_seq])
+        groups_map[sig]["occ_keys"].append(occ_key)
+        groups_map[sig]["occs"].append([int(x) for x in occ_seq])
 
-    groups_out = list(groups_map.values())
-    groups_out.sort(key=lambda g: _counts_sig(cast(Mapping[str, int], g["counts"])))
-
+    groups_out = sorted(groups_map.values(), key=lambda g: g["set_id"])
     subflow = Flow(relax_jobs, name="Relax selected (parallel)")
     return Response(replace=subflow, output={"groups": groups_out})

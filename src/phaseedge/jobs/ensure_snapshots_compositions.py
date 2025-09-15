@@ -12,7 +12,6 @@ class SnapshotGroup(TypedDict):
     set_id: str
     occ_keys: list[str]
     composition_map: dict[str, dict[str, int]]
-    seed: int
 
 
 @job
@@ -92,7 +91,6 @@ def make_ensure_snapshots_composition_flow(
         "set_id": first_set_id_ref,
         "occ_keys": ordered_occ_keys,        # OutputReferences -> resolves to list[str]
         "composition_map": composition_map,  # already canonical upstream
-        "seed": int(seed),
     }
 
     j_emit = _emit_group(group=group_payload)

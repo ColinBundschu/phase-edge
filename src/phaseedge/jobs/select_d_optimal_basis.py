@@ -11,7 +11,8 @@ from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.science.prototypes import make_prototype
-from phaseedge.schemas.mixture import canonical_counts
+from phaseedge.schemas.mixture import canonical_counts, composition_counts_from_map
+from phaseedge.utils.rehydrators import rehydrate_ensemble_by_ce_key
 
 
 class Candidate(TypedDict):
@@ -30,22 +31,13 @@ def _occ_hash(occ: Sequence[int]) -> str:
     return hashlib.sha256(bytes(int(x) & 0xFF for x in occ)).hexdigest()
 
 
-def _rehydrate_ensemble(ce_doc: Mapping[str, Any]) -> Ensemble:
-    payload = cast(Mapping[str, Any], ce_doc["payload"])
-    ce = ClusterExpansion.from_dict(dict(payload))
-    system = cast(Mapping[str, Any], ce_doc["system"])
-    sc = tuple(int(x) for x in cast(Sequence[int], system["supercell_diag"]))
-    sc_matrix = np.diag(sc)
-    return Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
-
-
 def _occ_for_counts(
     *,
     ensemble: Ensemble,
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    composition_map: dict[str, dict[str, int]],
+    composition_map: Mapping[str, Mapping[str, int]],
 ) -> list[int]:
     conv = make_prototype(prototype, **dict(prototype_params))
     rng = np.random.default_rng(0)  # deterministic
@@ -80,8 +72,7 @@ def select_d_optimal_basis(
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
-    replace_element: str,
-    endpoints: Sequence[Mapping[str, int]],
+    endpoints: Sequence[Mapping[str, Mapping[str, int]]],
     # each chain: {"wl_key": str, "checkpoint_hash": str, "samples": [{"bin": int, "occ": [...]}, ...]}
     chains: Sequence[Mapping[str, Any]],
     budget: int,
@@ -100,10 +91,7 @@ def select_d_optimal_basis(
     if budget <= 0:
         raise ValueError("budget must be positive.")
 
-    ce_doc = lookup_ce_by_key(ce_key)
-    if not ce_doc:
-        raise RuntimeError(f"No CE found for ce_key={ce_key}")
-    ensemble = _rehydrate_ensemble(ce_doc)
+    ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
     # -------------------------
     # Build and deduplicate pool
@@ -117,7 +105,7 @@ def select_d_optimal_basis(
             prototype=prototype,
             prototype_params=prototype_params,
             supercell_diag=supercell_diag,
-            composition_map={replace_element: canonical_counts(ep)},
+            composition_map=ep,
         )
         candidates.append(
             Candidate(
@@ -127,7 +115,7 @@ def select_d_optimal_basis(
                 wl_key=None,
                 checkpoint_hash=None,
                 bin=None,
-                counts={str(k): int(v) for k, v in ep.items()},
+                counts=composition_counts_from_map(ep),
             )
         )
 
