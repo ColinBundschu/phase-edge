@@ -226,8 +226,6 @@ def compute_ce_key(
     """
     Deterministic key for a CE trained from an arbitrary set of sampling sources.
     Identity includes: system, canonicalized `sources`, engine, hyperparams (incl. weighting), and algo_version.
-
-    NOTE: For refined CE runs, only the *intent* (type="wl_refined_intent") is hashed.
     """
     norm_sources = normalize_sources(sources)
 
