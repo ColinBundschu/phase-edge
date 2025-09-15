@@ -6,7 +6,7 @@ from fireworks import LaunchPad
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
-from phaseedge.schemas.wl import WLSamplerSpec
+from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.add_wl_chunk import add_wl_chunk, add_wl_chain
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_counts_arg, parse_sublattice_labels

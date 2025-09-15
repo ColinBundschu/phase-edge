@@ -1,17 +1,18 @@
 import argparse
-from typing import Any, Literal, cast
+from typing import Any, cast
 import json
 
 from fireworks import LaunchPad
-from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.cli.common import parse_composition_map, parse_cutoffs_arg, parse_mix_item
-from phaseedge.jobs.ensure_ce import CEEnsureMixturesSpec
-from phaseedge.jobs.ensure_ce_from_refined_wl import EnsureCEFromRefinedWLSpec, ensure_ce_from_refined_wl
+from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
+from phaseedge.jobs.ensure_ce_from_refined_wl import ensure_ce_from_refined_wl
+from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
 from phaseedge.schemas.mixture import Mixture, counts_sig, sorted_composition_maps
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototypes import PrototypeName, make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
+from phaseedge.science.refine_wl import RefineStrategy
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,8 +112,8 @@ def main() -> int:
     supercell_diag = (supercell_x, supercell_y, supercell_z)
 
     # Build CE spec
-    ce_spec = CEEnsureMixturesSpec(
-        prototype=args.prototype,
+    ce_spec = EnsureCEFromMixturesSpec(
+        prototype=PrototypeName(args.prototype),
         prototype_params={"a": args.a},
         supercell_diag=supercell_diag,
         mixtures=mixtures,
@@ -127,7 +128,7 @@ def main() -> int:
     )
 
     # Compose the master ensure job
-    wl_spec = EnsureCEFromRefinedWLSpec(
+    spec = EnsureCEFromRefinedWLSpec(
         ce_spec=ce_spec,
         endpoints=endpoints,
         wl_bin_width=float(args.wl_bin_width),
@@ -139,7 +140,7 @@ def main() -> int:
         wl_seed=int(args.wl_seed),
         refine_n_total=int(args.refine_n_total),
         refine_per_bin_cap=int(args.refine_per_bin_cap),
-        refine_strategy=cast(Literal["energy_spread", "energy_stratified", "hash_round_robin"], args.refine_strategy),
+        refine_strategy=RefineStrategy(args.refine_strategy),
         train_model=str(args.train_model),
         train_relax_cell=bool(args.train_relax_cell),
         train_dtype=str(args.train_dtype),
@@ -150,72 +151,14 @@ def main() -> int:
     planned_wl_runs: list[dict[str, Any]] = [{
         "counts_sig": counts_sig(composition_counts),
         "wl_key": wl_key,
-    } for wl_key, composition_counts in wl_spec.wl_key_composition_pairs]
-
-    # INTENT block for refined CE (submit-time determinism)
-    # wl_policy = {
-    #     "bin_width": float(args.wl_bin_width),
-    #     "step_type": str(args.step_type),
-    #     "check_period": int(args.check_period),
-    #     "update_period": int(args.update_period),
-    #     "seed": int(args.wl_seed),
-    # }
-    # ensure_policy = {
-    #     "steps_to_run": int(args.steps_to_run),
-    #     "samples_per_bin": int(args.samples_per_bin),
-    # }
-    # refine_mode = "all" if int(args.refine_n_total) == 0 else "refine"
-    # refine_block = {
-    #     "mode": refine_mode,
-    #     "n_total": (None if refine_mode == "all" else int(args.refine_n_total)),
-    #     "per_bin_cap": int(args.refine_per_bin_cap),
-    #     "strategy": str(args.refine_strategy),
-    # }
-    # dopt_block = {
-    #     "budget": int(args.budget),
-    #     "ridge": float(1e-10),
-    #     "tie_breaker": "bin_then_hash",
-    # }
-    # intent_source = {
-    #     "type": "wl_refined_intent",
-    #     "base_ce_key": ce_spec.ce_key,
-    #     "endpoints": endpoints,  # already canonicalized
-    #     "wl_policy": wl_policy,
-    #     "ensure": ensure_policy,
-    #     "refine": refine_block,
-    #     "dopt": dopt_block,
-    #     "versions": {
-    #         "refine": "refine-wl-v1",
-    #         "dopt": "dopt-greedy-sm-v1",
-    #         "sampler": "wl-grid-v1",
-    #     },
-    # }
-
-    # # Compute refined (intent-based) CE key at submit time
-    # refined_intent_ce_key = compute_ce_key(
-    #     prototype=args.prototype,
-    #     prototype_params={"a": float(args.a)},
-    #     supercell_diag=supercell_diag,
-    #     sources=[intent_source],
-    #     algo_version="refined-wl-dopt-v2",
-    #     model=str(args.train_model),
-    #     relax_cell=bool(args.train_relax_cell),
-    #     dtype=str(args.train_dtype),
-    #     basis_spec={"basis": args.basis, "cutoffs": cutoffs},
-    #     regularization={"type": args.reg_type, "alpha": float(args.alpha), "l1_ratio": float(args.l1_ratio)},
-    #     weighting=weighting,
-    # )
+    } for wl_key, composition_counts in spec.wl_key_composition_pairs]
 
     # Build + submit workflow
-    j = ensure_ce_from_refined_wl(ensure_wl_spec=wl_spec)
+    j = ensure_ce_from_refined_wl(spec=spec)
     j.name = "ensure_ce_from_refined_wl"
-    j.metadata = {**(j.metadata or {}), "_category": args.category}
+    j.update_metadata({"_category": spec.category})
 
-    flow = Flow([j], name="Ensure CE from refined WL")
-    wf = flow_to_workflow(flow)
-    for fw in wf.fws:
-        fw.spec = {**(fw.spec or {}), "_category": args.category}
-
+    wf = flow_to_workflow(j)
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
 
@@ -223,41 +166,38 @@ def main() -> int:
         "submitted_workflow_id": wf_id,
         "planned_wl_runs": planned_wl_runs,
         "seed_size_estimate": len(endpoints) + len(planned_wl_runs),
-    } | wl_spec.as_dict()
+    } | spec.as_dict()
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     else:
         print("Submitted workflow:", wf_id)
         print({
-            "base_ce_key": wl_spec.ce_spec.ce_key,
-            "final_ce_key": wl_spec.final_ce_key,
+            "base_ce_key": spec.ce_spec.ce_key,
+            "final_ce_key": spec.final_ce_key,
             } | {
             k: payload["ce_spec"][k] for k in (
                 "prototype", "prototype_params", "supercell_diag",
                 "regularization", "weighting", "category", "basis_spec",
             )
         })
-        if planned_wl_runs:
-            print("Planned WL chains:")
-            for rec in planned_wl_runs:
-                print(f"  {rec['counts_sig']:>18}  wl_key={rec['wl_key']}")
-        else:
-            print("Planned WL chains: []")
+        print("Planned WL chains:")
+        for rec in planned_wl_runs:
+            print(f"  {rec['counts_sig']:>18}  wl_key={rec['wl_key']}")
         print({
             "initial_training": {
-                "model": wl_spec.ce_spec.model,
-                "relax_cell": wl_spec.ce_spec.relax_cell,
-                "dtype": wl_spec.ce_spec.dtype,
+                "model": spec.ce_spec.model,
+                "relax_cell": spec.ce_spec.relax_cell,
+                "dtype": spec.ce_spec.dtype,
             },
         })
         print({
             "final_training": {
-                "model": wl_spec.train_model,
-                "relax_cell": wl_spec.train_relax_cell,
-                "dtype": wl_spec.train_dtype,
+                "model": spec.train_model,
+                "relax_cell": spec.train_relax_cell,
+                "dtype": spec.train_dtype,
             },
-            "budget": wl_spec.budget,
+            "budget": spec.budget,
             "seed_size_estimate": payload["seed_size_estimate"],
         })
     return 0

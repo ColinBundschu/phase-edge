@@ -1,16 +1,16 @@
 import argparse
 from typing import Any
 
-from phaseedge.jobs.ensure_ce import CEEnsureMixturesSpec, ensure_ce  # spec name kept for now
-
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototypes import PrototypeName, make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.utils.keys import compute_ce_key
 from phaseedge.cli.common import parse_cutoffs_arg, parse_mix_item
+from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
+from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -96,8 +96,8 @@ def main() -> None:
     )
 
     # Build the idempotent ensure job (mixture spec retained) and submit
-    spec = CEEnsureMixturesSpec(
-        prototype=args.prototype,
+    spec = EnsureCEFromMixturesSpec(
+        prototype=PrototypeName(args.prototype),
         prototype_params={"a": args.a},
         supercell_diag=tuple(args.supercell),
         mixtures=mixtures,
@@ -111,7 +111,7 @@ def main() -> None:
         weighting=weighting,
     )
 
-    j = ensure_ce(spec)
+    j = ensure_ce_from_mixtures(spec)
     j.name = "ensure_ce"
     j.metadata = {**(j.metadata or {}), "_category": args.category}
 

@@ -1,9 +1,12 @@
-from typing import Literal
 import numpy as np
 from ase.build import bulk
 from ase.atoms import Atoms
+from enum import Enum
 
-PrototypeName = Literal["rocksalt"]  # extend later
+
+class PrototypeName(str, Enum):
+    ROCKSALT = "rocksalt"
+
 
 def make_prototype(
     name: PrototypeName,
@@ -14,7 +17,7 @@ def make_prototype(
     """
     Build a primitive prototype cell as an ASE Atoms.
     """
-    if name != "rocksalt":
+    if name != PrototypeName.ROCKSALT:
         raise ValueError(f"Unknown prototype: {name}")
 
     atoms = bulk("MgO", crystalstructure="rocksalt", a=a, cubic=cubic)

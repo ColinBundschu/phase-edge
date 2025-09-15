@@ -3,7 +3,7 @@ from typing import Any
 from jobflow.core.job import job
 from jobflow.core.flow import Flow, JobOrder
 
-from phaseedge.schemas.wl import WLSamplerSpec
+from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.sampling.wl_chunk_driver import run_wl_chunk
 
 

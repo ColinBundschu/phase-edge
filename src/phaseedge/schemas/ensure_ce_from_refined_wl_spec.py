@@ -1,0 +1,186 @@
+from dataclasses import dataclass
+from typing import Any, Literal, Mapping
+
+from monty.json import MSONable
+
+from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
+from phaseedge.schemas.mixture import composition_counts_from_map, counts_sig, sorted_composition_maps
+from phaseedge.science.refine_wl import RefineStrategy
+from phaseedge.utils.keys import compute_ce_key, compute_wl_key
+
+
+@dataclass(frozen=True, slots=True)
+class EnsureCEFromRefinedWLSpec(MSONable):
+    ce_spec: EnsureCEFromMixturesSpec
+    endpoints: tuple[dict[str, dict[str, int]], ...]
+
+    wl_bin_width: float
+    wl_steps_to_run: int
+    wl_samples_per_bin: int
+
+    wl_step_type: str = "swap"
+    wl_check_period: int = 5_000
+    wl_update_period: int = 1
+    wl_seed: int = 0
+
+    refine_n_total: int = 25
+    refine_per_bin_cap: int = 5
+    refine_strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
+    train_model: str = "MACE-MPA-0"
+    train_relax_cell: bool = False
+    train_dtype: str = "float64"
+    budget: int = 64
+
+    # Single category for *everything* (wrapper, CE subflow, WL jobs)
+    category: str = "gpu"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "@module": type(self).__module__,
+            "@class": type(self).__name__,
+            "ce_spec": self.ce_spec.as_dict(),
+            "endpoints": list(self.endpoints),
+            "wl_bin_width": self.wl_bin_width,
+            "wl_steps_to_run": self.wl_steps_to_run,
+            "wl_samples_per_bin": self.wl_samples_per_bin,
+            "wl_step_type": self.wl_step_type,
+            "wl_check_period": self.wl_check_period,
+            "wl_update_period": self.wl_update_period,
+            "wl_seed": self.wl_seed,
+            "refine_n_total": self.refine_n_total,
+            "refine_per_bin_cap": self.refine_per_bin_cap,
+            "refine_strategy": self.refine_strategy,
+            "train_model": self.train_model,
+            "train_relax_cell": self.train_relax_cell,
+            "train_dtype": self.train_dtype,
+            "budget": self.budget,
+            "category": self.category,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "EnsureCEFromRefinedWLSpec":
+        ce_spec = d["ce_spec"]
+        if not isinstance(ce_spec, EnsureCEFromMixturesSpec):
+            ce_spec = EnsureCEFromMixturesSpec.from_dict(ce_spec)
+        return cls(
+            ce_spec=ce_spec,
+            endpoints=sorted_composition_maps([{
+                str(sublat): {str(k): int(v) for k, v in counts.items()}
+                for sublat, counts in e.items()
+            } for e in d["endpoints"]]),
+            wl_bin_width=float(d["wl_bin_width"]),
+            wl_steps_to_run=int(d["wl_steps_to_run"]),
+            wl_samples_per_bin=int(d["wl_samples_per_bin"]),
+            wl_step_type=str(d["wl_step_type"]),
+            wl_check_period=int(d["wl_check_period"]),
+            wl_update_period=int(d["wl_update_period"]),
+            wl_seed=int(d["wl_seed"]),
+            refine_n_total=int(d["refine_n_total"]),
+            refine_per_bin_cap=int(d["refine_per_bin_cap"]),
+            refine_strategy=RefineStrategy(d["refine_strategy"]),
+            train_model=str(d["train_model"]),
+            train_relax_cell=bool(d["train_relax_cell"]),
+            train_dtype=str(d["train_dtype"]),
+            budget=int(d["budget"]),
+            category=str(d.get("category", "gpu")),
+        )
+    
+    @property
+    def sublattice_labels(self) -> tuple[str, ...]:
+        all_labels = [tuple(sorted(mixture.composition_map.keys())) for mixture in self.ce_spec.mixtures]
+        # If all the labels are not identical, raise an error
+        first = all_labels[0]
+        for labels in all_labels[1:]:
+            if labels != first:
+                raise ValueError("All mixtures must have the same sublattice labels.")
+        return first
+    
+    @property
+    def refine_mode(self) -> Literal["all", "refine"]:
+        return "all" if self.refine_n_total == 0 else "refine"
+    
+    @property
+    def refine_total(self) -> int | None:
+        return None if self.refine_n_total == 0 else self.refine_n_total
+
+    @property
+    def wl_key_composition_pairs(self) -> tuple[tuple[str, dict[str, int]], ...]:
+        ce_key = self.ce_spec.ce_key
+        pairs = []
+        seen_sigs = {counts_sig(composition_counts_from_map(ep)) for ep in self.endpoints}
+        for mixture in self.ce_spec.mixtures:
+            composition_counts = composition_counts_from_map(mixture.composition_map)
+            sig = counts_sig(composition_counts)
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+
+            wl_key = compute_wl_key(
+                ce_key=ce_key,
+                bin_width=self.wl_bin_width,
+                step_type=self.wl_step_type,
+                composition_counts=composition_counts,
+                check_period=self.wl_check_period,
+                update_period=self.wl_update_period,
+                seed=self.wl_seed,
+                algo_version="wl-grid-v1",
+            )
+            pairs.append((wl_key, composition_counts))
+        return tuple(sorted(pairs))
+    
+    @property
+    def final_ce_key(self) -> str:
+        return compute_ce_key(
+            prototype=self.ce_spec.prototype,
+            prototype_params=dict(self.ce_spec.prototype_params),
+            supercell_diag=self.ce_spec.supercell_diag,
+            sources=[self.source],
+            model=self.train_model,
+            relax_cell=self.train_relax_cell,
+            dtype=self.train_dtype,
+            basis_spec=self.ce_spec.basis_spec,
+            regularization=self.ce_spec.regularization,
+            algo_version="refined-wl-dopt-v2",
+            weighting=self.ce_spec.weighting,
+        )
+
+    @property
+    def source(self):
+        wl_policy_for_key = {
+            "bin_width": self.wl_bin_width,
+            "step_type": self.wl_step_type,
+            "check_period": self.wl_check_period,
+            "update_period": self.wl_update_period,
+            "seed": self.wl_seed,
+        }
+        ensure_policy_for_key = {
+            "steps_to_run": self.wl_steps_to_run,
+            "samples_per_bin": self.wl_samples_per_bin,
+        }
+        refine_options_for_key = {
+            "mode": self.refine_mode,
+            "n_total": self.refine_total,
+            "per_bin_cap": self.refine_per_bin_cap,
+            "strategy": self.refine_strategy,
+        }
+        dopt_options_for_key = {
+            "budget": self.budget,
+            "ridge": float(1e-10),
+            "tie_breaker": "bin_then_hash",
+        }
+        source = {
+            "type": "wl_refined_intent",
+            "base_ce_key": self.ce_spec.ce_key,
+            "endpoints": self.endpoints,
+            "wl_policy": wl_policy_for_key,
+            "ensure": ensure_policy_for_key,
+            "refine": refine_options_for_key,
+            "dopt": dopt_options_for_key,
+            "versions": {
+                "refine": "refine-wl-v1",
+                "dopt": "dopt-rr-sm-v1",
+                "sampler": "wl-grid-v1",
+            },
+        }
+        
+        return source

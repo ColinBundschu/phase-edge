@@ -11,6 +11,7 @@ from phaseedge.storage import store
 # Uses your existing selector implementation
 from phaseedge.science.refine_wl import (
     RefineOptions,
+    RefineStrategy,
     refine_wl_samples as _refine_wl_samples,
 )
 
@@ -37,7 +38,7 @@ class RefineWLSpec(MSONable):
     # refinement options (ignored when mode == "all")
     n_total: int | None = 25
     per_bin_cap: int | None = 5
-    strategy: Literal["energy_spread", "energy_stratified", "hash_round_robin"] = "energy_spread"
+    strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
 
     def as_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
@@ -57,10 +58,7 @@ class RefineWLSpec(MSONable):
             mode=cast(Literal["refine", "all"], d.get("mode", "refine")),
             n_total=cast(int | None, d.get("n_total", 25)),
             per_bin_cap=cast(int | None, d.get("per_bin_cap", 5)),
-            strategy=cast(
-                Literal["energy_spread", "energy_stratified", "hash_round_robin"],
-                d.get("strategy", "energy_spread"),
-            ),
+            strategy=RefineStrategy(d["strategy"]),
         )
 
 

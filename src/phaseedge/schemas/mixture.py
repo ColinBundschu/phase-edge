@@ -32,7 +32,7 @@ def composition_counts_from_map(
         ValueError: if any count is negative.
     """
     totals: dict[str, int] = {}
-    for _sublattice, counts in composition_map.items():
+    for counts in composition_map.values():
         for elem, n in counts.items():
             if not isinstance(elem, str):
                 raise TypeError("Element keys in composition_map must be str.")

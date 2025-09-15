@@ -7,7 +7,7 @@ from smol.moca import Sampler
 from smol.moca.ensemble import Ensemble
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from phaseedge.schemas.wl import WLSamplerSpec
+from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
 from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint

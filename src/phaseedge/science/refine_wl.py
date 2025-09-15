@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, TypedDict, Literal
+from typing import Any, Mapping, TypedDict
 import hashlib
+from enum import Enum
 
 
 # Current WL checkpoint bin_samples schema:
@@ -15,6 +16,12 @@ class RefinedWLSamples(TypedDict):
     checkpoint_hash: str
     n_selected: int
     selected: list[RefinedSample]
+
+
+class RefineStrategy(str, Enum):
+    ENERGY_SPREAD = "energy_spread"
+    ENERGY_STRATIFIED = "energy_stratified"
+    HASH_ROUND_ROBIN = "hash_round_robin"
 
 
 @dataclass(frozen=True)
@@ -33,7 +40,7 @@ class RefineOptions:
     """
     n_total: int | None = 25
     per_bin_cap: int | None = 5
-    strategy: Literal["energy_spread", "energy_stratified", "hash_round_robin"] = "energy_spread"
+    strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
 
 
 def _occ_hash(occ: list[int]) -> str:

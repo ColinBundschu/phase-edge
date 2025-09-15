@@ -8,11 +8,12 @@ from ase.atoms import Atoms
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from phaseedge.schemas.mixture import Mixture, canonical_counts, sorted_composition_maps
+from phaseedge.science.prototypes import PrototypeName
 
 
 def compute_set_id(
     *,
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: dict[str, Any] | None,
     supercell_diag: tuple[int, int, int],
     composition_map: dict[str, dict[str, int]],
@@ -159,7 +160,7 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
 
 # -------------------- unified CE key over arbitrary sources (intent only) --------------------
 
-def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """
     Normalize the 'sources' list into a canonical JSON-ready structure.
 
@@ -210,7 +211,7 @@ def _normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, A
 
 def compute_ce_key(
     *,
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sources: Sequence[Mapping[str, Any]],
@@ -228,7 +229,7 @@ def compute_ce_key(
 
     NOTE: For refined CE runs, only the *intent* (type="wl_refined_intent") is hashed.
     """
-    norm_sources = _normalize_sources(sources)
+    norm_sources = normalize_sources(sources)
 
     payload = {
         "kind": "ce_key@sources",

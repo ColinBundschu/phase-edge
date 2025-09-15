@@ -5,6 +5,8 @@ from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage import store
 from monty.json import jsanitize
 
+from phaseedge.utils.keys import normalize_sources
+
 class CEModelDoc(TypedDict, total=True):
     ce_key: str
     prototype: PrototypeName
@@ -95,7 +97,7 @@ def store_ce_model(
         "prototype_params": dict(prototype_params),
         "supercell_diag": supercell_diag,
         "algo_version": algo_version,
-        "sources": [dict(s) for s in sources],
+        "sources": normalize_sources(sources),
         "model": model,
         "relax_cell": relax_cell,
         "dtype": dtype,

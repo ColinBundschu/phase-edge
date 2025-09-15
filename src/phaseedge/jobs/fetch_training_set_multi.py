@@ -9,10 +9,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
-from phaseedge.science.random_configs import (
-    make_one_snapshot,
-    validate_counts_for_sublattices,
-)
+from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.utils.keys import rng_for_index, occ_key_for_atoms
 from phaseedge.storage import store
 from smol.moca.ensemble import Ensemble
@@ -102,7 +99,7 @@ def fetch_training_set_multi(
     # groups can come from RNG (old path) or WL (new path)
     groups: Sequence[Mapping[str, Any]],
     # prototype-only system identity (needed to rebuild RNG snapshots)
-    prototype: str,
+    prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     # engine identity (for energy lookup)
@@ -142,7 +139,7 @@ def fetch_training_set_multi(
         raise ValueError("fetch_training_set_multi: 'groups' must be a non-empty sequence.")
 
     # Build prototype conventional cell once for RNG path
-    conv = make_prototype(cast(PrototypeName, prototype), **dict(prototype_params))
+    conv = make_prototype(prototype, **dict(prototype_params))
     sx, sy, sz = map(int, supercell_diag)
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 
@@ -169,7 +166,7 @@ def fetch_training_set_multi(
                         "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
                     )
                 ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
-            occs = cast(Sequence[Sequence[int]], g["occs"])
+            occs = g["occs"]
             if len(occs) != len(occ_keys):
                 raise ValueError(f"group[{gi}] length mismatch: len(occs) != len(occ_keys).")
 

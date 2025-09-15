@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 from jobflow.core.job import job, Response, Job
 
-from phaseedge.schemas.wl import WLSamplerSpec
+from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.add_wl_chunk import add_wl_chunk
 from phaseedge.storage import store
 
