@@ -14,7 +14,7 @@ from phaseedge.science.prototypes import PrototypeName
 def compute_set_id(
     *,
     prototype: PrototypeName,
-    prototype_params: dict[str, Any] | None,
+    prototype_params: Mapping[str, Any] | None,
     supercell_diag: tuple[int, int, int],
     composition_map: dict[str, dict[str, int]],
     seed: int,
@@ -54,7 +54,7 @@ def compute_set_id(
 
     payload = {
         "prototype": prototype,
-        "proto_params": prototype_params or {},
+        "proto_params": dict(prototype_params) if prototype_params else {},
         "diag": list(map(int, supercell_diag)),
         "composition_map": comp_norm,
         "seed": int(seed),

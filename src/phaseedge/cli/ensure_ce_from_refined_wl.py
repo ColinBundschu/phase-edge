@@ -1,5 +1,5 @@
 import argparse
-from typing import Any, cast
+from typing import Any
 import json
 
 from fireworks import LaunchPad
