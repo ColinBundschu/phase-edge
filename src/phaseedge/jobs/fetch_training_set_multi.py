@@ -23,6 +23,7 @@ class CETrainRef(TypedDict):
     model: str
     relax_cell: bool
     dtype: str
+    occ: list[int]
 
 
 def _lookup_energy_and_check_converged(
@@ -32,7 +33,7 @@ def _lookup_energy_and_check_converged(
     Find the FF TaskDocument in `outputs` via job metadata and return total energy,
     but *only* if the relaxation is converged. Raises with a clear message otherwise.
     """
-    coll = store.db_rw()["outputs"]
+    coll = store.db_ro()["outputs"]
     doc: Mapping[str, Any] | None = coll.find_one(
         {
             "metadata.set_id": set_id,
@@ -107,7 +108,7 @@ def fetch_training_set_multi(
     relax_cell: bool,
     dtype: str,
     # optional: required when groups carry "occs" (WL path)
-    ce_key_for_rebuild: str | None = None,
+    ce_key_for_rebuild: str,
 ) -> dict[str, Any]:
     """
     Reconstruct EXACT snapshots and fetch relaxed energies.
@@ -144,7 +145,7 @@ def fetch_training_set_multi(
     sc_diag: tuple[int, int, int] = (sx, sy, sz)
 
     # If any group contains 'occs', we need a CE ensemble to rebuild those structures
-    ensemble: Ensemble | None = None
+    ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
     structures: list[Structure] = []
     energies: list[float] = []
     train_refs: list[CETrainRef] = []
@@ -160,12 +161,6 @@ def fetch_training_set_multi(
         is_wl_group = "occs" in g
         if is_wl_group:
             # WL path: rebuild from occupancies via CE ensemble and verify structure-based occ_key
-            if ensemble is None:
-                if not ce_key_for_rebuild:
-                    raise ValueError(
-                        "fetch_training_set_multi: groups include 'occs' but ce_key_for_rebuild is not provided."
-                    )
-                ensemble = rehydrate_ensemble_by_ce_key(ce_key_for_rebuild)
             occs = g["occs"]
             if len(occs) != len(occ_keys):
                 raise ValueError(f"group[{gi}] length mismatch: len(occs) != len(occ_keys).")
@@ -202,6 +197,7 @@ def fetch_training_set_multi(
                         "model": model,
                         "relax_cell": relax_cell,
                         "dtype": dtype,
+                        "occ": occ_raw,
                     }
                 )
                 hash_records.append((set_id, ok_expected, e))
@@ -225,6 +221,8 @@ def fetch_training_set_multi(
 
                 # Convert to pymatgen Structure
                 pmg = AseAtomsAdaptor.get_structure(snap)  # pyright: ignore[reportArgumentType]
+                occ_arr = ensemble.processor.cluster_subspace.occupancy_from_structure(pmg, encode=True)
+                occ_raw = [int(x) for x in np.asarray(occ_arr, dtype=np.int32)]
                 structures.append(pmg)
 
                 try:
@@ -243,6 +241,7 @@ def fetch_training_set_multi(
                         "model": model,
                         "relax_cell": relax_cell,
                         "dtype": dtype,
+                        "occ": occ_raw,
                     }
                 )
                 hash_records.append((set_id, ok, e))

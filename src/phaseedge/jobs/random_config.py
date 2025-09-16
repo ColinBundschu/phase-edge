@@ -3,7 +3,6 @@ from typing import Any, TypedDict
 
 from monty.json import MSONable
 from jobflow.core.job import job
-from ase.atoms import Atoms
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
