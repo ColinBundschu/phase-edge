@@ -96,19 +96,6 @@ def build_disordered_primitive(
     return prim_cfg
 
 
-def build_subspace(
-    *, primitive_cfg: Structure, basis_spec: BasisSpec
-) -> ClusterSubspace:
-    """
-    Create a ClusterSubspace from a disordered primitive and cutoffs.
-    """
-    return ClusterSubspace.from_cutoffs(
-        structure=primitive_cfg,
-        cutoffs=dict(basis_spec.cutoffs),
-        basis=basis_spec.basis,
-    )
-
-
 def featurize_structures(
     *,
     subspace,
@@ -190,11 +177,6 @@ def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
     rmse = float(mean_squared_error(y_true, y_pred) ** 0.5)
     mex = float(max(abs_err))
     return {"n": n, "mae_per_site": mae, "rmse_per_site": rmse, "max_abs_per_site": mex}
-
-
-def assemble_ce(subspace: ClusterSubspace, coefs: NDArray[np.float64]) -> ClusterExpansion:
-    return ClusterExpansion(subspace, coefs)
-
 
 
 def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
@@ -355,7 +337,11 @@ def train_ce(
 
     # -------- 4) subspace --------
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))
-    subspace = build_subspace(primitive_cfg=primitive_cfg, basis_spec=basis)
+    subspace = ClusterSubspace.from_cutoffs(
+        structure=primitive_cfg,
+        cutoffs=dict(basis.cutoffs),
+        basis=basis.basis,
+    )
 
     # -------- 5) featurization (build once; re-used across CV folds) --------
     _, X = featurize_structures(subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag)
@@ -435,17 +421,9 @@ def train_ce(
         by_comp_cv = by_comp_in
 
     # -------- 11) assemble CE and payload --------
-    ce = assemble_ce(subspace, coefs)
-    if hasattr(ce, "as_dict"):
-        try:
-            payload = cast(Mapping[str, Any], ce.as_dict())  # type: ignore[call-arg]
-        except Exception:
-            payload = {"repr": repr(ce)}
-    else:
-        payload = {"repr": repr(ce)}
-
+    ce = ClusterExpansion(subspace, coefs)
     return {
-        "payload": payload,
+        "payload": ce.as_dict(),
         "stats": {
             "in_sample": cast(CEStats, stats_in),     # per-site
             "five_fold_cv": cast(CEStats, stats_cv),  # per-site

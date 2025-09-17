@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--launchpad", required=True)
 
     # System / snapshot identity (prototype-only)
-    p.add_argument("--prototype", required=True, choices=["rocksalt"])
+    p.add_argument("--prototype", required=True, choices=[p.value for p in PrototypeName])
     p.add_argument("--a", required=True, type=float)
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
 
