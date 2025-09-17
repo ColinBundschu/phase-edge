@@ -1,4 +1,4 @@
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any, Mapping, Sequence
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -10,6 +10,7 @@ from phaseedge.storage import store
 
 def _coll():
     return store.db_rw()["wang_landau_ckpt"]
+
 
 def ensure_indexes() -> None:
     coll = _coll()
@@ -32,8 +33,15 @@ def _to_list(x: Any) -> Any:
         return [_to_list(v) for v in x]
     return x
 
+
 def canonical_payload(wl_key: str, step_end: int, chunk_size: int,
                       state: Mapping[str, Any], occupancy: np.ndarray) -> bytes:
+    """
+    Compute a canonical JSON payload used for the immutable checkpoint hash.
+
+    NOTE: Keep this stable. It must remain a function ONLY of
+          (wl_key, step_end, chunk_size, state, occupancy).
+    """
     payload = {
         "version": 1,
         "wl_key": wl_key,
@@ -61,11 +69,15 @@ def insert_checkpoint(
     mod_updates: Sequence[Mapping[str, Any]],
     bin_samples: Sequence[Mapping[str, Any]],
     samples_per_bin: int,
-) -> Tuple[str, Mapping[str, Any]]:
+    # --- NEW: per-bin cation count statistics (flattened), and runtime flags ---
+    cation_counts: Sequence[Mapping[str, Any]],
+    production_mode: bool,
+    collect_cation_stats: bool,
+) -> tuple[str, Mapping[str, Any]]:
     """
     Insert an immutable checkpoint. Returns (inserted_id, doc).
 
-    Note: the checkpoint `hash` remains a function ONLY of
+    The checkpoint `hash` remains a function ONLY of
     (wl_key, step_end, chunk_size, state, occupancy).
     """
     coll = _coll()
@@ -73,8 +85,8 @@ def insert_checkpoint(
     this_hash = hashlib.sha256(payload_bytes).hexdigest()
 
     doc: dict[str, Any] = {
-        "schema_version": 2,  # optional but helpful
-        "created_at": datetime.now(timezone.utc).isoformat(),  # optional but helpful
+        "schema_version": 3,  # bumped to reflect new fields persisted
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "wl_key": wl_key,
         "step_end": int(step_end),
         "chunk_size": int(chunk_size),
@@ -85,6 +97,10 @@ def insert_checkpoint(
         "mod_updates": _to_list(list(mod_updates)),
         "bin_samples": _to_list(list(bin_samples)),
         "samples_per_bin": int(samples_per_bin),
+        # ---- NEW persisted statistics & flags ----
+        "cation_counts": _to_list(list(cation_counts)),
+        "production_mode": bool(production_mode),
+        "collect_cation_stats": bool(collect_cation_stats),
     }
     res = coll.insert_one(doc)
     doc["_id"] = str(res.inserted_id)

@@ -8,13 +8,15 @@ This is a minimally edited copy of smol's Wang-Landau kernel that:
 - Exposes the same public properties (levels/entropy/histogram/dos) but only for visited bins.
 - Keeps Wang-Landau logic (flatness check, mod_factor schedule) intact.
 - Can capture up to K UNIQUE occupancy samples per visited bin (K = samples_per_bin; runtime policy).
+- Can optionally collect per-bin cation-count histograms per sublattice.
+- Can run in "production_mode" where WL updates are frozen but statistics are collected.
 
 Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 """
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping, Any, cast, Set
+from typing import Callable, Mapping, Any, Set
 
 import hashlib
 import numpy as np
@@ -51,6 +53,14 @@ class InfiniteWangLandau(MCKernel):
         mod_update: float | Callable[[float], float] | None = None,
         seed: int | None = None,
         samples_per_bin: int = 0,
+        # -------- NEW options for statistics --------
+        collect_cation_stats: bool = False,
+        production_mode: bool = False,
+        # Provide optional precomputed mappings (recommended):
+        # - sublattice_indices: label -> indices in occupancy vector
+        # - species_code_to_label: occupancy code -> chemical symbol
+        sublattice_indices: Mapping[str, list[int] | np.ndarray] | None = None,
+        species_code_to_label: Mapping[int, str] | None = None,
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -67,6 +77,10 @@ class InfiniteWangLandau(MCKernel):
                                          if callable, arbitrary decreasing schedule.
             seed (int): RNG seed for the kernel.
             samples_per_bin (int): Runtime policy: capture at most this many UNIQUE occupancy samples per bin.
+            collect_cation_stats (bool): If True, collect per-bin cation-count histograms per sublattice.
+            production_mode (bool): If True, freeze WL updates (entropy/histogram/mod-factor) and only collect stats.
+            sublattice_indices: Optional mapping label -> site indices for each replaceable sublattice.
+            species_code_to_label: Optional mapping from integer occupancy code -> chemical symbol.
             *args, **kwargs: forwarded to MCUsher constructor.
         """
         if mod_factor <= 0:
@@ -110,18 +124,38 @@ class InfiniteWangLandau(MCKernel):
         self._nfeat = len(ensemble.natural_parameters)
         self._steps_counter = 0  # number of valid states elapsed
 
+        # ------- NEW: sublattice/species configuration -------
+        self._collect_cation_stats = collect_cation_stats
+        self._production_mode = production_mode
+        # label -> np.ndarray[int] (site indices)
+        self._sl_index_map: dict[str, np.ndarray] = {}
+        if sublattice_indices:
+            for k, v in sublattice_indices.items():
+                self._sl_index_map[str(k)] = np.asarray(v, dtype=np.int32)
+        # code -> label; if missing, we will use str(code)
+        self._code_to_label: dict[int, str] = {int(k): str(v) for k, v in (species_code_to_label or {}).items()}
+
+        # Per-bin cation count histograms:
+        # bin_id -> { sublattice_label -> { element_label -> { n_sites_on_sublattice: visits } } }
+        self._bin_cation_counts: dict[int, dict[str, dict[str, dict[int, int]]]] = {}
+
         # Population of initial trace included here.
         super().__init__(ensemble=ensemble, step_type=step_type, *args, seed=seed, **kwargs)
 
         if self.bias is not None:
             raise ValueError("Cannot apply bias to Wang-Landau simulation!")
 
-        # add inputs to specification
+        # add inputs to specification (non-serialized internal dict)
         self.spec.bin_size = self._bin_size
         self.spec.flatness = self.flatness
         self.spec.check_period = self.check_period
         self.spec.update_period = self.update_period
         self.spec.samples_per_bin = self._samples_per_bin  # runtime policy recorded in spec
+        # NEW runtime flags for clarity (not required by smol, just recorded)
+        self.spec.collect_cation_stats = self._collect_cation_stats
+        self.spec.production_mode = self._production_mode
+        if self._sl_index_map:
+            self.spec.sublattice_labels = tuple(sorted(self._sl_index_map.keys()))
 
         # Additional clean-ups after base init.
         self._entropy_d.clear()
@@ -199,6 +233,39 @@ class InfiniteWangLandau(MCKernel):
         buf = np.asarray(occ, dtype=np.int32, order="C")
         return hashlib.sha1(buf.tobytes()).hexdigest()
 
+    def _update_cation_stats_for_bin(self, b: int) -> None:
+        """Update per-bin cation-count histograms for current occupancy."""
+        if not self._collect_cation_stats:
+            return
+        if self._last_accepted_occupancy is None:
+            return
+        if not self._sl_index_map:
+            # Not configured; nothing to do.
+            return
+
+        occ = np.asarray(self._last_accepted_occupancy, dtype=np.int32)
+        bin_dict = self._bin_cation_counts.get(b)
+        if bin_dict is None:
+            bin_dict = {}
+            self._bin_cation_counts[b] = bin_dict
+
+        for sl, idx in self._sl_index_map.items():
+            # Extract codes on that sublattice and count occurrences per species code
+            codes, counts = np.unique(occ[idx], return_counts=True)
+            sl_dict = bin_dict.get(sl)
+            if sl_dict is None:
+                sl_dict = {}
+                bin_dict[sl] = sl_dict
+
+            for code, n_sites in zip(codes.tolist(), counts.tolist()):
+                label = self._code_to_label[int(code)]
+                elem_dict = sl_dict.get(label)
+                if elem_dict is None:
+                    elem_dict = {}
+                    sl_dict[label] = elem_dict
+                # Increment the histogram at key "n_sites"
+                elem_dict[n_sites] = int(elem_dict.get(n_sites, 0) + 1)
+
     # -------------------- MC step logic -------------------- #
 
     def _accept_step(self, occupancy: np.ndarray, step) -> np.ndarray:
@@ -267,11 +334,16 @@ class InfiniteWangLandau(MCKernel):
                         if len(lst) >= self._samples_per_bin:
                             self._bin_sample_hashes_d.pop(b, None)
 
-            # update histogram, entropy and occurrences each update_period steps
+            # At the same cadence as histogram updates, update cation stats
             if self._steps_counter % self.update_period == 0:
-                self._entropy_d[b] = float(self._entropy_d.get(b, 0.0) + self._m)
-                self._histogram_d[b] = int(self._histogram_d.get(b, 0) + 1)
-                self._occurrences_d[b] = int(self._occurrences_d.get(b, 0) + 1)
+                # Update cation counts regardless of production mode (so we can collect stats)
+                self._update_cation_stats_for_bin(b)
+
+                if not self._production_mode:
+                    # update histogram, entropy and occurrences
+                    self._entropy_d[b] = float(self._entropy_d.get(b, 0.0) + self._m)
+                    self._histogram_d[b] = int(self._histogram_d.get(b, 0) + 1)
+                    self._occurrences_d[b] = int(self._occurrences_d.get(b, 0) + 1)
 
         # fill trace with visited-only views
         self.trace.histogram = np.empty((0,), dtype=int)
@@ -280,8 +352,8 @@ class InfiniteWangLandau(MCKernel):
         self.trace.cumulative_mean_features = np.empty((0, self._nfeat), dtype=float)
         self.trace.mod_factor = np.array([self._m])
 
-        # flatness check on visited bins only
-        if self._steps_counter % self.check_period == 0:
+        # flatness check on visited bins only (disabled in production_mode)
+        if (not self._production_mode) and (self._steps_counter % self.check_period == 0):
             histogram = self.histogram
             if len(histogram) >= 2 and (histogram > self.flatness * histogram.mean()).all():
                 self._histogram_d.clear()
@@ -299,6 +371,17 @@ class InfiniteWangLandau(MCKernel):
         out = self._bin_samples_d
         self._bin_samples_d = {}
         self._bin_sample_hashes_d = {}  # drop dedupe state on drain
+        return out
+
+    def pop_bin_cation_counts(self) -> dict[int, dict[str, dict[str, dict[int, int]]]]:
+        """
+        Return and clear the per-bin cation-count histograms captured since last call.
+
+        Structure:
+          { bin_id: { sublattice_label: { element_label: { n_sites_on_sublattice: hits } } } }
+        """
+        out = self._bin_cation_counts
+        self._bin_cation_counts = {}
         return out
 
     def compute_initial_trace(self, occupancy: np.ndarray):
@@ -331,8 +414,10 @@ class InfiniteWangLandau(MCKernel):
         """Return a JSON-serializable snapshot of the kernel."""
         bins = self.bin_indices
         occurrences = np.asarray([self._occurrences_d.get(int(b), 0) for b in bins], dtype=int)
-        mean_feats = np.asarray([self._mean_features_d[int(b)] for b in bins], dtype=float) \
-                     if bins.size else np.empty((0, self._nfeat), dtype=float)
+        mean_feats = (
+            np.asarray([self._mean_features_d[int(b)] for b in bins], dtype=float)
+            if bins.size else np.empty((0, self._nfeat), dtype=float)
+        )
         return {
             "version": 1,
             "bin_indices": bins.tolist(),
@@ -346,7 +431,7 @@ class InfiniteWangLandau(MCKernel):
             "current_features": np.asarray(self._current_features, dtype=float).tolist(),
             "rng_state": self._encode_rng_state(self._rng.bit_generator.state),
             "bin_size": float(self._bin_size),
-            # NOTE: bin samples are drained via pop_bin_samples(), not serialized here.
+            # NOTE: bin samples and cation counts are drained via pop_*(), not serialized here.
         }
 
     def load_state(self, s: dict) -> None:
@@ -357,6 +442,7 @@ class InfiniteWangLandau(MCKernel):
         self._mean_features_d.clear()
         self._bin_samples_d.clear()       # safe
         self._bin_sample_hashes_d.clear() # safe
+        self._bin_cation_counts.clear()   # safe
 
         bins = np.asarray(s["bin_indices"], dtype=int)
         ent = np.asarray(s["entropy"], dtype=float)
@@ -409,7 +495,7 @@ class InfiniteWangLandau(MCKernel):
         res: Any = enc(dict(st))
         if not isinstance(res, dict):
             raise TypeError("Encoded RNG state must be a dict at the top level.")
-        return cast(dict[str, Any], res)
+        return dict(res)
 
     @staticmethod
     def _decode_rng_state(st: Mapping[str, Any]) -> dict[str, Any]:
@@ -425,4 +511,4 @@ class InfiniteWangLandau(MCKernel):
         res: Any = dec(dict(st))
         if not isinstance(res, dict):
             TypeError("Decoded RNG state must be a dict at the top level.")
-        return cast(dict[str, Any], res)
+        return dict(res)

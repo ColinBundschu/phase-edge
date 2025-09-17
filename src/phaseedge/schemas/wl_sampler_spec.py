@@ -20,16 +20,18 @@ class WLSamplerSpec(MSONable):
       - `steps` is the number of WL steps to run for THIS chunk (runtime policy,
         not part of wl_key).
       - `samples_per_bin` is a runtime capture policy (0 disables capture).
+      - `collect_cation_stats` enables per-bin sublattice cation-count histograms.
+      - `production_mode` freezes WL updates and only collects statistics.
     """
 
-    __version__: ClassVar[str] = "2"
+    __version__: ClassVar[str] = "3"
 
     wl_key: str
     ce_key: str
     bin_width: float
     steps: int
 
-    # NEW: which sublattice labels are active for WL sampling (immutable, canonical)
+    # which sublattice labels are active for WL sampling (immutable, canonical)
     sublattice_labels: tuple[str, ...]
 
     # Counts for the *entire* WL supercell (immutable mapping)
@@ -40,6 +42,10 @@ class WLSamplerSpec(MSONable):
     update_period: int = 1
     seed: int = 0
     samples_per_bin: int = 0
+
+    # NEW runtime flags
+    collect_cation_stats: bool = False
+    production_mode: bool = False
 
     # ----- validation & canonicalization -----
     def __post_init__(self) -> None:
@@ -77,6 +83,10 @@ class WLSamplerSpec(MSONable):
         canon_cc = {k: canon_cc[k] for k in sorted(canon_cc)}
         object.__setattr__(self, "composition_counts", MappingProxyType(canon_cc))
 
+        # coerce runtime flags to bools
+        object.__setattr__(self, "collect_cation_stats", bool(self.collect_cation_stats))
+        object.__setattr__(self, "production_mode", bool(self.production_mode))
+
     # ----- readable repr that shows sublattices and full counts as a plain dict -----
     def __repr__(self) -> str:
         cls = self.__class__.__name__
@@ -88,7 +98,10 @@ class WLSamplerSpec(MSONable):
             f"composition_counts={dict(self.composition_counts)!r}, "
             f"step_type={self.step_type!r}, check_period={self.check_period}, "
             f"update_period={self.update_period}, seed={self.seed}, "
-            f"samples_per_bin={self.samples_per_bin})"
+            f"samples_per_bin={self.samples_per_bin}, "
+            f"collect_cation_stats={self.collect_cation_stats}, "
+            f"production_mode={self.production_mode}"
+            f")"
         )
 
     # ----- MSON API -----
@@ -108,6 +121,8 @@ class WLSamplerSpec(MSONable):
             "update_period": self.update_period,
             "seed": self.seed,
             "samples_per_bin": self.samples_per_bin,
+            "collect_cation_stats": bool(self.collect_cation_stats),
+            "production_mode": bool(self.production_mode),
         }
 
     @classmethod
@@ -141,6 +156,8 @@ class WLSamplerSpec(MSONable):
             update_period=int(payload.get("update_period", 1)),
             seed=int(payload.get("seed", 0)),
             samples_per_bin=int(payload.get("samples_per_bin", 0)),
+            collect_cation_stats=bool(payload["collect_cation_stats"]),
+            production_mode=bool(payload["production_mode"]),
         )
 
     # ----- equality & hashing by value (labels + counts included) -----
@@ -159,6 +176,8 @@ class WLSamplerSpec(MSONable):
             and self.update_period == other.update_period
             and self.seed == other.seed
             and self.samples_per_bin == other.samples_per_bin
+            and self.collect_cation_stats == other.collect_cation_stats
+            and self.production_mode == other.production_mode
         )
 
     def __hash__(self) -> int:
@@ -175,5 +194,7 @@ class WLSamplerSpec(MSONable):
                 self.update_period,
                 self.seed,
                 self.samples_per_bin,
+                self.collect_cation_stats,
+                self.production_mode,
             )
         )

@@ -45,6 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Max snapshots to capture per enthalpy bin (0 disables).",
     )
+    p.add_argument(
+        "--collect-cation-stats",
+        action="store_true",
+        help="If set, collect per-bin cation-count histograms per sublattice.",
+    )
+    p.add_argument(
+        "--production-mode",
+        action="store_true",
+        help="If set, freeze WL updates (entropy/histogram/mod-factor) and only collect statistics.",
+    )
 
     p.add_argument("--category", default="cpu")
 
@@ -77,7 +87,7 @@ def main() -> int:
     composition_counts = parse_counts_arg(args.composition_counts)
     sublattice_labels: list[str] = args.sublattice_labels
 
-    # wl_key encodes chain identity only (no steps, no samples_per_bin).
+    # wl_key encodes chain identity only (no steps, no samples_per_bin, no runtime flags).
     wl_key: str = compute_wl_key(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
@@ -90,7 +100,7 @@ def main() -> int:
     )
     short = wl_key[:12]
 
-    # Build run_spec. steps & samples_per_bin are runtime policies (non-key).
+    # Build run_spec. steps/samples_per_bin/flags are runtime policies (non-key).
     run_spec = WLSamplerSpec(
         wl_key=wl_key,
         ce_key=str(args.ce_key),
@@ -103,6 +113,8 @@ def main() -> int:
         update_period=int(args.update_period),
         seed=int(args.seed),
         samples_per_bin=int(args.samples_per_bin),
+        collect_cation_stats=bool(args.collect_cation_stats),
+        production_mode=bool(args.production_mode),
     )
 
     # Build either a single-chunk flow or a linear chain of chunks.
@@ -141,6 +153,8 @@ def main() -> int:
         "update_period": int(args.update_period),
         "seed": int(args.seed),
         "samples_per_bin": int(args.samples_per_bin),  # transparency
+        "collect_cation_stats": bool(args.collect_cation_stats),
+        "production_mode": bool(args.production_mode),
         "category": str(args.category),
         "steps_to_run": int(args.steps_to_run),
         "repeats": repeats,
@@ -164,6 +178,8 @@ def main() -> int:
                     "update_period",
                     "seed",
                     "samples_per_bin",
+                    "collect_cation_stats",
+                    "production_mode",
                     "category",
                     "steps_to_run",
                     "repeats",

@@ -18,7 +18,7 @@ def lookup_ff_task(
     relax_cell: bool,
     dtype: str,
     require_converged: bool = True,
-) -> ForceFieldTaskDocument | None:
+) -> Mapping[str, Any] | None:
     q: dict[str, object] = {
         "metadata.set_id": set_id,
         "metadata.occ_key": occ_key,
@@ -34,7 +34,7 @@ def lookup_ff_task(
     doc = store.db_rw()["outputs"].find_one(q, {"_id": 0, "output": 1})
     if not doc or "output" not in doc:
         return None
-    return cast(ForceFieldTaskDocument, doc["output"])
+    return cast(Mapping[str, Any], doc["output"])
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ def check_or_schedule_relax(
     relax_cell: bool,
     dtype: str,
     category: str,
-) -> ForceFieldTaskDocument | Response:
+) -> Mapping[str, Any] | Response:
     # Strict reuse: only return an existing doc if converged
     existing = lookup_ff_task(
         set_id=set_id, occ_key=occ_key, model=model,

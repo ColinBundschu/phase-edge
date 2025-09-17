@@ -37,7 +37,7 @@ def _initial_occupancy_from_counts(
             raise ValueError(f"Sublattice label '{sl}' not found in prototype structure.")
         sublattice_counts[sl] = n_sites
 
-    # Evenly distribute counts to sublattices (deterministically assigning remainder) 
+    # Evenly distribute counts to sublattices (deterministically assigning remainder)
     # composition_map: {placeholder_symbol -> {element -> count}}
     composition_map: dict[str, dict[str, int]] = {sl: {} for sl in sublattice_counts}
 
@@ -92,7 +92,7 @@ def _initial_occupancy_from_counts(
             raise RuntimeError(
                 f"Sublattice '{sl}' assigned {subtotal} atoms, expected {sizes[sl]}."
             )
-    
+
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=(sx, sy, sz),
@@ -108,6 +108,28 @@ def _initial_occupancy_from_counts(
     return occ
 
 
+def _build_sublattice_indices(*, ce_key: str, sublattice_labels: Sequence[str]) -> dict[str, np.ndarray]:
+    """
+    Build label -> site-index map from the CE prototype+supercell used by WL.
+    """
+    doc = lookup_ce_by_key(ce_key)
+    if not doc:
+        raise RuntimeError(f"No CE found for ce_key={ce_key}")
+
+    conv = make_prototype(doc["prototype"], **doc["prototype_params"])
+    sx, sy, sz = (int(x) for x in doc["supercell_diag"])
+    sc = conv.repeat((sx, sy, sz))
+    symbols = np.array(sc.get_chemical_symbols())
+
+    sl_map: dict[str, np.ndarray] = {}
+    for sl in sublattice_labels:
+        idx = np.where(symbols == sl)[0].astype(np.int32)
+        if idx.size == 0:
+            raise ValueError(f"Sublattice label '{sl}' not found in prototype structure.")
+        sl_map[str(sl)] = idx
+    return sl_map
+
+
 # ---- Chunk runner ---------------------------------------------------------
 
 def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
@@ -116,6 +138,17 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     tip = get_tip(spec.wl_key)
     ensemble = rehydrate_ensemble_by_ce_key(spec.ce_key)
     rng = np.random.default_rng(int(spec.seed))
+
+    # Precompute sublattice site-index mapping for this WL key/spec
+    sublattice_indices = _build_sublattice_indices(
+        ce_key=spec.ce_key,
+        sublattice_labels=spec.sublattice_labels,
+    )
+
+    # Optionally: supply species code -> label map if/when convenient.
+    # Leaving None by default uses the raw integer codes as labels in the kernel.
+    species_code_to_label: dict[int, str] | None = None
+
     sampler = Sampler.from_ensemble(
         ensemble,
         kernel_type="InfiniteWangLandau",
@@ -126,6 +159,11 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         check_period=spec.check_period,
         update_period=spec.update_period,
         samples_per_bin=int(spec.samples_per_bin),  # runtime capture policy (non-key)
+        # ---- NEW runtime/statistics configuration passed to the kernel ----
+        collect_cation_stats=spec.collect_cation_stats,
+        production_mode=spec.production_mode,
+        sublattice_indices=sublattice_indices,
+        species_code_to_label=species_code_to_label,
     )
 
     # Parent hash & restore point
@@ -164,6 +202,23 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     # capture any per-bin samples harvested this chunk
     bin_samples: dict[int, list[list[int]]] = k.pop_bin_samples()
 
+    # NEW: capture per-bin cation-counts (if enabled)
+    bin_cation_counts = k.pop_bin_cation_counts()
+    # Flatten for storage
+    cation_counts_flat: list[dict[str, Any]] = [
+        {
+            "bin": int(b),
+            "sublattice": sl,
+            "element": elem,
+            "n_sites": int(n_sites),
+            "count": int(count),
+        }
+        for b, sl_map in bin_cation_counts.items()
+        for sl, elem_map in sl_map.items()
+        for elem, hist in elem_map.items()
+        for n_sites, count in hist.items()
+    ]
+
     step_end = step_start + spec.steps
 
     # Defensive: fail fast if tip moved between our read and now
@@ -184,6 +239,10 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
             mod_updates=mod_updates,
             bin_samples=[{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
             samples_per_bin=int(spec.samples_per_bin),
+            # --- NEW: persisted statistics ---
+            cation_counts=cation_counts_flat,
+            production_mode=bool(spec.production_mode),
+            collect_cation_stats=bool(spec.collect_cation_stats),
         )
     except DuplicateKeyError as e:
         raise RuntimeError("Checkpoint insert conflict (not on tip or duplicate). Retry from new tip.") from e

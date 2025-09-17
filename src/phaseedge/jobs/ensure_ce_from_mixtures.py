@@ -47,7 +47,6 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         model=spec.model,
         relax_cell=spec.relax_cell,
         dtype=spec.dtype,
-        ce_key_for_rebuild=spec.ce_key,
     )
     j_fetch.name = "fetch_training_set_multi"
     j_fetch.update_metadata({"_category": spec.category})
