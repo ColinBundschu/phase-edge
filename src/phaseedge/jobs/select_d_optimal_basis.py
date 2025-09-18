@@ -4,15 +4,13 @@ import hashlib
 import math
 import numpy as np
 from jobflow.core.job import job
-from smol.cofe import ClusterExpansion
 from smol.moca.ensemble import Ensemble
 
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.science.prototypes import make_prototype
-from phaseedge.schemas.mixture import canonical_counts, composition_counts_from_map
-from phaseedge.utils.rehydrators import rehydrate_ensemble_by_ce_key
+from phaseedge.schemas.mixture import composition_counts_from_map
+from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
 class Candidate(TypedDict):

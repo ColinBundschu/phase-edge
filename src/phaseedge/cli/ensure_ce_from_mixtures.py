@@ -5,6 +5,7 @@ from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
+from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.science.prototypes import PrototypeName, make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.utils.keys import compute_ce_key
@@ -111,19 +112,23 @@ def main() -> None:
         weighting=weighting,
     )
 
-    j = ensure_ce_from_mixtures(spec)
-    j.name = "ensure_ce"
-    j.metadata = {**(j.metadata or {}), "_category": args.category}
+    existing_ce = lookup_ce_by_key(ce_key)
+    if existing_ce:
+        print("CE already exists for ce_key:", ce_key)
+    else:
+        j = ensure_ce_from_mixtures(spec)
+        j.name = "ensure_ce"
+        j.metadata = {**(j.metadata or {}), "_category": args.category}
 
-    flow = Flow([j], name="Ensure CE (compositions)")
-    wf = flow_to_workflow(flow)
-    for fw in wf.fws:
-        fw.spec = {**(fw.spec or {}), "_category": args.category}
+        flow = Flow([j], name="Ensure CE (compositions)")
+        wf = flow_to_workflow(flow)
+        for fw in wf.fws:
+            fw.spec = {**(fw.spec or {}), "_category": args.category}
 
-    lp = LaunchPad.from_file(args.launchpad)
-    wf_id = lp.add_wf(wf)
+        lp = LaunchPad.from_file(args.launchpad)
+        wf_id = lp.add_wf(wf)
 
-    print("Submitted workflow:", wf_id)
+        print("Submitted workflow:", wf_id)
     print(
         {
             "ce_key": ce_key,

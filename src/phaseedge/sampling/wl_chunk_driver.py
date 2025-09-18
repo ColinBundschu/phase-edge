@@ -14,7 +14,7 @@ from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure
 from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.utils.rehydrators import rehydrate_ensemble_by_ce_key
+from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
 # ---- shared helpers -------------------------------------------------------

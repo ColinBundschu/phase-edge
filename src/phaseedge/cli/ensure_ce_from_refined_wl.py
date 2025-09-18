@@ -8,6 +8,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 from phaseedge.cli.common import parse_composition_map, parse_cutoffs_arg, parse_mix_item
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
 from phaseedge.jobs.ensure_ce_from_refined_wl import ensure_ce_from_refined_wl
+from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
 from phaseedge.schemas.mixture import Mixture, counts_sig, sorted_composition_maps
 from phaseedge.science.prototypes import PrototypeName, make_prototype
@@ -154,24 +155,33 @@ def main() -> int:
     } for wl_key, composition_counts in spec.wl_key_composition_pairs]
 
     # Build + submit workflow
-    j = ensure_ce_from_refined_wl(spec=spec)
-    j.name = "ensure_ce_from_refined_wl"
-    j.update_metadata({"_category": spec.category})
-
-    wf = flow_to_workflow(j)
-    lp = LaunchPad.from_file(args.launchpad)
-    wf_id = lp.add_wf(wf)
-
+    # Early exit keying
     payload: dict[str, Any] = {
-        "submitted_workflow_id": wf_id,
-        "planned_wl_runs": planned_wl_runs,
         "seed_size_estimate": len(endpoints) + len(planned_wl_runs),
     } | spec.as_dict()
+
+    existing_ce = lookup_ce_by_key(spec.final_ce_key)
+    if existing_ce is None:
+        j = ensure_ce_from_refined_wl(spec=spec)
+        j.name = "ensure_ce_from_refined_wl"
+        j.update_metadata({"_category": spec.category})
+
+        wf = flow_to_workflow(j)
+        lp = LaunchPad.from_file(args.launchpad)
+        wf_id = lp.add_wf(wf)
+
+        payload: dict[str, Any] = payload | {
+            "submitted_workflow_id": wf_id,
+            "planned_wl_runs": planned_wl_runs,
+        }
+
+        print("Submitted workflow:", wf_id)
+    else:
+        print("Final CE already exists, no workflow submitted.")
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     else:
-        print("Submitted workflow:", wf_id)
         print({
             "base_ce_key": spec.ce_spec.ce_key,
             "final_ce_key": spec.final_ce_key,

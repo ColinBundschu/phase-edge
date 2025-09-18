@@ -1,13 +1,26 @@
 from typing import Any, Mapping, Sequence, TypedDict, cast
+import os
+import numpy as np
 
+from monty.serialization import loadfn
+from maggma.stores import MongoStore, GridFSStore
+from jobflow.core.store import JobStore
 from jobflow.core.job import job
-from phaseedge.science.prototypes import PrototypeName
-from phaseedge.storage import store
-from monty.json import jsanitize
 
+from smol.cofe import ClusterExpansion
+from smol.moca.ensemble import Ensemble
+
+from phaseedge.jobs.train_ce import CETrainRef, dataset_hash
+from phaseedge.science.prototypes import PrototypeName
 from phaseedge.utils.keys import normalize_sources
 
+
+# -------------------------
+# Types
+# -------------------------
+
 class CEModelDoc(TypedDict, total=True):
+    kind: str  # "CEModelDoc"
     ce_key: str
     prototype: PrototypeName
     prototype_params: Mapping[str, Any]
@@ -28,6 +41,10 @@ class CEModelDoc(TypedDict, total=True):
     success: bool
 
 
+# -------------------------
+# Helpers
+# -------------------------
+
 def _payload_to_dict(payload: Any) -> Mapping[str, Any]:
     """
     Accept either a Mapping, a smol ClusterExpansion, or anything else.
@@ -35,7 +52,6 @@ def _payload_to_dict(payload: Any) -> Mapping[str, Any]:
     """
     if isinstance(payload, dict):
         return payload
-    # smol ClusterExpansion and most monty objects implement as_dict()
     as_dict = getattr(payload, "as_dict", None)
     if callable(as_dict):
         try:
@@ -44,27 +60,87 @@ def _payload_to_dict(payload: Any) -> Mapping[str, Any]:
                 return cast(Mapping[str, Any], d)
         except Exception:
             pass
-    # last resort: store a readable representation
     return {"repr": repr(payload)}
 
 
-def _ce_coll():
-    coll = store.db_rw()["ce_models"]
-    coll.create_index("ce_key", unique=True, background=True)
-    return coll
+def _build_jobstore() -> JobStore:
+    """
+    Build and connect a JobStore from a jobflow.yaml file.
+    """
+    path = os.environ.get("JOBFLOW_CONFIG_FILE")
+    if not path:
+        raise RuntimeError("JOBFLOW_CONFIG_FILE env var is not set.")
+    cfg = loadfn(path)["JOB_STORE"]
 
+    def mk(conf: Mapping[str, Any]):
+        t = conf.get("type", "MongoStore")
+        params = {k: v for k, v in conf.items() if k != "type"}
+        if t == "MongoStore":
+            return MongoStore(**params)
+        if t == "GridFSStore":
+            return GridFSStore(**params)
+        raise ValueError(f"Unsupported store type: {t!r}")
+
+    js = JobStore(
+        docs_store=mk(cfg["docs_store"]),
+        additional_stores={name: mk(s) for name, s in cfg.get("additional_stores", {}).items()},
+    )
+    js.docs_store.connect()
+    for st in js.additional_stores.values():
+        st.connect()
+    return js
+
+
+# -------------------------
+# Lookups (outputs store)
+# -------------------------
 
 def lookup_ce_by_key(ce_key: str) -> CEModelDoc | None:
-    """Fetch a CE model by its unique key."""
-    doc = _ce_coll().find_one({"ce_key": ce_key})
-    return cast(CEModelDoc | None, doc)
+    """
+    Fetch a CEModelDoc by ce_key from Jobflow's outputs store (rehydrated).
+
+    Returns the inner payload dict (what your job returned), not the wrapper doc.
+    """
+    js = _build_jobstore()
+    rows = list(js.query(
+        criteria={"output.kind": "CEModelDoc", "output.ce_key": ce_key},
+        load=True,
+    ))
+    if not rows:
+        return None
+    # There should only ever be one document per ce_key
+    [doc] = rows
+    # Your deployment stores the job return under "output"
+    return cast(CEModelDoc, doc["output"])
 
 
-@job
+def rehydrate_ensemble_by_ce_key(ce_key: str) -> Ensemble:
+    """
+    Build a SMOL Ensemble from a stored CEModelDoc in outputs.
+    """
+    doc = lookup_ce_by_key(ce_key)
+    if not doc:
+        raise RuntimeError(f"No CE found for ce_key={ce_key}")
+
+    payload = doc["payload"]
+    ce = ClusterExpansion.from_dict(payload)
+
+    sx, sy, sz = (int(x) for x in doc["supercell_diag"])
+    sc_matrix = np.diag([sx, sy, sz])
+    return Ensemble.from_cluster_expansion(ce, supercell_matrix=sc_matrix)
+
+
+# -------------------------
+# Writer (job return)
+# -------------------------
+
+# Offload large fields to the additional store named "data" (as configured in jobflow.yaml).
+# You already identified train_refs as large; add "design_metrics" here if it grows big.
+@job(data=["train_refs"])
 def store_ce_model(
     *,
     ce_key: str,
-    
+
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
@@ -80,18 +156,18 @@ def store_ce_model(
     regularization: Mapping[str, Any],
     weighting: Mapping[str, Any],
 
-    train_refs: Sequence[Mapping[str, Any]],
-    dataset_hash: str,
+    train_refs: Sequence[CETrainRef],
     payload: Any,          # may be a dict or a ClusterExpansion object
     stats: Mapping[str, Any],
     design_metrics: Mapping[str, Any],
 ) -> CEModelDoc:
     """
-    Idempotently persist a trained CE (mixture-friendly).
-    If a doc with ce_key exists, we overwrite fields (upsert semantics).
-    Returns the stored document from DB.
+    Idempotently persist a trained CE (mixture-friendly) by returning a CEModelDoc.
+    Jobflow + FireWorks will store it in the "outputs" collection (docs_store),
+    and offload configured fields to GridFS (additional store) automatically.
     """
     doc: CEModelDoc = {
+        "kind": "CEModelDoc",
         "ce_key": ce_key,
         "prototype": prototype,
         "prototype_params": dict(prototype_params),
@@ -104,18 +180,18 @@ def store_ce_model(
         "basis_spec": dict(basis_spec),
         "regularization": dict(regularization),
         "weighting": dict(weighting),
+
+        # BIG field (offloaded via @job(data=[...]))
         "train_refs": [dict(r) for r in train_refs],
-        "dataset_hash": str(dataset_hash),
+
+        # Deterministic hash of the dataset you trained on
+        "dataset_hash": dataset_hash(train_refs),
+
+        # CE payload and metrics (small in your current runs; leave in docs_store)
         "payload": _payload_to_dict(payload),
         "stats": dict(stats),
         "design_metrics": dict(design_metrics),
+
         "success": True,
     }
-
-    # ---- Sanitize everything to Mongo-safe primitives ----
-    doc_sanitized = jsanitize(doc, strict=True)
-
-    coll = _ce_coll()
-    coll.update_one({"ce_key": ce_key}, {"$set": doc_sanitized}, upsert=True)
-    stored = coll.find_one({"ce_key": ce_key}) or doc_sanitized
-    return cast(CEModelDoc, stored)
+    return doc

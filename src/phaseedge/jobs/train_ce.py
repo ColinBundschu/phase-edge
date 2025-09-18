@@ -10,6 +10,8 @@ from ase.atoms import Atoms
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
+import hashlib
+import json
 
 from smol.cofe import ClusterExpansion, ClusterSubspace, StructureWrangler
 from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -43,6 +45,16 @@ class _TrainOutput(TypedDict, total=False):
     design_metrics: DesignMetrics
 
 
+class CETrainRef(TypedDict):
+    set_id: str
+    occ_key: str
+    model: str
+    relax_cell: bool
+    dtype: str
+    energy: float
+    structure: Structure
+
+
 @dataclass(slots=True)
 class BasisSpec:
     """
@@ -69,6 +81,15 @@ class Regularization:
     type: str = "ols"
     alpha: float = 1e-6
     l1_ratio: float = 0.5
+
+
+def dataset_hash(train_refs: Sequence[CETrainRef]) -> str:
+    payload = [
+        {"set_id": train_ref["set_id"], "occ_key": train_ref["occ_key"], "energy": train_ref["energy"]}
+        for train_ref in sorted(train_refs, key=lambda t: (t["set_id"], t["occ_key"]))
+    ]
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def build_disordered_primitive(
@@ -280,8 +301,7 @@ def _build_sample_weights(
 def train_ce(
     *,
     # training data
-    structures: Sequence[Structure | Mapping[str, Any]],
-    energies: Sequence[float],  # total energies (eV) for the supercell
+    train_refs: Sequence[CETrainRef],
     # prototype-only system identity (needed to build subspace)
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
@@ -305,18 +325,16 @@ def train_ce(
     common CE practice (meV/site), by scaling y vectors before computing metrics.
     """
     # -------- basic validation --------
-    if not structures:
-        raise ValueError("No structures provided.")
-    if len(structures) != len(energies):
-        raise ValueError(f"structures and energies length mismatch: {len(structures)} vs {len(energies)}")
+    if not train_refs:
+        raise ValueError("No training references provided.")
 
     n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
 
     # Convert any Monty-serialized dicts into real Structures
-    structures_pm: list[Structure] = _ensure_structures(structures)
+    structures_pm: list[Structure] = _ensure_structures([ref["structure"] for ref in train_refs])
 
     # -------- 1) per-primitive/conventional-cell targets (training unit) --------
-    y_cell = [float(E) / float(n_prims) for E in energies]
+    y_cell = [float(E) / float(n_prims) for E in [ref["energy"] for ref in train_refs]]
 
     # -------- 2) figure out sites_per_prim so we can report per-site metrics --------
     n_sites_const = _n_replace_sites_from_prototype(

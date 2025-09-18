@@ -116,3 +116,18 @@ def check_or_schedule_relax(
     subflow = Flow([j_relax, j_assert], name="ff_relax_then_assert")
     # Expose the relax TaskDoc as the flow's output
     return Response(replace=subflow, output=j_relax.output)
+
+
+@job
+def extract_relax_energy(doc: Any) -> float:
+    """
+    Robustly extract the total energy (float) from a ForceFieldTaskDocument-like object.
+
+    Accepts either a Pydantic object with .output.energy, or a mapping with ["output"]["energy"].
+    """
+    # Pydantic / object-style
+    return float(doc.output.energy)
+    # try:
+    #     return float(doc.output.energy)
+    # except AttributeError:
+    #     return float(doc["output"]["energy"])
