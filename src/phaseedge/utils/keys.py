@@ -295,3 +295,52 @@ def compute_wl_key(
     }
     blob = json.dumps(_json_canon(_canon_num(payload)), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def compute_dataset_key(
+    refs: Sequence[Mapping[str, Any]],
+    *,
+    version: str = "ds1",
+) -> str:
+    """
+    Compute a stable, order-independent key for a list of CETrainRef-like dicts.
+
+    Uses only lightweight identity fields:
+      set_id, occ_key, model, relax_cell, dtype, energy (rounded)
+
+    Excludes 'structure' entirely.
+
+    Parameters
+    ----------
+    refs
+        Sequence of CETrainRef-like mappings.
+    energy_decimals
+        Decimal places to round energy to before hashing (default: 8).
+    version
+        Version tag for the key format (default: "ds1").
+
+    Returns
+    -------
+    str
+        A versioned SHA-256 hex digest like "ds1:<hex>".
+    """
+    # normalize each item to a minimal tuple that survives sorting
+    norm: list[tuple[str, str, str, bool, str]] = []
+    for i, r in enumerate(refs):
+        try:
+            set_id = str(r["set_id"])
+            occ_key = str(r["occ_key"])
+            model = str(r["model"])
+            relax_cell = bool(r["relax_cell"])
+            dtype = str(r["dtype"])
+        except Exception as exc:
+            raise ValueError(f"Bad CETrainRef at index {i}: {exc}") from exc
+        norm.append((set_id, occ_key, model, relax_cell, dtype))
+
+    # sort for order independence
+    norm.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+
+    # canonical JSON: compact separators, sorted keys not needed for lists, but stable anyway
+    payload = json.dumps(norm, separators=(",", ":"), sort_keys=False)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{version}:{digest}"

@@ -10,14 +10,14 @@ from ase.atoms import Atoms
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
-import hashlib
-import json
 
 from smol.cofe import ClusterExpansion, ClusterSubspace, StructureWrangler
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.design_metrics import compute_design_metrics, MetricOptions, DesignMetrics
+from phaseedge.storage.store import lookup_total_energy_eV, lookup_unique
+from phaseedge.utils.keys import compute_dataset_key
 
 __all__ = ["train_ce"]
 
@@ -51,8 +51,32 @@ class CETrainRef(TypedDict):
     model: str
     relax_cell: bool
     dtype: str
-    energy: float
     structure: Structure
+
+
+@job
+def dataset_key_from_train_refs(train_refs: Sequence[CETrainRef]) -> str:
+    return compute_dataset_key(train_refs)
+
+
+def lookup_train_refs_by_key(dataset_key: str) -> list[CETrainRef]:
+    criteria = {"output.kind": "CETrainRef_dataset", "output.dataset_key": dataset_key}
+    dataset = lookup_unique(criteria=criteria)
+    if dataset is None:
+        raise KeyError(f"No CETrainRef_dataset found for dataset_key={dataset_key!r}")
+    return cast(list[CETrainRef], dataset["train_refs"])
+
+def lookup_train_ref_energy(train_ref: CETrainRef) -> float:
+    energy = lookup_total_energy_eV(
+        set_id=train_ref["set_id"],
+        occ_key=train_ref["occ_key"],
+        model=train_ref["model"],
+        relax_cell=train_ref["relax_cell"],
+        dtype=train_ref["dtype"],
+    )
+    if energy is None:
+        raise KeyError(f"Could not find total energy for train_ref: {train_ref}")
+    return energy
 
 
 @dataclass(slots=True)
@@ -81,15 +105,6 @@ class Regularization:
     type: str = "ols"
     alpha: float = 1e-6
     l1_ratio: float = 0.5
-
-
-def dataset_hash(train_refs: Sequence[CETrainRef]) -> str:
-    payload = [
-        {"set_id": train_ref["set_id"], "occ_key": train_ref["occ_key"], "energy": train_ref["energy"]}
-        for train_ref in sorted(train_refs, key=lambda t: (t["set_id"], t["occ_key"]))
-    ]
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def build_disordered_primitive(
@@ -301,7 +316,7 @@ def _build_sample_weights(
 def train_ce(
     *,
     # training data
-    train_refs: Sequence[CETrainRef],
+    dataset_key: str,
     # prototype-only system identity (needed to build subspace)
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
@@ -325,8 +340,7 @@ def train_ce(
     common CE practice (meV/site), by scaling y vectors before computing metrics.
     """
     # -------- basic validation --------
-    if not train_refs:
-        raise ValueError("No training references provided.")
+    train_refs = lookup_train_refs_by_key(dataset_key)
 
     n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
 
@@ -334,7 +348,7 @@ def train_ce(
     structures_pm: list[Structure] = _ensure_structures([ref["structure"] for ref in train_refs])
 
     # -------- 1) per-primitive/conventional-cell targets (training unit) --------
-    y_cell = [float(E) / float(n_prims) for E in [ref["energy"] for ref in train_refs]]
+    y_cell = [float(E) / float(n_prims) for E in [lookup_train_ref_energy(ref) for ref in train_refs]]
 
     # -------- 2) figure out sites_per_prim so we can report per-site metrics --------
     n_sites_const = _n_replace_sites_from_prototype(

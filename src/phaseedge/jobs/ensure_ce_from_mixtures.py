@@ -1,4 +1,4 @@
-from typing import Any, Mapping
+from typing import Any
 
 from jobflow.core.job import Response, job
 from jobflow.core.flow import Flow
@@ -42,7 +42,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
     # 4) Train CE (pooled); pass cv_seed for deterministic folds
     sublattices = sublattices_from_mixtures(spec.mixtures)
     j_train = train_ce(
-        train_refs=f_ensure_all.output["train_refs"],
+        dataset_key=f_ensure_all.output["dataset_key"],
         prototype=spec.prototype,
         prototype_params=spec.prototype_params,
         supercell_diag=spec.supercell_diag,
@@ -69,7 +69,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         basis_spec=spec.basis_spec,
         regularization=spec.regularization,
         weighting=spec.weighting,
-        train_refs=f_ensure_all.output["train_refs"],
+        dataset_key=f_ensure_all.output["dataset_key"],
         payload=j_train.output["payload"],
         stats=j_train.output["stats"],
         design_metrics=j_train.output["design_metrics"],

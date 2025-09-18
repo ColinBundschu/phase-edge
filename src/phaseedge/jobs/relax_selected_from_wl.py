@@ -6,10 +6,11 @@ from jobflow.core.flow import Flow
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 
-from phaseedge.jobs.decide_relax import check_or_schedule_relax, extract_relax_energy
+from phaseedge.jobs.decide_relax import relax_structure
 from phaseedge.jobs.train_ce import CETrainRef
 from phaseedge.schemas.mixture import counts_sig
-from phaseedge.utils.keys import occ_key_for_atoms
+from phaseedge.storage.store import lookup_total_energy_eV
+from phaseedge.utils.keys import compute_dataset_key, occ_key_for_atoms
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
@@ -38,7 +39,7 @@ def relax_selected_from_wl(
     sub_jobs: list[Job | Flow] = []
     groups_map: dict[str, dict[str, Any]] = {} # counts_sig -> {"set_id","counts","occ_keys","occs"}
     train_refs: list[CETrainRef] = []
-    for r_ix, rec in enumerate(selected):
+    for rec in selected:
         src = rec["source"]
         if src == "wl":
             wl_key = str(rec["wl_key"])
@@ -63,24 +64,24 @@ def relax_selected_from_wl(
         occ_key = occ_key_for_atoms(cast(Atoms, atoms))
 
         # Schedule relax
-        j_relax: Job = check_or_schedule_relax(
-            set_id=set_id,
-            occ_key=occ_key,
-            structure=pmg_struct,
-            model=model,
-            relax_cell=relax_cell,
-            dtype=dtype,
-            category=category,
+        energy = lookup_total_energy_eV(
+            set_id=set_id, occ_key=occ_key, model=model,
+            relax_cell=relax_cell, dtype=dtype, require_converged=True
         )
-        j_relax.name = f"relax[{sig}::{occ_key[:12]}]"
-        j_relax.update_metadata({"_category": category})
-        sub_jobs.append(j_relax)
-
-        # 2) extract scalar energy (depends on j_relax)
-        j_energy = extract_relax_energy(doc=j_relax.output)
-        j_energy.name = f"energy[{r_ix}:{occ_key[:12]}]"
-        j_energy.update_metadata({"_category": category})
-        sub_jobs.append(j_energy)
+        if energy is None:
+            j_relax: Job = relax_structure(
+                set_id=set_id,
+                occ_key=occ_key,
+                structure=pmg_struct,
+                model=model,
+                relax_cell=relax_cell,
+                dtype=dtype,
+                category=category,
+            )
+            j_relax.name = f"relax[{sig}::{occ_key[:12]}]"
+            j_relax.update_metadata({"_category": category})
+            sub_jobs.append(j_relax)
+            energy = j_relax.output
 
         train_refs.append(
             CETrainRef(
@@ -89,11 +90,17 @@ def relax_selected_from_wl(
                 model=model,
                 relax_cell=relax_cell,
                 dtype=dtype,
-                energy=cast(float, j_energy.output),
                 structure=pmg_struct,
             )
         )
 
     train_refs_out = sorted(train_refs, key=lambda train_ref: (train_ref["set_id"], train_ref["occ_key"]))
+    dataset_key = compute_dataset_key([{k:v for k,v in train_ref.items() if k != "structure"} for train_ref in train_refs_out])
+    output={"train_refs": train_refs_out, "dataset_key": dataset_key, "kind": "CETrainRef_dataset"}
+    if not sub_jobs:
+        # All references were already relaxed; just return the train_refs
+        return output
+
+
     subflow = Flow(sub_jobs, name="Relax selected (parallel)")
-    return Response(replace=subflow, output={"train_refs": train_refs_out})
+    return Response(replace=subflow, output=output)

@@ -123,7 +123,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     # -------------------------------------------------------------------------
     # 5) Fetch → Train → Store
     j_train: Job = train_ce(
-        train_refs=j_relax.output["train_refs"],
+        dataset_key=j_relax.output["dataset_key"],
         prototype=spec.ce_spec.prototype,
         prototype_params=spec.ce_spec.prototype_params,
         supercell_diag=spec.ce_spec.supercell_diag,
@@ -149,7 +149,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         basis_spec=spec.ce_spec.basis_spec,
         regularization=spec.ce_spec.regularization,
         weighting=spec.ce_spec.weighting,
-        train_refs=j_relax.output["train_refs"],
+        dataset_key=j_relax.output["dataset_key"],
         payload=j_train.output["payload"],
         stats=j_train.output["stats"],
         design_metrics=j_train.output["design_metrics"],

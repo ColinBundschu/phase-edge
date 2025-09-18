@@ -1,40 +1,12 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
 from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow
 from atomate2.forcefields.jobs import ForceFieldRelaxMaker
-from atomate2.forcefields.schemas import ForceFieldTaskDocument
 from pymatgen.core import Structure
 
-from phaseedge.storage import store
-
-
-def lookup_ff_task(
-    *,
-    set_id: str,
-    occ_key: str,
-    model: str,
-    relax_cell: bool,
-    dtype: str,
-    require_converged: bool = True,
-) -> Mapping[str, Any] | None:
-    q: dict[str, object] = {
-        "metadata.set_id": set_id,
-        "metadata.occ_key": occ_key,
-        "metadata.model": model,
-        "metadata.relax_cell": relax_cell,
-        "metadata.dtype": dtype,
-        "output.structure": {"$exists": True},
-        "output.output.energy": {"$exists": True},
-    }
-    if require_converged:
-        q["output.is_force_converged"] = True
-
-    doc = store.db_rw()["outputs"].find_one(q, {"_id": 0, "output": 1})
-    if not doc or "output" not in doc:
-        return None
-    return cast(Mapping[str, Any], doc["output"])
+from phaseedge.storage.store import lookup_total_energy_eV
 
 
 @dataclass(frozen=True)
@@ -64,13 +36,13 @@ def _parse_model_spec(model: str, *, dtype: str) -> _FFSpec:
 
 
 @job
-def _require_converged(doc: ForceFieldTaskDocument) -> None:
-    if not doc.is_force_converged:
-        raise RuntimeError(f"Force-field relaxation did not converge (is_force_converged=False). n_steps={doc.output.n_steps}")
+def _require_converged(is_force_converged: bool) -> None:
+    if not is_force_converged:
+        raise RuntimeError("Force-field relaxation did not converge (is_force_converged=False).")
 
 
 @job
-def check_or_schedule_relax(
+def relax_structure(
     *,
     set_id: str,
     occ_key: str,
@@ -79,14 +51,17 @@ def check_or_schedule_relax(
     relax_cell: bool,
     dtype: str,
     category: str,
-) -> Mapping[str, Any] | Response:
+) -> float | Response:
     # Strict reuse: only return an existing doc if converged
-    existing = lookup_ff_task(
+    existing_energy = lookup_total_energy_eV(
         set_id=set_id, occ_key=occ_key, model=model,
         relax_cell=relax_cell, dtype=dtype, require_converged=True
     )
-    if existing:
-        return existing
+    if existing_energy is not None:
+        raise RuntimeError(
+            "A converged relaxation already exists for this set_id/occ_key/model/relax_cell/dtype. "
+            "No new relaxation scheduled."
+        )
 
     ff_spec = _parse_model_spec(model, dtype=dtype)
     maker = ForceFieldRelaxMaker(
@@ -109,25 +84,10 @@ def check_or_schedule_relax(
         }
     )
 
-    j_assert = _require_converged(j_relax.output)
+    j_assert = _require_converged(j_relax.output.is_force_converged)
     j_assert.name = "ff_require_converged"
     j_assert.update_metadata(j_relax.metadata or {})
 
     subflow = Flow([j_relax, j_assert], name="ff_relax_then_assert")
     # Expose the relax TaskDoc as the flow's output
-    return Response(replace=subflow, output=j_relax.output)
-
-
-@job
-def extract_relax_energy(doc: Any) -> float:
-    """
-    Robustly extract the total energy (float) from a ForceFieldTaskDocument-like object.
-
-    Accepts either a Pydantic object with .output.energy, or a mapping with ["output"]["energy"].
-    """
-    # Pydantic / object-style
-    return float(doc.output.energy)
-    # try:
-    #     return float(doc.output.energy)
-    # except AttributeError:
-    #     return float(doc["output"]["energy"])
+    return Response(replace=subflow, output=j_relax.output.output.energy)
