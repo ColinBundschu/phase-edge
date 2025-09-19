@@ -27,6 +27,9 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     wl_chunks: list[Mapping[str, Any]] = []
     
     wl_composition_map = {wl_key: comp for wl_key, comp in spec.wl_key_composition_pairs}
+    if not wl_composition_map:
+        raise ValueError("No WL chains specified in wl_key_composition_pairs.")
+    
     for wl_key, composition_counts in wl_composition_map.items():
         sig = counts_sig(composition_counts)
         run_spec = WLSamplerSpec(

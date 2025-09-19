@@ -9,6 +9,43 @@ from phaseedge.science.refine_wl import RefineStrategy
 from phaseedge.utils.keys import compute_ce_key, compute_wl_key
 
 
+def composition_maps_equal(
+    a: Mapping[str, Mapping[str, int]],
+    b: Mapping[str, Mapping[str, int]],
+) -> bool:
+    """
+    Compare two composition_map objects for equality.
+
+    A composition_map looks like:
+        {"Es": {"Mg": 49, "Al": 5}, "Fm": {"Mg": 5, "Al": 103}}
+
+    Rules:
+    - Raise ValueError if any element count is zero.
+    - Equality means same sublattices, and within each sublattice
+      the same element counts.
+    """
+    def validate_no_zeros(comp: Mapping[str, Mapping[str, int]]) -> None:
+        for sublattice, counts in comp.items():
+            for elem, count in counts.items():
+                if count == 0:
+                    raise ValueError(
+                        f"Zero count not allowed: {sublattice}[{elem}] = 0"
+                    )
+
+    validate_no_zeros(a)
+    validate_no_zeros(b)
+
+    if a.keys() != b.keys():
+        return False
+
+    for sublattice, a_counts in a.items():
+        b_counts = b.get(sublattice, {})
+        if dict(a_counts) != dict(b_counts):
+            return False
+
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class EnsureCEFromRefinedWLSpec(MSONable):
     ce_spec: EnsureCEFromMixturesSpec
@@ -107,11 +144,11 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     def wl_key_composition_pairs(self) -> tuple[tuple[str, dict[str, int]], ...]:
         ce_key = self.ce_spec.ce_key
         pairs = []
-        seen_sigs = {counts_sig(composition_counts_from_map(ep)) for ep in self.endpoints}
+        seen_sigs = set()
         for mixture in self.ce_spec.mixtures:
             composition_counts = composition_counts_from_map(mixture.composition_map)
             sig = counts_sig(composition_counts)
-            if sig in seen_sigs:
+            if sig in seen_sigs or any(composition_maps_equal(mixture.composition_map, ep) for ep in self.endpoints):
                 continue
             seen_sigs.add(sig)
 

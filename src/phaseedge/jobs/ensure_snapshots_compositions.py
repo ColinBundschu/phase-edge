@@ -8,7 +8,7 @@ from phaseedge.science.prototypes import PrototypeName, make_prototype
 from phaseedge.jobs.decide_relax import relax_structure
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.store import lookup_total_energy_eV
-from phaseedge.utils.keys import compute_dataset_key, compute_set_id, occ_key_for_atoms, rng_for_index
+from phaseedge.utils.keys import compute_dataset_key, compute_set_id, occ_key_for_structure, rng_for_index
 from pymatgen.io.ase import AseAtomsAdaptor
 
 
@@ -48,8 +48,8 @@ def ensure_snapshots_compositions(
                 composition_map=mixture.composition_map,
                 rng=rng,
             )
-            occ_key = occ_key_for_atoms(snapshot)
             structure = AseAtomsAdaptor.get_structure(snapshot)  # pyright: ignore[reportArgumentType]
+            occ_key = occ_key_for_structure(structure)
 
             # 1) schedule relax
             energy = lookup_total_energy_eV(

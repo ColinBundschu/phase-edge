@@ -4,8 +4,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 from numpy.random import default_rng, Generator
-from ase.atoms import Atoms
-from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core import Structure
+from numpy.typing import NDArray
 
 from phaseedge.schemas.mixture import Mixture, canonical_counts, sorted_composition_maps
 from phaseedge.science.prototypes import PrototypeName
@@ -73,16 +73,53 @@ def rng_for_index(set_id: str, index: int) -> Generator:
     return default_rng(seed_for(set_id, index))
 
 
-def occ_key_for_atoms(snapshot: Atoms) -> str:
-    pmg = AseAtomsAdaptor.get_structure(snapshot)  # type: ignore[arg-type]
-    payload = {
-        "lattice": np.asarray(pmg.lattice.matrix).round(10).tolist(),
-        "frac": np.asarray(pmg.frac_coords).round(10).tolist(),
-        "species": [str(sp) for sp in pmg.species],
-    }
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode()).hexdigest()
+def _quantize(a: NDArray[np.floating], scale: int) -> NDArray[np.int64]:
+    """Round to nearest integer at the given scale (e.g., scale=10**10) and cast to int64."""
+    # rint does bankers rounding; that’s fine here and deterministic.
+    return np.rint(a * scale).astype(np.int64, copy=False)
 
+def _frac_wrap(frac: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Map fractional coords to [0, 1) deterministically."""
+    f = np.mod(frac, 1.0)
+    # Snap values that are 1.0 within float noise back to 0.0 prior to quantization
+    f[np.isclose(f, 1.0, atol=1e-12)] = 0.0
+    return f
+
+# ---- canonical payload builders ----
+
+def _canonical_payload_for_structure(s: Structure, *, ndigits: int = 10) -> dict[str, Any]:
+    """
+    Build a library-agnostic, order-invariant payload for hashing:
+      - lattice: quantized 3x3 in row-major
+      - sites  : sorted list of (Z, fx_q, fy_q, fz_q), with frac coords quantized
+    """
+    scale = 10 ** int(ndigits)
+
+    # Lattice 3x3
+    L = np.asarray(s.lattice.matrix, dtype=float)
+    L_q = _quantize(L, scale).reshape(3, 3)
+
+    # Fractional coords wrapped to [0,1)
+    F = _frac_wrap(np.asarray(s.frac_coords, dtype=float))
+    F_q = _quantize(F, scale)
+
+    # Atomic numbers (use specie.Z; robust to formatting of species strings)
+    Z = np.array([site.specie.Z for site in s.sites], dtype=np.int64)
+
+    # Stable sorting by (Z, fx_q, fy_q, fz_q)
+    keys = list(zip(Z.tolist(), F_q[:, 0].tolist(), F_q[:, 1].tolist(), F_q[:, 2].tolist()))
+    keys.sort()
+
+    return {
+        "L": L_q.flatten().tolist(),   # 9 ints
+        "S": keys,                     # [(Z, fx_q, fy_q, fz_q), ...]
+        "nd": int(ndigits),            # bake precision into identity
+    }
+
+def occ_key_for_structure(pmg: Structure, *, ndigits: int = 10) -> str:
+    payload = _canonical_payload_for_structure(pmg, ndigits=ndigits)
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 # -------------------- canonicalization helpers --------------------
 

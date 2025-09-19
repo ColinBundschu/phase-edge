@@ -49,7 +49,7 @@ pe-ensure-ce-from-refined-wl \
 --wl-bin-width 0.2 --samples-per-bin 5 \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---refine-n-total 10 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--refine-n-total 50 --refine-per-bin-cap 5 --refine-strategy energy_spread \
 --train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
 --budget 102
 
@@ -86,7 +86,51 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Al:54},Fm:{Mg:54,Al:54};K=10;seed=42" \
 --seed 42 \
 --model "MACE-MPA-0" --relax-cell --dtype float64 \
---basis sinusoid --cutoffs "1:100,2:10,3:8,4:6" \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu
+
+
+
+
+pe-ensure-ce-from-refined-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel --a 8.08 \
+--supercell 3 3 3 \
+--mix "composition_map=Es:{Mg:49,Al:5},Fm:{Mg:5,Al:103};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:43,Al:11},Fm:{Mg:11,Al:97};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:38,Al:16},Fm:{Mg:16,Al:92};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:32,Al:22},Fm:{Mg:22,Al:86};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:27,Al:27},Fm:{Mg:27,Al:81};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:22,Al:32},Fm:{Mg:32,Al:76};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:16,Al:38},Fm:{Mg:38,Al:70};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:11,Al:43},Fm:{Mg:43,Al:65};K=10;seed=42" \
+--mix "composition_map=Es:{Mg:5,Al:49},Fm:{Mg:49,Al:59};K=10;seed=42" \
+--mix "composition_map=Es:{Al:54},Fm:{Mg:54,Al:54};K=10;seed=42" \
+--endpoint "Es:{Mg:54},Fm:{Al:108}" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell --dtype float64 \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.5 --samples-per-bin 5 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--refine-n-total 300 --refine-per-bin-cap 10 --refine-strategy energy_spread \
+--train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--budget 100
+
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 6673ff4bac88871cc8b21fc78e2035b39eac75a31198d839a4daaa75c697286f \
+--bin-width 0.5 \
+--sublattice-labels 'Es,Fm' \
+--composition-counts 'Mg:54,Al:108' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 5 \
+--json

@@ -10,7 +10,7 @@ from phaseedge.jobs.decide_relax import relax_structure
 from phaseedge.jobs.train_ce import CETrainRef
 from phaseedge.schemas.mixture import counts_sig
 from phaseedge.storage.store import lookup_total_energy_eV
-from phaseedge.utils.keys import compute_dataset_key, occ_key_for_atoms
+from phaseedge.utils.keys import compute_dataset_key, occ_key_for_structure
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
@@ -58,10 +58,10 @@ def relax_selected_from_wl(
         occ_seq = cast(Sequence[int], rec["occ"])
         occ_arr = np.asarray([int(x) for x in occ_seq], dtype=np.int32)
         pmg_struct = ensemble.processor.structure_from_occupancy(occ_arr)
+        occ_key = occ_key_for_structure(pmg_struct)
 
         # Compute a structure-based key (matches fetch_training_set_multi's scheme)
         atoms = AseAtomsAdaptor.get_atoms(pmg_struct)
-        occ_key = occ_key_for_atoms(cast(Atoms, atoms))
 
         # Schedule relax
         energy = lookup_total_energy_eV(
