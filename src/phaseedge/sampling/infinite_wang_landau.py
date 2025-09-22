@@ -58,9 +58,7 @@ class InfiniteWangLandau(MCKernel):
         production_mode: bool = False,
         # Provide optional precomputed mappings (recommended):
         # - sublattice_indices: label -> indices in occupancy vector
-        # - species_code_to_label: occupancy code -> chemical symbol
         sublattice_indices: Mapping[str, list[int] | np.ndarray] | None = None,
-        species_code_to_label: Mapping[int, str] | None = None,
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -80,7 +78,6 @@ class InfiniteWangLandau(MCKernel):
             collect_cation_stats (bool): If True, collect per-bin cation-count histograms per sublattice.
             production_mode (bool): If True, freeze WL updates (entropy/histogram/mod-factor) and only collect stats.
             sublattice_indices: Optional mapping label -> site indices for each replaceable sublattice.
-            species_code_to_label: Optional mapping from integer occupancy code -> chemical symbol.
             *args, **kwargs: forwarded to MCUsher constructor.
         """
         if mod_factor <= 0:
@@ -134,32 +131,9 @@ class InfiniteWangLandau(MCKernel):
             for k, v in sublattice_indices.items():
                 self._sl_index_map[str(k)] = np.asarray(v, dtype=np.int32)
 
-        # code -> label mapping
-        # NOTE: When collecting cation stats we require a non-empty, one-to-one mapping.
-        raw_map = species_code_to_label or {}
-        self._code_to_label: dict[int, str] = {int(k): str(v).strip() for k, v in raw_map.items()}
-
-        if self._collect_cation_stats:
-            if not self._code_to_label:
-                raise ValueError(
-                    "collect_cation_stats=True requires a non-empty species_code_to_label (code -> label) mapping."
-                )
-            labels = list(self._code_to_label.values())
-            dup_labels = {lbl for lbl in set(labels) if labels.count(lbl) > 1}
-            if dup_labels:
-                raise ValueError(
-                    "species_code_to_label must be one-to-one (distinct codes must map to distinct labels). "
-                    f"Duplicate labels detected: {self._code_to_label}"
-                )
-            # persist mapping for provenance/debugging
-            try:
-                self.spec.species_code_to_label = dict(self._code_to_label)
-            except Exception:
-                pass
-
         # Per-bin cation count histograms:
-        # bin_id -> { sublattice_label -> { element_label -> { n_sites_on_sublattice: visits } } }
-        self._bin_cation_counts: dict[int, dict[str, dict[str, dict[int, int]]]] = {}
+        # bin_id -> { sublattice_label -> { element_index -> { n_sites_on_sublattice: visits } } }
+        self._bin_cation_counts: dict[int, dict[str, dict[int, dict[int, int]]]] = {}
 
         # Population of initial trace included here.
         super().__init__(ensemble=ensemble, step_type=step_type, *args, seed=seed, **kwargs)
@@ -266,41 +240,21 @@ class InfiniteWangLandau(MCKernel):
             return
 
         occ = np.asarray(self._last_accepted_occupancy, dtype=np.int32)
-        bin_dict = self._bin_cation_counts.get(b)
-        if bin_dict is None:
-            bin_dict = {}
-            self._bin_cation_counts[b] = bin_dict
 
+        if b not in self._bin_cation_counts:
+            self._bin_cation_counts[b] = {}
+        bin_dict = self._bin_cation_counts[b]
         for sl, idx in self._sl_index_map.items():
+            if sl not in bin_dict:
+                bin_dict[sl] = {}
+            sl_dict = bin_dict[sl]
+
             # Extract codes on that sublattice and count occurrences per species code
             codes, counts = np.unique(occ[idx], return_counts=True)
-            sl_dict = bin_dict.get(sl)
-            if sl_dict is None:
-                sl_dict = {}
-                bin_dict[sl] = sl_dict
-
-            # runtime defenses: unmapped or duplicate labels
-            seen_labels_for_this_bin_sl: set[str] = set()
-            for code, n_sites in zip(codes.tolist(), counts.tolist()):
-                icode = int(code)
-                if icode not in self._code_to_label:
-                    raise KeyError(
-                        f"species_code_to_label has no entry for code {icode} "
-                        f"(observed on sublattice '{sl}')."
-                    )
-                label = self._code_to_label[icode]
-                if label in seen_labels_for_this_bin_sl:
-                    twin_codes = sorted([int(k) for k, v in self._code_to_label.items() if v == label])
-                    raise ValueError(
-                        "Duplicate label mapping at runtime: multiple codes map to label "
-                        f"'{label}' on sublattice '{sl}'. Offending codes: {twin_codes}"
-                    )
-                seen_labels_for_this_bin_sl.add(label)
-
-                elem_dict = sl_dict.get(label)
-                if elem_dict is None:
-                    elem_dict = {}
-                    sl_dict[label] = elem_dict
+            for icode, n_sites in zip([int(code) for code in codes], counts.tolist()):
+                if icode not in sl_dict:
+                    sl_dict[icode] = {}
+                elem_dict = sl_dict[icode]
                 # Increment the histogram at key "n_sites"
                 elem_dict[n_sites] = int(elem_dict.get(n_sites, 0) + 1)
 

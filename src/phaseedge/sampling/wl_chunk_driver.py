@@ -142,44 +142,6 @@ def _build_sublattice_indices(*, ce_key: str, sublattice_labels: Sequence[str]) 
     return sl_map
 
 
-def _build_species_code_to_label(
-    *,
-    ce_key: str,
-    ensemble: Ensemble,
-    sublattice_labels: Sequence[str],
-    composition_counts: Mapping[str, int],
-    sublattice_indices: dict[str, np.ndarray] | None = None,
-) -> dict[int, str]:
-    """
-    Derive occupancy-code -> chemical symbol for codes present on the replaceable
-    sublattices at the target WL composition, using a single valid snapshot.
-    Uses a local deterministic RNG so the derivation does not affect the run RNG.
-    """
-    if sublattice_indices is None:
-        sublattice_indices = _build_sublattice_indices(
-            ce_key=ce_key,
-            sublattice_labels=sublattice_labels,
-        )
-    rng_local = np.random.default_rng(0)
-    struct, occ = _snapshot_struct_and_occ_from_counts(
-        ce_key=ce_key,
-        ensemble=ensemble,
-        sublattice_labels=sublattice_labels,
-        composition_counts=composition_counts,
-        rng=rng_local,
-    )
-    # Symbols aligned to structure order
-    symbols = np.array([str(site.specie.symbol) for site in struct.sites])
-    mapping: dict[int, str] = {}
-    for idx in sublattice_indices.values():
-        idx_i = np.asarray(idx, dtype=np.int32)
-        for i in idx_i.tolist():
-            mapping[int(occ[i])] = str(symbols[i])
-    if not mapping:
-        raise RuntimeError("Failed to derive species_code_to_label (empty mapping).")
-    return mapping
-
-
 # ---- Chunk runner ---------------------------------------------------------
 
 
@@ -196,15 +158,6 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         sublattice_labels=spec.sublattice_labels,
     )
 
-    # Derive species code -> label map deterministically (does not advance run RNG)
-    species_code_to_label = _build_species_code_to_label(
-        ce_key=spec.ce_key,
-        ensemble=ensemble,
-        sublattice_labels=spec.sublattice_labels,
-        composition_counts=spec.composition_counts,
-        sublattice_indices=sublattice_indices,
-    )
-
     sampler = Sampler.from_ensemble(
         ensemble,
         kernel_type="InfiniteWangLandau",
@@ -219,7 +172,6 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         collect_cation_stats=spec.collect_cation_stats,
         production_mode=spec.production_mode,
         sublattice_indices=sublattice_indices,
-        species_code_to_label=species_code_to_label,
     )
 
     # Parent hash & restore point
