@@ -7,7 +7,7 @@ from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
 from phaseedge.jobs.ensure_wl_samples import ensure_wl_samples
 from phaseedge.jobs.refine_wl_block import RefineWLSpec, refine_wl_block
 from phaseedge.jobs.select_d_optimal_basis import select_d_optimal_basis
-from phaseedge.jobs.relax_selected_from_wl import relax_selected_from_wl
+from phaseedge.jobs.ensure_dataset_selected import ensure_dataset_selected
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
@@ -111,7 +111,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
 
     # -------------------------------------------------------------------------
     # 4) Relax (parallel), grouped per composition
-    j_relax = relax_selected_from_wl(
+    j_relax = ensure_dataset_selected(
         ce_key=spec.ce_spec.ce_key,
         selected=j_select.output["chosen"],
         wl_counts_map=wl_composition_map,
@@ -120,7 +120,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         dtype=spec.train_dtype,
         category=spec.category,
     )
-    j_relax.name = "relax_selected_from_wl"
+    j_relax.name = "ensure_dataset_selected"
     j_relax.update_metadata({"_category": spec.category})
 
     # -------------------------------------------------------------------------

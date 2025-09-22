@@ -6,7 +6,7 @@ from jobflow.core.flow import Flow
 from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
 from phaseedge.schemas.mixture import sublattices_from_mixtures
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.jobs.ensure_snapshots_compositions import ensure_snapshots_compositions
+from phaseedge.jobs.ensure_dataset_compositions import ensure_dataset_compositions
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 
@@ -18,7 +18,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
       - Canonicalize mixtures and compute ce_key (sources-aware).
       - If a CE already exists for ce_key, return it.
       - Otherwise replace this job with a Flow:
-          ensure_snapshots_compositions -> fetch_training_set_multi -> train_ce -> store_ce_model
+          ensure_dataset_compositions -> fetch_training_set_multi -> train_ce -> store_ce_model
     """
 
     if lookup_ce_by_key(spec.ce_key):
@@ -26,7 +26,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
 
 
     # 2) Ensure snapshots for all mixtures (each subflow barriers via emit job)
-    f_ensure_all = ensure_snapshots_compositions(
+    f_ensure_all = ensure_dataset_compositions(
         prototype=spec.prototype,
         prototype_params=spec.prototype_params,
         supercell_diag=spec.supercell_diag,
@@ -36,7 +36,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         dtype=spec.dtype,
         category=spec.category,
     )
-    f_ensure_all.name = "ensure_snapshots_compositions"
+    f_ensure_all.name = "ensure_dataset_compositions"
     f_ensure_all.update_metadata({"_category": spec.category})
 
     # 4) Train CE (pooled); pass cv_seed for deterministic folds

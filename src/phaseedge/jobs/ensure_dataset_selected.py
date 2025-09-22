@@ -6,16 +6,16 @@ from jobflow.core.flow import Flow
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 
-from phaseedge.jobs.decide_relax import relax_structure
-from phaseedge.jobs.train_ce import CETrainRef
+from phaseedge.jobs.relax_structure import relax_structure
+from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
 from phaseedge.schemas.mixture import counts_sig
 from phaseedge.storage.store import lookup_total_energy_eV
 from phaseedge.utils.keys import compute_dataset_key, occ_key_for_structure
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
-@job
-def relax_selected_from_wl(
+@job(data="train_refs")
+def ensure_dataset_selected(
     *,
     ce_key: str,
     # From select_d_optimal_basis: list of {"source","wl_key","checkpoint_hash","bin","occ","occ_hash", ["counts" for endpoints]}
@@ -47,7 +47,7 @@ def relax_selected_from_wl(
         elif src == "endpoint":
             counts = rec["counts"]
         else:
-            raise RuntimeError(f"relax_selected_from_wl: unrecognized source='{src}' in record.")
+            raise RuntimeError(f"ensure_dataset_selected: unrecognized source='{src}' in record.")
 
         sig = counts_sig(counts)
         set_id = f"{set_id_prefix}::{ce_key}::{sig}"
@@ -59,9 +59,6 @@ def relax_selected_from_wl(
         occ_arr = np.asarray([int(x) for x in occ_seq], dtype=np.int32)
         pmg_struct = ensemble.processor.structure_from_occupancy(occ_arr)
         occ_key = occ_key_for_structure(pmg_struct)
-
-        # Compute a structure-based key (matches fetch_training_set_multi's scheme)
-        atoms = AseAtomsAdaptor.get_atoms(pmg_struct)
 
         # Schedule relax
         energy = lookup_total_energy_eV(
@@ -94,9 +91,13 @@ def relax_selected_from_wl(
             )
         )
 
-    train_refs_out = sorted(train_refs, key=lambda train_ref: (train_ref["set_id"], train_ref["occ_key"]))
+    train_refs_out = sorted(train_refs, key=lambda r: (r["set_id"], r["occ_key"]))
     dataset_key = compute_dataset_key([{k:v for k,v in train_ref.items() if k != "structure"} for train_ref in train_refs_out])
-    output={"train_refs": train_refs_out, "dataset_key": dataset_key, "kind": "CETrainRef_dataset"}
+    output = {"dataset_key": dataset_key}
+    if train_refs_exist(dataset_key):
+        return output
+
+    output = output | {"train_refs": train_refs_out, "kind": "CETrainRef_dataset"}
     if not sub_jobs:
         # All references were already relaxed; just return the train_refs
         return output

@@ -16,7 +16,7 @@ from pymatgen.entries.computed_entries import ComputedStructureEntry
 
 from phaseedge.science.prototypes import make_prototype, PrototypeName
 from phaseedge.science.design_metrics import compute_design_metrics, MetricOptions, DesignMetrics
-from phaseedge.storage.store import lookup_total_energy_eV, lookup_unique
+from phaseedge.storage.store import exists_unique, lookup_total_energy_eV, lookup_unique
 from phaseedge.utils.keys import compute_dataset_key
 
 __all__ = ["train_ce"]
@@ -54,17 +54,18 @@ class CETrainRef(TypedDict):
     structure: Structure
 
 
-@job
-def dataset_key_from_train_refs(train_refs: Sequence[CETrainRef]) -> str:
-    return compute_dataset_key(train_refs)
-
-
 def lookup_train_refs_by_key(dataset_key: str) -> list[CETrainRef]:
     criteria = {"output.kind": "CETrainRef_dataset", "output.dataset_key": dataset_key}
     dataset = lookup_unique(criteria=criteria)
     if dataset is None:
         raise KeyError(f"No CETrainRef_dataset found for dataset_key={dataset_key!r}")
     return cast(list[CETrainRef], dataset["train_refs"])
+
+
+def train_refs_exist(dataset_key: str) -> bool:
+    criteria = {"output.kind": "CETrainRef_dataset", "output.dataset_key": dataset_key}
+    return exists_unique(criteria=criteria)
+
 
 def lookup_train_ref_energy(train_ref: CETrainRef) -> float:
     energy = lookup_total_energy_eV(
@@ -374,7 +375,7 @@ def train_ce(
         cutoffs=dict(basis.cutoffs),
         basis=basis.basis,
     )
-
+    assert len(subspace.orbits_by_size[1]) >= 2, "Primitive did not expose two cation site classes; check your prototype."
     # -------- 5) featurization (build once; re-used across CV folds) --------
     _, X = featurize_structures(subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag)
     if X.size == 0 or X.shape[1] == 0:

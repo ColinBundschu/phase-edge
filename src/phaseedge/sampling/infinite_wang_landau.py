@@ -16,7 +16,7 @@ Based on: https://link.aps.org/doi/10.1103/PhysRevLett.86.2050
 
 from functools import partial
 from math import log
-from typing import Callable, Mapping, Any, Set
+from typing import Callable, Mapping, Any
 
 import hashlib
 import numpy as np
@@ -113,7 +113,7 @@ class InfiniteWangLandau(MCKernel):
         # Optional sparse capture of occupancy samples per bin (UNIQUE)
         self._samples_per_bin: int = max(0, int(samples_per_bin))
         self._bin_samples_d: dict[int, list[list[int]]] = {}
-        self._bin_sample_hashes_d: dict[int, Set[str]] = {}  # transient; not serialized
+        self._bin_sample_hashes_d: dict[int, set[str]] = {}  # transient; not serialized
 
         # Keep the last accepted occupancy so we can record it in _do_post_step
         self._last_accepted_occupancy: np.ndarray | None = None
@@ -127,13 +127,35 @@ class InfiniteWangLandau(MCKernel):
         # ------- NEW: sublattice/species configuration -------
         self._collect_cation_stats = collect_cation_stats
         self._production_mode = production_mode
+
         # label -> np.ndarray[int] (site indices)
         self._sl_index_map: dict[str, np.ndarray] = {}
         if sublattice_indices:
             for k, v in sublattice_indices.items():
                 self._sl_index_map[str(k)] = np.asarray(v, dtype=np.int32)
-        # code -> label; if missing, we will use str(code)
-        self._code_to_label: dict[int, str] = {int(k): str(v) for k, v in (species_code_to_label or {}).items()}
+
+        # code -> label mapping
+        # NOTE: When collecting cation stats we require a non-empty, one-to-one mapping.
+        raw_map = species_code_to_label or {}
+        self._code_to_label: dict[int, str] = {int(k): str(v).strip() for k, v in raw_map.items()}
+
+        if self._collect_cation_stats:
+            if not self._code_to_label:
+                raise ValueError(
+                    "collect_cation_stats=True requires a non-empty species_code_to_label (code -> label) mapping."
+                )
+            labels = list(self._code_to_label.values())
+            dup_labels = {lbl for lbl in set(labels) if labels.count(lbl) > 1}
+            if dup_labels:
+                raise ValueError(
+                    "species_code_to_label must be one-to-one (distinct codes must map to distinct labels). "
+                    f"Duplicate labels detected: {self._code_to_label}"
+                )
+            # persist mapping for provenance/debugging
+            try:
+                self.spec.species_code_to_label = dict(self._code_to_label)
+            except Exception:
+                pass
 
         # Per-bin cation count histograms:
         # bin_id -> { sublattice_label -> { element_label -> { n_sites_on_sublattice: visits } } }
@@ -257,8 +279,24 @@ class InfiniteWangLandau(MCKernel):
                 sl_dict = {}
                 bin_dict[sl] = sl_dict
 
+            # runtime defenses: unmapped or duplicate labels
+            seen_labels_for_this_bin_sl: set[str] = set()
             for code, n_sites in zip(codes.tolist(), counts.tolist()):
-                label = self._code_to_label[int(code)]
+                icode = int(code)
+                if icode not in self._code_to_label:
+                    raise KeyError(
+                        f"species_code_to_label has no entry for code {icode} "
+                        f"(observed on sublattice '{sl}')."
+                    )
+                label = self._code_to_label[icode]
+                if label in seen_labels_for_this_bin_sl:
+                    twin_codes = sorted([int(k) for k, v in self._code_to_label.items() if v == label])
+                    raise ValueError(
+                        "Duplicate label mapping at runtime: multiple codes map to label "
+                        f"'{label}' on sublattice '{sl}'. Offending codes: {twin_codes}"
+                    )
+                seen_labels_for_this_bin_sl.add(label)
+
                 elem_dict = sl_dict.get(label)
                 if elem_dict is None:
                     elem_dict = {}
@@ -378,7 +416,7 @@ class InfiniteWangLandau(MCKernel):
         Return and clear the per-bin cation-count histograms captured since last call.
 
         Structure:
-          { bin_id: { sublattice_label: { element_label: { n_sites_on_sublattice: hits } } } }
+          { bin_id: { sublattice_label: { element_label: { n_sites_on_sublattice: visits } } } }
         """
         out = self._bin_cation_counts
         self._bin_cation_counts = {}
@@ -510,5 +548,5 @@ class InfiniteWangLandau(MCKernel):
 
         res: Any = dec(dict(st))
         if not isinstance(res, dict):
-            TypeError("Decoded RNG state must be a dict at the top level.")
+            raise TypeError("Decoded RNG state must be a dict at the top level.")
         return dict(res)

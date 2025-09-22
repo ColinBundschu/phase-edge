@@ -2,18 +2,18 @@ from typing import Any, Mapping, Sequence
 from jobflow.core.flow import Flow
 from jobflow.core.job import job, Response, Job
 
-from phaseedge.jobs.train_ce import CETrainRef
+from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
 from phaseedge.schemas.mixture import Mixture
 from phaseedge.science.prototypes import PrototypeName, make_prototype
-from phaseedge.jobs.decide_relax import relax_structure
+from phaseedge.jobs.relax_structure import relax_structure
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.store import lookup_total_energy_eV
 from phaseedge.utils.keys import compute_dataset_key, compute_set_id, occ_key_for_structure, rng_for_index
 from pymatgen.io.ase import AseAtomsAdaptor
 
 
-@job
-def ensure_snapshots_compositions(
+@job(data="train_refs")
+def ensure_dataset_compositions(
     *,
     prototype: PrototypeName,
     prototype_params: Mapping[str, Any],
@@ -85,7 +85,11 @@ def ensure_snapshots_compositions(
 
     train_refs_out = sorted(train_refs, key=lambda r: (r["set_id"], r["occ_key"]))
     dataset_key = compute_dataset_key([{k:v for k,v in train_ref.items() if k != "structure"} for train_ref in train_refs_out])
-    output={"train_refs": train_refs_out, "dataset_key": dataset_key, "kind": "CETrainRef_dataset"}
+    output = {"dataset_key": dataset_key}
+    if train_refs_exist(dataset_key):
+        return output
+
+    output = output | {"train_refs": train_refs_out, "kind": "CETrainRef_dataset"}
     if not sub_jobs:
         # All references were already relaxed; just return the train_refs
         return output

@@ -161,3 +161,16 @@ def lookup_unique(criteria: dict[str, Any]) -> Mapping[str, Any] | None:
         raise RuntimeError(f"Expected exactly one document, found {len(rows)} for criteria={criteria!r}")
 
     return cast(Mapping[str, Any], rows[0]["output"])
+
+
+def exists_unique(criteria: dict[str, Any]) -> bool:
+    """
+    Returns True if exactly one document matches.
+    """
+    js: JobStore = build_jobstore()
+
+    count = js.count(criteria=criteria)
+    if count > 1:
+        raise RuntimeError(f"Expected at most one document, found {count} for criteria={criteria!r}")
+
+    return count == 1
