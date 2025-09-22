@@ -291,51 +291,48 @@ class InfiniteWangLandau(MCKernel):
         return occupancy
 
     def _do_post_step(self) -> None:
-        """Populate histogram/entropy, and update counters accordingly."""
         bin_id = self._get_bin_id(self._current_enthalpy)
 
         if np.isfinite(bin_id):
             b = int(bin_id)
-            # compute cumulative stats
-            self._steps_counter += 1
-            total = int(self._occurrences_d.get(b, 0))
+
+            # --- Count EVERY visit (independent of update_period / production_mode) ---
+            prev_visits = int(self._occurrences_d.get(b, 0))
+            new_visits = prev_visits + 1
+            self._occurrences_d[b] = new_visits
+
+            # --- Running mean of features using the previous count ---
             prev = self._mean_features_d.get(b)
             if prev is None:
                 prev = np.zeros_like(self._current_features)
-            self._mean_features_d[b] = (self._current_features + total * prev) / (total + 1)
+            self._mean_features_d[b] = (self._current_features + prev_visits * prev) / float(new_visits)
 
-            # optional: capture up to K UNIQUE occupancy samples per bin
+            # Optional: capture up to K UNIQUE samples per bin (unchanged)
             if self._samples_per_bin > 0 and self._last_accepted_occupancy is not None:
                 lst = self._bin_samples_d.get(b)
                 if lst is None:
                     lst = []
                     self._bin_samples_d[b] = lst
-
                 if len(lst) < self._samples_per_bin:
-                    # compute hash and dedupe
                     h = self._hash_occupancy_int32(self._last_accepted_occupancy)
                     seen = self._bin_sample_hashes_d.get(b)
                     if seen is None:
                         seen = set()
                         self._bin_sample_hashes_d[b] = seen
-
                     if h not in seen:
                         lst.append([int(x) for x in np.asarray(self._last_accepted_occupancy, dtype=int).tolist()])
                         seen.add(h)
-                        # If we've reached the quota, drop the hash set to free memory
                         if len(lst) >= self._samples_per_bin:
                             self._bin_sample_hashes_d.pop(b, None)
 
-            # At the same cadence as histogram updates, update cation stats
+            # Cadence for WL stats and cation stats
+            self._steps_counter += 1
             if self._steps_counter % self.update_period == 0:
-                # Update cation counts regardless of production mode (so we can collect stats)
+                # Always update cation counts at cadence
                 self._update_cation_stats_for_bin(b)
-
                 if not self._production_mode:
-                    # update histogram, entropy and occurrences
                     self._entropy_d[b] = float(self._entropy_d.get(b, 0.0) + self._m)
                     self._histogram_d[b] = int(self._histogram_d.get(b, 0) + 1)
-                    self._occurrences_d[b] = int(self._occurrences_d.get(b, 0) + 1)
 
         # fill trace with visited-only views
         self.trace.histogram = np.empty((0,), dtype=int)
