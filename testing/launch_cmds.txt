@@ -111,26 +111,40 @@ pe-ensure-ce-from-refined-wl \
 --endpoint "Es:{Mg:54},Fm:{Al:108}" \
 --seed 42 \
 --model "MACE-MPA-0" --relax-cell --dtype float64 \
---basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--basis sinusoid --cutoffs "1:100,2:9,3:7,4:5" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu \
---wl-bin-width 0.5 --samples-per-bin 5 \
---steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-bin-width 0.2 --samples-per-bin 10 \
+--steps-to-run 1000000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---refine-n-total 300 --refine-per-bin-cap 10 --refine-strategy energy_spread \
+--refine-n-total 1000 --refine-per-bin-cap 10 --refine-strategy energy_spread \
 --train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
---budget 100
+--budget 400
 
 
 pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key 6673ff4bac88871cc8b21fc78e2035b39eac75a31198d839a4daaa75c697286f \
---bin-width 0.5 \
+--ce-key d06be615f7a147f2230b86081feb8b57d39cc6dcd88592636283d3739643ca05 \
+--bin-width 0.1 \
 --sublattice-labels 'Es,Fm' \
---composition-counts 'Mg:54,Al:108' \
+--composition-counts 'Mg:16,Al:32' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 10000000 \
---repeats 5 \
+--repeats 100 \
 --json
+
+
+pe-extend-wl \
+  --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+  --ce-key d06be615f7a147f2230b86081feb8b57d39cc6dcd88592636283d3739643ca05 \
+  --bin-width 0.1 \
+  --sublattice-labels Es,Fm \
+  --composition-counts 'Mg:16,Al:32' \
+  --samples-per-bin 0 \
+  --collect-cation-stats \
+  --production-mode \
+  --category cpu \
+  --steps-to-run 10000000 \
+  --json

@@ -59,6 +59,7 @@ class InfiniteWangLandau(MCKernel):
         # Provide optional precomputed mappings (recommended):
         # - sublattice_indices: label -> indices in occupancy vector
         sublattice_indices: Mapping[str, list[int] | np.ndarray] | None = None,
+        active_codes_to_elems: dict[int, str] | None = None,
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -124,6 +125,7 @@ class InfiniteWangLandau(MCKernel):
         # ------- NEW: sublattice/species configuration -------
         self._collect_cation_stats = collect_cation_stats
         self._production_mode = production_mode
+        self._active_codes_to_elems = active_codes_to_elems
 
         # label -> np.ndarray[int] (site indices)
         self._sl_index_map: dict[str, np.ndarray] = {}
@@ -133,7 +135,7 @@ class InfiniteWangLandau(MCKernel):
 
         # Per-bin cation count histograms:
         # bin_id -> { sublattice_label -> { element_index -> { n_sites_on_sublattice: visits } } }
-        self._bin_cation_counts: dict[int, dict[str, dict[int, dict[int, int]]]] = {}
+        self._bin_cation_counts: dict[int, dict[str, dict[str, dict[int, int]]]] = {}
 
         # Population of initial trace included here.
         super().__init__(ensemble=ensemble, step_type=step_type, *args, seed=seed, **kwargs)
@@ -150,8 +152,6 @@ class InfiniteWangLandau(MCKernel):
         # NEW runtime flags for clarity (not required by smol, just recorded)
         self.spec.collect_cation_stats = self._collect_cation_stats
         self.spec.production_mode = self._production_mode
-        if self._sl_index_map:
-            self.spec.sublattice_labels = tuple(sorted(self._sl_index_map.keys()))
 
         # Additional clean-ups after base init.
         self._entropy_d.clear()
@@ -235,9 +235,8 @@ class InfiniteWangLandau(MCKernel):
             return
         if self._last_accepted_occupancy is None:
             return
-        if not self._sl_index_map:
-            # Not configured; nothing to do.
-            return
+        if not self._sl_index_map or not self._active_codes_to_elems:
+            raise RuntimeError("Sublattice indices and active codes must be provided to collect cation stats.")
 
         occ = np.asarray(self._last_accepted_occupancy, dtype=np.int32)
 
@@ -251,10 +250,12 @@ class InfiniteWangLandau(MCKernel):
 
             # Extract codes on that sublattice and count occurrences per species code
             codes, counts = np.unique(occ[idx], return_counts=True)
-            for icode, n_sites in zip([int(code) for code in codes], counts.tolist()):
-                if icode not in sl_dict:
-                    sl_dict[icode] = {}
-                elem_dict = sl_dict[icode]
+            zero_code_counts = [(code, 0) for code in self._active_codes_to_elems.keys() if code not in codes]  # ensure all active codes are present
+            for code, n_sites in zero_code_counts + list(zip(codes, counts)):
+                elem = self._active_codes_to_elems[code]
+                if elem not in sl_dict:
+                    sl_dict[elem] = {}
+                elem_dict = sl_dict[elem]
                 # Increment the histogram at key "n_sites"
                 elem_dict[n_sites] = int(elem_dict.get(n_sites, 0) + 1)
 

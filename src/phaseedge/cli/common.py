@@ -6,7 +6,6 @@ __all__ = [
     "parse_cutoffs_arg",
     "parse_composition_map",
     "parse_mix_item",
-    "parse_sublattice_labels",
 ]
 
 
@@ -135,20 +134,3 @@ def parse_mix_item(s: str) -> Mixture:
 
     return Mixture(**item)
 
-
-def parse_sublattice_labels(s: str) -> list[str]:
-    """
-    Parse a comma/space-separated list of sublattice labels (e.g., "Es" or "A,Es").
-    Returns a de-duplicated, order-preserving list of non-empty strings.
-    """
-    raw = [tok.strip() for tok in s.replace(",", " ").split() if tok.strip()]
-    if not raw:
-        raise ValueError("sublattice labels must not be empty")
-    # de-dupe, preserve order
-    seen: set[str] = set()
-    out: list[str] = []
-    for lab in raw:
-        if lab not in seen:
-            seen.add(lab)
-            out.append(lab)
-    return out

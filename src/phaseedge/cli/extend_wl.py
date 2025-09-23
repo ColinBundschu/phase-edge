@@ -9,7 +9,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.add_wl_chunk import add_wl_chunk, add_wl_chain
 from phaseedge.utils.keys import compute_wl_key
-from phaseedge.cli.common import parse_counts_arg, parse_sublattice_labels
+from phaseedge.cli.common import parse_composition_map, parse_counts_arg
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,10 +22,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bin-width", required=True, type=float, help="Uniform enthalpy bin width (eV).")
 
     p.add_argument(
-        "--sublattice-labels",
+        "--sl-comp-map",
         required=True,
-        type=parse_sublattice_labels,
-        help='Comma/space-separated list of sublattice placeholders (e.g., "Es" or "A,Es").',
+        help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).',
     )
 
     p.add_argument(
@@ -85,7 +84,7 @@ def main() -> int:
     args = p.parse_args()
 
     composition_counts = parse_counts_arg(args.composition_counts)
-    sublattice_labels: list[str] = args.sublattice_labels
+    sl_comp_map = parse_composition_map(args.sl_comp_map)
 
     # wl_key encodes chain identity only (no steps, no samples_per_bin, no runtime flags).
     wl_key: str = compute_wl_key(
@@ -106,7 +105,7 @@ def main() -> int:
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
         steps=int(args.steps_to_run),
-        sublattice_labels=tuple(sublattice_labels),
+        sl_comp_map=sl_comp_map,
         composition_counts=composition_counts,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
@@ -146,7 +145,7 @@ def main() -> int:
         "wl_key": wl_key,
         "ce_key": args.ce_key,
         "bin_width": float(args.bin_width),
-        "sublattice_labels": sublattice_labels,
+        "sl_comp_map": sl_comp_map,
         "composition_counts": composition_counts,
         "step_type": str(args.step_type),
         "check_period": int(args.check_period),
@@ -171,7 +170,7 @@ def main() -> int:
                     "wl_key",
                     "ce_key",
                     "bin_width",
-                    "sublattice_labels",
+                    "sl_comp_map",
                     "composition_counts",
                     "step_type",
                     "check_period",

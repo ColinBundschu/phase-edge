@@ -84,7 +84,7 @@ def select_d_optimal_basis(
     Seeds with the endpoint structures, then performs sweeps over composition
     groups; in each sweep we select at most one candidate per group, picking
     the candidate that maximizes Δ log det(XᵀX + ridge I), with deterministic
-    tie-breaking by (bin, occ_hash). Uses Sherman–Morrison updates.
+    tie-breaking by (bin, occ_hash). Uses Sherman-Morrison updates.
     """
     if budget <= 0:
         raise ValueError("budget must be positive.")

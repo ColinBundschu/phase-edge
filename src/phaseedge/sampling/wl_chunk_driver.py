@@ -23,7 +23,6 @@ from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 def _snapshot_struct_and_occ_from_counts(
     *,
     ce_key: str,
-    ensemble: Ensemble,
     sublattice_labels: Sequence[str],
     composition_counts: Mapping[str, int],
     rng: np.random.Generator,
@@ -112,6 +111,7 @@ def _snapshot_struct_and_occ_from_counts(
         rng=rng,
     )
     struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
+    ensemble = rehydrate_ensemble_by_ce_key(ce_key)
     occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=True)
     occ = np.asarray(occ, dtype=np.int32)
     n_sites = getattr(ensemble.processor, "num_sites", occ.shape[0])
@@ -120,7 +120,7 @@ def _snapshot_struct_and_occ_from_counts(
     return struct, occ
 
 
-def _build_sublattice_indices(*, ce_key: str, sublattice_labels: Sequence[str]) -> dict[str, np.ndarray]:
+def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, int]]) -> tuple[dict[str, np.ndarray], dict[int, str]]:
     """
     Build label -> site-index map from the CE prototype+supercell used by WL.
     """
@@ -128,18 +128,34 @@ def _build_sublattice_indices(*, ce_key: str, sublattice_labels: Sequence[str]) 
     if not doc:
         raise RuntimeError(f"No CE found for ce_key={ce_key}")
 
+    # Make a new rng for this operation (not part of the returned state)
+    rng = np.random.default_rng(12345)
     conv = make_prototype(doc["prototype"], **doc["prototype_params"])
     sx, sy, sz = (int(x) for x in doc["supercell_diag"])
-    sc = conv.repeat((sx, sy, sz))
-    symbols = np.array(sc.get_chemical_symbols())
+    snap = make_one_snapshot(
+        conv_cell=conv,
+        supercell_diag=(sx, sy, sz),
+        composition_map=sl_comp_map,
+        rng=rng,
+    )
+    struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
+    ensemble = rehydrate_ensemble_by_ce_key(ce_key)
+    occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=True)
+    [active_sl] = ensemble.active_sublattices
+    code_to_elem = {int(code): str(elem) for code, elem in zip(active_sl.encoding, active_sl.species)}
+    if any(len(v.keys()) != 1 for v in sl_comp_map.values()):
+        raise NotImplementedError("This helper only supports single-element sublattices.")
+    inverted_comp_map = {list(v.keys())[0]: k for k, v in sl_comp_map.items()}
 
     sl_map: dict[str, np.ndarray] = {}
-    for sl in sublattice_labels:
-        idx = np.where(symbols == sl)[0].astype(np.int32)
+    for sl in sl_comp_map.keys():
+        idx = np.where([inverted_comp_map[code_to_elem[int(o)]] == sl for o in occ])[0]
+        # exclude sites not in active_sl.sites
+        idx = idx[np.isin(idx, active_sl.sites)]
         if idx.size == 0:
-            raise ValueError(f"Sublattice label '{sl}' not found in prototype structure.")
-        sl_map[str(sl)] = idx
-    return sl_map
+            raise ValueError(f"Sublattice label '{sl}' not found in prototype structure {occ}.")
+        sl_map[sl] = idx
+    return sl_map, code_to_elem
 
 
 # ---- Chunk runner ---------------------------------------------------------
@@ -153,9 +169,9 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     rng = np.random.default_rng(int(spec.seed))
 
     # Precompute sublattice site-index mapping for this WL key/spec
-    sublattice_indices = _build_sublattice_indices(
+    sublattice_indices, active_codes_to_elems = _build_sublattice_indices(
         ce_key=spec.ce_key,
-        sublattice_labels=spec.sublattice_labels,
+        sl_comp_map=spec.sl_comp_map,
     )
 
     sampler = Sampler.from_ensemble(
@@ -172,6 +188,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         collect_cation_stats=spec.collect_cation_stats,
         production_mode=spec.production_mode,
         sublattice_indices=sublattice_indices,
+        active_codes_to_elems=active_codes_to_elems,
     )
 
     # Parent hash & restore point
@@ -181,8 +198,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         step_start = 0
         _, occ = _snapshot_struct_and_occ_from_counts(
             ce_key=spec.ce_key,
-            ensemble=ensemble,
-            sublattice_labels=spec.sublattice_labels,
+            sublattice_labels=list(spec.sl_comp_map.keys()),
             composition_counts=spec.composition_counts,
             rng=rng,
         )

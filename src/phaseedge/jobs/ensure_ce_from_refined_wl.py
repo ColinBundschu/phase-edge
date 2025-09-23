@@ -37,7 +37,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
             ce_key=spec.ce_spec.ce_key,
             bin_width=spec.wl_bin_width,
             steps=spec.wl_steps_to_run,
-            sublattice_labels=spec.sublattice_labels,
+            sl_comp_map=spec.sl_comp_map,
             composition_counts=composition_counts,
             step_type=spec.wl_step_type,
             check_period=spec.wl_check_period,

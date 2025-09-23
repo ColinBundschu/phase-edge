@@ -12,9 +12,6 @@ class WLSamplerSpec(MSONable):
     - No semi-grand; no chemical potentials; no fractional composition.
     - `composition_counts`: exact integer counts across the *entire* WL supercell
       for the replaceable sublattice species (REQUIRED).
-    - `sublattice_labels`: the placeholder symbols/labels (e.g., ["Es"] or ["A"])
-      identifying which sublattice(s) are being replaced. These must exist in the
-      prototype when constructing snapshots.
 
     Notes:
       - `steps` is the number of WL steps to run for THIS chunk (runtime policy,
@@ -32,7 +29,7 @@ class WLSamplerSpec(MSONable):
     steps: int
 
     # which sublattice labels are active for WL sampling (immutable, canonical)
-    sublattice_labels: tuple[str, ...]
+    sl_comp_map: dict[str, dict[str, int]]
 
     # Counts for the *entire* WL supercell (immutable mapping)
     composition_counts: Mapping[str, int]
@@ -60,14 +57,6 @@ class WLSamplerSpec(MSONable):
         if self.samples_per_bin < 0:
             raise ValueError("samples_per_bin must be >= 0.")
 
-        # --- sublattice_labels: coerce to canonical, unique, non-empty strings
-        raw_labels: list[str] = [str(x) for x in self.sublattice_labels]
-        if any(len(x) == 0 for x in raw_labels):
-            raise ValueError("sublattice_labels may not contain empty strings.")
-        # canonical: sorted unique tuple[str, ...]
-        canon_labels = tuple(sorted(dict.fromkeys(raw_labels)))
-        object.__setattr__(self, "sublattice_labels", canon_labels)
-
         # --- composition_counts: defensive copy; ints; no negatives; canonical sort
         raw_cc = dict(self.composition_counts)
         canon_cc: dict[str, int] = {}
@@ -78,6 +67,11 @@ class WLSamplerSpec(MSONable):
             if iv < 0:
                 raise ValueError(f"composition_counts['{k}'] must be >= 0.")
             canon_cc[k] = iv
+
+        # sort sl_comp_map for deterministic representation and freeze
+        canon_sl_comp_map = {k: self.sl_comp_map[k] for k in sorted(self.sl_comp_map)}
+        object.__setattr__(self, "sl_comp_map", MappingProxyType(canon_sl_comp_map))
+
 
         # sort keys for deterministic representation and freeze
         canon_cc = {k: canon_cc[k] for k in sorted(canon_cc)}
@@ -94,7 +88,7 @@ class WLSamplerSpec(MSONable):
             f"{cls}("
             f"wl_key={self.wl_key!r}, ce_key={self.ce_key!r}, "
             f"bin_width={self.bin_width}, steps={self.steps}, "
-            f"sublattice_labels={self.sublattice_labels!r}, "
+            f"sl_comp_map={dict(self.sl_comp_map)!r}, "
             f"composition_counts={dict(self.composition_counts)!r}, "
             f"step_type={self.step_type!r}, check_period={self.check_period}, "
             f"update_period={self.update_period}, seed={self.seed}, "
@@ -114,7 +108,7 @@ class WLSamplerSpec(MSONable):
             "ce_key": self.ce_key,
             "bin_width": self.bin_width,
             "steps": self.steps,
-            "sublattice_labels": list(self.sublattice_labels),
+            "sl_comp_map": dict(self.sl_comp_map),
             "composition_counts": dict(self.composition_counts),  # JSON-safe
             "step_type": self.step_type,
             "check_period": self.check_period,
@@ -128,29 +122,13 @@ class WLSamplerSpec(MSONable):
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "WLSamplerSpec":
         payload = {k: v for k, v in d.items() if not k.startswith("@")}
-
-        # composition_counts: allow Mapping or list of [key, value] pairs
-        cc_src = payload.get("composition_counts", {})
-        if isinstance(cc_src, Mapping):
-            cc_map: dict[str, int] = dict(cc_src)
-        else:
-            cc_map = dict(cc_src)
-
-        # sublattice_labels: accept list/tuple/iterable; coerce to list[str]
-        sl_src = payload.get("sublattice_labels", ())
-        if isinstance(sl_src, (list, tuple)):
-            sl_list = [str(x) for x in sl_src]
-        else:
-            # be forgiving: single string or other iterable
-            sl_list = [str(x) for x in list(sl_src)] if sl_src else []
-
         return cls(
             wl_key=str(payload["wl_key"]),
             ce_key=str(payload["ce_key"]),
             bin_width=float(payload["bin_width"]),
             steps=int(payload["steps"]),
-            sublattice_labels=tuple(sl_list),
-            composition_counts=cc_map,
+            sl_comp_map=dict(payload["sl_comp_map"]),
+            composition_counts=dict(payload["composition_counts"]),
             step_type=str(payload.get("step_type", "swap")),
             check_period=int(payload.get("check_period", 5_000)),
             update_period=int(payload.get("update_period", 1)),
@@ -169,7 +147,7 @@ class WLSamplerSpec(MSONable):
             and self.ce_key == other.ce_key
             and self.bin_width == other.bin_width
             and self.steps == other.steps
-            and self.sublattice_labels == other.sublattice_labels
+            and dict(self.sl_comp_map) == dict(other.sl_comp_map)
             and dict(self.composition_counts) == dict(other.composition_counts)
             and self.step_type == other.step_type
             and self.check_period == other.check_period
@@ -187,7 +165,7 @@ class WLSamplerSpec(MSONable):
                 self.ce_key,
                 self.bin_width,
                 self.steps,
-                self.sublattice_labels,                 # tuple is hashable
+                tuple(self.sl_comp_map.items()),  # sorted in __post_init__
                 tuple(self.composition_counts.items()), # sorted in __post_init__
                 self.step_type,
                 self.check_period,

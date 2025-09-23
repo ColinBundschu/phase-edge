@@ -123,15 +123,17 @@ class EnsureCEFromRefinedWLSpec(MSONable):
         )
     
     @property
-    def sublattice_labels(self) -> tuple[str, ...]:
-        all_labels = [tuple(sorted(mixture.composition_map.keys())) for mixture in self.ce_spec.mixtures]
-        # If all the labels are not identical, raise an error
-        first = all_labels[0]
-        for labels in all_labels[1:]:
-            if labels != first:
-                raise ValueError("All mixtures must have the same sublattice labels.")
-        return first
-    
+    def sl_comp_map(self) -> dict[str, dict[str, int]]:
+        comp_map = None
+        for endpoint in self.endpoints:
+            if all(len(v) == 1 for v in endpoint.values()):
+                if comp_map is not None:
+                    raise ValueError("Multiple valid sublattice composition maps found in endpoints.")
+                comp_map = endpoint
+        if comp_map is None:
+            raise ValueError("No valid sublattice composition map found in endpoints.")
+        return comp_map
+
     @property
     def refine_mode(self) -> Literal["all", "refine"]:
         return "all" if self.refine_n_total == 0 else "refine"
