@@ -4,7 +4,6 @@ import numpy as np
 from pymongo.errors import DuplicateKeyError
 
 from smol.moca import Sampler
-from smol.moca.ensemble import Ensemble
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Structure
 
