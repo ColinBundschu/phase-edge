@@ -1,46 +1,18 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, TypedDict
+from typing import Any, TypedDict
 import hashlib
 from enum import Enum
 
 
-# Current WL checkpoint bin_samples schema:
-#   { "bin": int, "occ": list[int] }
 class RefinedSample(TypedDict):
     bin: int
     occ: list[int]
-
-
-class RefinedWLSamples(TypedDict):
-    wl_key: str
-    wl_checkpoint_key: str
-    n_selected: int
-    selected: list[RefinedSample]
 
 
 class RefineStrategy(str, Enum):
     ENERGY_SPREAD = "energy_spread"
     ENERGY_STRATIFIED = "energy_stratified"
     HASH_ROUND_ROBIN = "hash_round_robin"
-
-
-@dataclass(frozen=True)
-class RefineOptions:
-    """
-    Options controlling how we down-select WL samples from a single checkpoint.
-
-    n_total:
-        Target number of samples to return. If None, returns all available.
-    per_bin_cap:
-        Max samples to take from any single bin. If None, unbounded.
-    strategy:
-        "energy_spread"      = choose bins evenly spaced across range (includes endpoints).
-        "energy_stratified"  = round-robin across bins.
-        "hash_round_robin"   = global order by occ-hash (ignores bins).
-    """
-    n_total: int | None = 25
-    per_bin_cap: int | None = 5
-    strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
 
 
 def _occ_hash(occ: list[int]) -> str:
@@ -92,17 +64,14 @@ def _evenly_spaced_indices(nbins: int, k: int) -> list[int]:
 
 
 def refine_wl_samples(
-    block: Mapping[str, Any],
+    bin_samples: list[dict[str, Any]], # list[dict] with { "bin": int, "occ": list[int] }
     *,
-    options: RefineOptions = RefineOptions(),
-) -> RefinedWLSamples:
+    n_total: int,
+    per_bin_cap: int | None,
+    strategy: RefineStrategy,
+) -> list[RefinedSample]:
     """
-    Deterministically refine a single WL checkpoint (block) down to a subset of samples.
-
-    Required checkpoint fields:
-      - block["wl_key"]: str
-      - block["hash"]: str
-      - block["bin_samples"]: list[dict] with { "bin": int, "occ": list[int] }
+    Deterministically refine a single WL block down to a subset of samples.
 
     Behavior:
       - "energy_spread": pick bins evenly across min..max (fenceposts included), 1 sample per chosen bin.
@@ -110,16 +79,9 @@ def refine_wl_samples(
       - "energy_stratified": round-robin across bins from lowest bin upward.
       - "hash_round_robin": ignore bins; global order by occ-hash.
     """
-    wl_key = str(block["wl_key"])
-    ckpt_hash = str(block["hash"])
-
-    raw = block.get("bin_samples")
-    if not isinstance(raw, list):
-        raise ValueError("block['bin_samples'] must be a list of {bin:int, occ:list[int]}")
-
     # Strict schema
     samples: list[RefinedSample] = []
-    for rec in raw:
+    for rec in bin_samples:
         if not isinstance(rec, dict) or "bin" not in rec or "occ" not in rec:
             raise ValueError("Each bin_samples entry must have keys 'bin' and 'occ'.")
         b = int(rec["bin"])
@@ -130,10 +92,8 @@ def refine_wl_samples(
         samples.append(RefinedSample(bin=b, occ=occ))
 
     total_available = len(samples)
-    if options.n_total is not None and total_available < int(options.n_total):
-        raise ValueError(
-            f"Checkpoint has only {total_available} samples; need n_total={options.n_total}."
-        )
+    if total_available < n_total:
+        raise ValueError(f"Block has only {total_available} samples; need n_total={n_total}.")
 
     # Group by bin
     by_bin: dict[int, list[RefinedSample]] = {}
@@ -145,24 +105,17 @@ def refine_wl_samples(
         by_bin[b].sort(key=lambda s: _occ_hash(s["occ"]))
 
     # Optional per-bin cap
-    if options.per_bin_cap is not None:
-        cap = int(options.per_bin_cap)
+    if per_bin_cap is not None:
         for b in list(by_bin.keys()):
-            if len(by_bin[b]) > cap:
-                by_bin[b] = by_bin[b][:cap]
+            if len(by_bin[b]) > per_bin_cap:
+                by_bin[b] = by_bin[b][:per_bin_cap]
 
     selected: list[RefinedSample] = []
     bins_sorted = sorted(by_bin.keys())
 
-    if options.strategy == "energy_spread":
-        # Choose k bins evenly spaced across the sorted bin list (include endpoints)
-        k = (
-            sum(len(v) for v in by_bin.values())
-            if options.n_total is None
-            else int(options.n_total)
-        )
+    if strategy == RefineStrategy.ENERGY_SPREAD:
         # We can only choose at most one from each bin at this stage
-        k_bins = min(k, len(bins_sorted))
+        k_bins = min(n_total, len(bins_sorted))
         idxs = _evenly_spaced_indices(len(bins_sorted), k_bins)
         # take first (deterministic) sample from each chosen bin
         for idx in idxs:
@@ -171,12 +124,11 @@ def refine_wl_samples(
                 selected.append(by_bin[b][0])
 
         # If we still need more, fill round-robin from remaining entries
-        # NOTE: when n_total is None, k == total_available, so we continue until we've selected all.
-        need = k - len(selected)
+        need = n_total - len(selected)
         if need > 0:
             chosen_bins = {bins_sorted[i] for i in idxs}
             cursors: dict[int, int] = {b: (1 if b in chosen_bins else 0) for b in bins_sorted}
-            while len(selected) < k:
+            while len(selected) < n_total:
                 progressed = False
                 for b in bins_sorted:
                     i = cursors[b]
@@ -184,15 +136,14 @@ def refine_wl_samples(
                         selected.append(by_bin[b][i])
                         cursors[b] = i + 1
                         progressed = True
-                        if len(selected) == k:
+                        if len(selected) == n_total:
                             break
                 if not progressed:
                     break
 
-    elif options.strategy == "energy_stratified":
-        target = options.n_total if options.n_total is not None else sum(len(v) for v in by_bin.values())
+    elif strategy == RefineStrategy.ENERGY_STRATIFIED:
         cursors: dict[int, int] = {b: 0 for b in bins_sorted}
-        while len(selected) < int(target):
+        while len(selected) < n_total:
             progressed = False
             for b in bins_sorted:
                 i = cursors[b]
@@ -200,29 +151,20 @@ def refine_wl_samples(
                     selected.append(by_bin[b][i])
                     cursors[b] = i + 1
                     progressed = True
-                    if len(selected) == int(target):
+                    if len(selected) == n_total:
                         break
             if not progressed:
                 break
 
-    else:  # "hash_round_robin"
-        flat: list[RefinedSample] = []
-        for b in bins_sorted:
-            flat.extend(by_bin[b])
+    elif strategy == RefineStrategy.HASH_ROUND_ROBIN:
+        flat = [sample for b in bins_sorted for sample in by_bin[b][:per_bin_cap or len(by_bin[b])]]
         flat.sort(key=lambda s: _occ_hash(s["occ"]))
-        if options.n_total is None:
-            selected = flat
-        else:
-            selected = flat[: options.n_total]
+        selected = flat[:n_total]
 
-    if options.n_total is not None and len(selected) < options.n_total:
-        raise ValueError(
-            f"Could only select {len(selected)} of requested {options.n_total} samples."
-        )
+    else:
+        raise ValueError(f"Unrecognized RefineStrategy: {strategy!r}")
 
-    return RefinedWLSamples(
-        wl_key=wl_key,
-        wl_checkpoint_key=ckpt_hash,
-        n_selected=len(selected),
-        selected=selected,
-    )
+    if len(selected) != n_total:
+        raise ValueError(f"Could only select {len(selected)} of requested {n_total} samples.")
+
+    return selected

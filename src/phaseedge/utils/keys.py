@@ -383,22 +383,22 @@ def compute_dataset_key(
     return f"{version}:{digest}"
 
 
-def compute_wl_checkpoint_key(
+def compute_wl_block_key(
     *,
     wl_key: str,
-    parent_wl_checkpoint_key: str,
+    parent_wl_block_key: str,
     state: Mapping[str, Any],
     occupancy: np.ndarray,
 ) -> str:
     """
-    Compute a canonical WL chunk key used for immutable checkpoint identity.
+    Compute a canonical WL chunk key used for immutable block identity.
 
     NOTE: Keep this stable. It must remain a function ONLY of
-          (wl_key, parent_wl_checkpoint_key, state, occupancy).
+          (wl_key, parent_wl_block_key, state, occupancy).
     """
     payload = {
         "wl_key": wl_key,
-        "parent_wl_checkpoint_key": parent_wl_checkpoint_key,
+        "parent_wl_block_key": parent_wl_block_key,
         "state": _json_canon(state),
         "occupancy": occupancy.astype(int).tolist(),
     }

@@ -59,6 +59,7 @@ pe-ensure-ce-from-refined-wl \
 --wl-seed 0 \
 --refine-n-total 500 --refine-per-bin-cap 5 --refine-strategy energy_spread \
 --train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --budget 150
 
 

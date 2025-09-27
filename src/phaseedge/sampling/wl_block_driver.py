@@ -6,14 +6,14 @@ from smol.moca import Sampler
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Structure
 
-from phaseedge.storage.wang_landau import WLCheckpointDoc, ensure_wl_output_indexes, fetch_wl_tip
+from phaseedge.storage.wang_landau import WLBlockDoc, ensure_wl_output_indexes, fetch_wl_tip
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
-from phaseedge.utils.keys import compute_wl_checkpoint_key
+from phaseedge.utils.keys import compute_wl_block_key
 
 
 # ---- shared helpers -------------------------------------------------------
@@ -162,10 +162,10 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
 # ---- Chunk runner ---------------------------------------------------------
 
 
-def run_wl_chunk(spec: WLSamplerSpec) -> WLCheckpointDoc:
+def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
     ensure_wl_output_indexes()
 
-    """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a checkpoint."""
+    """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a block."""
     tip = fetch_wl_tip(spec.wl_key)
         
     ensemble = rehydrate_ensemble_by_ce_key(spec.ce_key)
@@ -197,7 +197,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> WLCheckpointDoc:
     # Parent hash & restore point
     if tip is None:
         # Fresh initialization
-        parent_wl_checkpoint_key = "GENESIS"
+        parent_wl_block_key = "GENESIS"
         step_start = 0
         _, occ = _snapshot_struct_and_occ_from_counts(
             ce_key=spec.ce_key,
@@ -207,7 +207,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> WLCheckpointDoc:
         )
     else:
         # Load kernel + occupancy from tip
-        parent_wl_checkpoint_key = str(tip["wl_checkpoint_key"])
+        parent_wl_block_key = str(tip["wl_block_key"])
         step_start = int(tip["step_end"])
         occ = np.asarray(tip["occupancy"], dtype=np.int32)
         sampler.mckernels[0].load_state(tip["state"])
@@ -242,19 +242,19 @@ def run_wl_chunk(spec: WLSamplerSpec) -> WLCheckpointDoc:
         for n_sites, count in hist.items()
     ]
 
-    wl_checkpoint_key = compute_wl_checkpoint_key(
+    wl_block_key = compute_wl_block_key(
         wl_key=spec.wl_key,
-        parent_wl_checkpoint_key=parent_wl_checkpoint_key,
+        parent_wl_block_key=parent_wl_block_key,
         state=end_state,
         occupancy=occ_last,
     )
     return {
-        "kind": "WLCheckpointDoc",
+        "kind": "WLBlockDoc",
         "wl_key": spec.wl_key,
-        "wl_checkpoint_key": wl_checkpoint_key,
-        "parent_wl_checkpoint_key": parent_wl_checkpoint_key,
+        "wl_block_key": wl_block_key,
+        "parent_wl_block_key": parent_wl_block_key,
         "samples_per_bin": spec.samples_per_bin,
-        "checkpoint_steps": spec.steps,
+        "block_steps": spec.steps,
         "step_end": step_start + spec.steps,
         "mod_updates": [{"step": int(st), "m": float(m)} for (st, m) in k.pop_mod_updates()],
         "bin_samples": [{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],

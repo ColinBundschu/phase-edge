@@ -7,7 +7,7 @@ from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
-from phaseedge.jobs.add_wl_chunk import add_wl_chunk, add_wl_chain
+from phaseedge.jobs.add_wl_block import add_wl_block, add_wl_chain
 from phaseedge.utils.keys import compute_wl_key
 from phaseedge.cli.common import parse_composition_map, parse_counts_arg
 
@@ -15,7 +15,7 @@ from phaseedge.cli.common import parse_composition_map, parse_counts_arg
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pe-extend-wl",
-        description="Extend a Wang-Landau chain by N steps (idempotent checkpoint block).",
+        description="Extend a Wang-Landau chain by N steps (idempotent block).",
     )
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="steps_to_run",
         required=True,
         type=int,
-        help="Number of WL steps to add in this checkpoint block.",
+        help="Number of WL steps to add in this block.",
     )
 
     # Optional chaining: repeat the same chunk sequentially
@@ -126,7 +126,7 @@ def main() -> int:
             j.name = f"extend_wl::{short}::chunk{idx + 1}/{repeats}::+{int(args.steps_to_run):,}"
         flow.name = f"Extend WL :: {short} :: +{int(args.steps_to_run):,} × {repeats}"
     else:
-        j = add_wl_chunk(run_spec)
+        j = add_wl_block(run_spec)
         j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
         j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
         flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")

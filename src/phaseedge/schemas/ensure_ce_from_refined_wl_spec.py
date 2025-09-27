@@ -138,9 +138,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     def refine_mode(self) -> Literal["all", "refine"]:
         return "all" if self.refine_n_total == 0 else "refine"
     
-    @property
-    def refine_total(self) -> int | None:
-        return None if self.refine_n_total == 0 else self.refine_n_total
 
     @property
     def wl_key_composition_pairs(self) -> tuple[tuple[str, dict[str, int]], ...]:
@@ -198,7 +195,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
         }
         refine_options_for_key = {
             "mode": self.refine_mode,
-            "n_total": self.refine_total,
+            "n_total": self.refine_n_total,
             "per_bin_cap": self.refine_per_bin_cap,
             "strategy": self.refine_strategy,
         }

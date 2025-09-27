@@ -3,8 +3,6 @@ from typing import Any, Mapping, Sequence, cast
 import numpy as np
 from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow
-from pymatgen.io.ase import AseAtomsAdaptor
-from ase.atoms import Atoms
 
 from phaseedge.jobs.relax_structure import relax_structure
 from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
@@ -18,7 +16,7 @@ from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 def ensure_dataset_selected(
     *,
     ce_key: str,
-    # From select_d_optimal_basis: list of {"source","wl_key","wl_checkpoint_key","bin","occ","occ_hash", ["counts" for endpoints]}
+    # From select_d_optimal_basis: list of {"source","wl_key","wl_block_key","bin","occ","occ_hash", ["counts" for endpoints]}
     selected: Sequence[Mapping[str, Any]],
     # Deterministic composition for each WL chain
     wl_counts_map: Mapping[str, Mapping[str, int]],

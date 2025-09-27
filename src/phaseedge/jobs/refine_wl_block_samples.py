@@ -7,12 +7,8 @@ import json
 from jobflow.core.job import job
 from monty.json import MSONable
 
-from phaseedge.storage.wang_landau import lookup_wl_checkpoint_by_key
-from phaseedge.science.refine_wl import (
-    RefineOptions,
-    RefineStrategy,
-    refine_wl_samples as _refine_wl_samples,
-)
+from phaseedge.storage.wang_landau import lookup_wl_block_by_key
+from phaseedge.science.refine_wl import RefineStrategy, refine_wl_samples
 
 
 class RefinedSample(TypedDict):
@@ -23,19 +19,19 @@ class RefinedSample(TypedDict):
 @dataclass(frozen=True, slots=True)
 class RefineWLSpec(MSONable):
     """
-    Idempotent refinement spec for a single WL checkpoint.
+    Idempotent refinement spec for a single WL block.
 
-    Note: The checkpoint hash is passed as a TOP-LEVEL job kwarg (not inside
+    Note: The block hash is passed as a TOP-LEVEL job kwarg (not inside
     this dataclass) so Jobflow will resolve any OutputReference properly.
     """
 
     # behavior: "refine" uses options; "all" returns every stored sample
-    mode: Literal["refine", "all"] = "refine"
+    mode: Literal["refine", "all"]
 
     # refinement options (ignored when mode == "all")
-    n_total: int | None = 25
-    per_bin_cap: int | None = 5
-    strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
+    n_total: int
+    per_bin_cap: int | None
+    strategy: RefineStrategy
 
     def as_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
@@ -50,9 +46,9 @@ class RefineWLSpec(MSONable):
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "RefineWLSpec":  # type: ignore[override]
         return cls(
-            mode=cast(Literal["refine", "all"], d.get("mode", "refine")),
-            n_total=cast(int | None, d.get("n_total", 25)),
-            per_bin_cap=cast(int | None, d.get("per_bin_cap", 5)),
+            mode=cast(Literal["refine", "all"], d["mode"]),
+            n_total=int(d["n_total"]),
+            per_bin_cap=cast(int | None, d["per_bin_cap"]),
             strategy=RefineStrategy(d["strategy"]),
         )
 
@@ -62,11 +58,11 @@ def _occ_hash(occ: list[int]) -> str:
 
 
 def _compute_refine_key(
-    *, wl_key: str, wl_checkpoint_key: str, mode: str, n_total: int | None, per_bin_cap: int | None, strategy: str
+    *, wl_key: str, wl_block_key: str, mode: str, n_total: int | None, per_bin_cap: int | None, strategy: str
 ) -> str:
     payload = {
         "wl_key": wl_key,
-        "hash": wl_checkpoint_key,
+        "wl_block_key": wl_block_key,
         "mode": mode,
         "n_total": n_total,
         "per_bin_cap": per_bin_cap,
@@ -78,23 +74,23 @@ def _compute_refine_key(
 
 
 @job
-def refine_wl_block(*, spec: RefineWLSpec, wl_checkpoint_key: str) -> Mapping[str, Any]:
+def refine_wl_block_samples(*, spec: RefineWLSpec, wl_block_key: str) -> Mapping[str, Any]:
     """
-    Deterministically refine (or pass-through) samples from a single WL checkpoint.
+    Deterministically refine (or pass-through) samples from a single WL block.
 
     Parameters
     ----------
     spec
         Static refinement spec (wl_key + policy).
-    wl_checkpoint_key
-        The hash of the WL checkpoint to refine. This can be a Jobflow
+    wl_block_key
+        The hash of the WL block to refine. This can be a Jobflow
         OutputReference and will be resolved before execution.
 
     Output schema:
         {
           "refine_key": <sha256 identity>,
           "wl_key": "...",
-          "wl_checkpoint_key": "...",
+          "wl_block_key": "...",
           "n_selected": int,
           "selected": [{"bin": int, "occ": [int, ...]}, ...],
           "policy": {
@@ -105,13 +101,13 @@ def refine_wl_block(*, spec: RefineWLSpec, wl_checkpoint_key: str) -> Mapping[st
           }
         }
     """
-    checkpoint = lookup_wl_checkpoint_by_key(wl_checkpoint_key)
-    if not checkpoint:
-        raise RuntimeError(f"WL checkpoint not found for wl_checkpoint_key={wl_checkpoint_key}")
+    block = lookup_wl_block_by_key(wl_block_key)
+    if not block:
+        raise RuntimeError(f"WL block not found for wl_block_key={wl_block_key}")
 
-    bin_samples = checkpoint.get("bin_samples")
+    bin_samples = block.get("bin_samples")
     if not isinstance(bin_samples, list):
-        raise RuntimeError("Checkpoint document lacks 'bin_samples' list.")
+        raise RuntimeError("WL block document lacks 'bin_samples' list.")
 
     if spec.mode == "all":
         # Return all samples deterministically sorted by (bin asc, occ_hash asc)
@@ -123,18 +119,16 @@ def refine_wl_block(*, spec: RefineWLSpec, wl_checkpoint_key: str) -> Mapping[st
         samples.sort(key=lambda s: (int(s["bin"]), _occ_hash(s["occ"])))
         selected = samples
     else:
-        options = RefineOptions(
-            n_total=None if spec.n_total is None else int(spec.n_total),
-            per_bin_cap=None if spec.per_bin_cap is None else int(spec.per_bin_cap),
-            strategy=cast(Any, spec.strategy),
+        selected = refine_wl_samples(
+            bin_samples,
+            n_total=spec.n_total,
+            per_bin_cap=spec.per_bin_cap,
+            strategy=spec.strategy,
         )
-        block = {"wl_key": checkpoint["wl_key"], "hash": wl_checkpoint_key, "bin_samples": bin_samples}
-        refined = _refine_wl_samples(block, options=options)
-        selected = cast(list[RefinedSample], refined["selected"])
 
     refine_key = _compute_refine_key(
-        wl_key=checkpoint["wl_key"],
-        wl_checkpoint_key=wl_checkpoint_key,
+        wl_key=block["wl_key"],
+        wl_block_key=wl_block_key,
         mode=spec.mode,
         n_total=spec.n_total,
         per_bin_cap=spec.per_bin_cap,
@@ -143,8 +137,8 @@ def refine_wl_block(*, spec: RefineWLSpec, wl_checkpoint_key: str) -> Mapping[st
 
     return {
         "refine_key": refine_key,
-        "wl_key": checkpoint["wl_key"],
-        "wl_checkpoint_key": wl_checkpoint_key,
+        "wl_key": block["wl_key"],
+        "wl_block_key": wl_block_key,
         "n_selected": len(selected),
         "selected": selected,
         "policy": {
