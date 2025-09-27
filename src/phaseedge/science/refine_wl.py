@@ -13,7 +13,7 @@ class RefinedSample(TypedDict):
 
 class RefinedWLSamples(TypedDict):
     wl_key: str
-    checkpoint_hash: str
+    wl_checkpoint_key: str
     n_selected: int
     selected: list[RefinedSample]
 
@@ -222,7 +222,7 @@ def refine_wl_samples(
 
     return RefinedWLSamples(
         wl_key=wl_key,
-        checkpoint_hash=ckpt_hash,
+        wl_checkpoint_key=ckpt_hash,
         n_selected=len(selected),
         selected=selected,
     )

@@ -48,7 +48,6 @@ def _mongo_uri(user_env: str, pass_env: str) -> str:
 
 
 _rw_client: MongoClient | None = None
-_ro_client: MongoClient | None = None
 
 
 def db_rw() -> Database:
@@ -57,19 +56,6 @@ def db_rw() -> Database:
     if _rw_client is None:
         _rw_client = MongoClient(_mongo_uri("MONGO_ADMIN_USER", "MONGO_ADMIN_PASS"), tz_aware=True)
     return _rw_client[os.environ["MONGO_DB"]]
-
-
-def db_ro() -> Database:
-    """Read-only DB using RO creds (for queries)."""
-    global _ro_client
-    if _ro_client is None:
-        _ro_client = MongoClient(_mongo_uri("MONGO_RO_USER", "MONGO_RO_PASS"), tz_aware=True)
-    return _ro_client[os.environ["MONGO_DB"]]
-
-
-def coll(name: str, *, mode: Literal["rw", "ro"] = "ro") -> Collection:
-    """Convenience accessor for a collection in RO/RW mode."""
-    return (db_rw() if mode == "rw" else db_ro())[name]
 
 
 def build_jobstore() -> JobStore:
@@ -148,7 +134,7 @@ def lookup_total_energy_eV(
     return float(energy)
 
 
-def lookup_unique(criteria: dict[str, Any]) -> Mapping[str, Any] | None:
+def lookup_unique(criteria: dict[str, Any]) -> dict[str, Any] | None:
     """
     Fails if more than one document matches.
     """
@@ -160,7 +146,7 @@ def lookup_unique(criteria: dict[str, Any]) -> Mapping[str, Any] | None:
     if len(rows) > 1:
         raise RuntimeError(f"Expected exactly one document, found {len(rows)} for criteria={criteria!r}")
 
-    return cast(Mapping[str, Any], rows[0]["output"])
+    return cast(dict[str, Any], rows[0]["output"])
 
 
 def exists_unique(criteria: dict[str, Any]) -> bool:
@@ -174,3 +160,4 @@ def exists_unique(criteria: dict[str, Any]) -> bool:
         raise RuntimeError(f"Expected at most one document, found {count} for criteria={criteria!r}")
 
     return count == 1
+

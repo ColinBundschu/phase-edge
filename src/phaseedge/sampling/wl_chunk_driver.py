@@ -1,23 +1,22 @@
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypedDict, cast
 
 import numpy as np
-from pymongo.errors import DuplicateKeyError
 
 from smol.moca import Sampler
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Structure
 
+from phaseedge.storage.wang_landau import WLCheckpointDoc, ensure_wl_output_indexes, fetch_wl_tip
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
-from phaseedge.storage.wl_checkpoint_store import ensure_indexes, get_tip, insert_checkpoint
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
+from phaseedge.utils.keys import compute_wl_checkpoint_key
 
 
 # ---- shared helpers -------------------------------------------------------
-
 
 def _snapshot_struct_and_occ_from_counts(
     *,
@@ -148,7 +147,10 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
 
     sl_map: dict[str, np.ndarray] = {}
     for sl in sl_comp_map.keys():
-        idx = np.where([inverted_comp_map[code_to_elem[int(o)]] == sl for o in occ])[0]
+        # We use get here because just because an element can appear in the sublattice, does not mean its
+        # used as part of the canonical mapping. Since each sublattice has one label, we use a single
+        # element to identify it.
+        idx = np.where([inverted_comp_map.get(code_to_elem[int(o)]) == sl for o in occ])[0]
         # exclude sites not in active_sl.sites
         idx = idx[np.isin(idx, active_sl.sites)]
         if idx.size == 0:
@@ -160,10 +162,12 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
 # ---- Chunk runner ---------------------------------------------------------
 
 
-def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
+def run_wl_chunk(spec: WLSamplerSpec) -> WLCheckpointDoc:
+    ensure_wl_output_indexes()
+
     """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a checkpoint."""
-    ensure_indexes()
-    tip = get_tip(spec.wl_key)
+    tip = fetch_wl_tip(spec.wl_key)
+        
     ensemble = rehydrate_ensemble_by_ce_key(spec.ce_key)
     rng = np.random.default_rng(int(spec.seed))
 
@@ -193,7 +197,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     # Parent hash & restore point
     if tip is None:
         # Fresh initialization
-        parent_hash = "GENESIS"
+        parent_wl_checkpoint_key = "GENESIS"
         step_start = 0
         _, occ = _snapshot_struct_and_occ_from_counts(
             ce_key=spec.ce_key,
@@ -203,7 +207,7 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         )
     else:
         # Load kernel + occupancy from tip
-        parent_hash = str(tip["hash"])
+        parent_wl_checkpoint_key = str(tip["wl_checkpoint_key"])
         step_start = int(tip["step_end"])
         occ = np.asarray(tip["occupancy"], dtype=np.int32)
         sampler.mckernels[0].load_state(tip["state"])
@@ -219,13 +223,9 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
     end_state = k.state()
     occ_last = sampler.samples.get_occupancies(flat=False)[-1][0].astype(np.int32)
 
-    updates_local = k.pop_mod_updates()  # list[(step_abs, m_after)]
-    mod_updates = [{"step": int(st), "m": float(m)} for (st, m) in updates_local]
-
     # capture any per-bin samples harvested this chunk
     bin_samples: dict[int, list[list[int]]] = k.pop_bin_samples()
 
-    # NEW: capture per-bin cation-counts (if enabled)
     bin_cation_counts = k.pop_bin_cation_counts()
     # Flatten for storage
     cation_counts_flat: list[dict[str, Any]] = [
@@ -242,41 +242,25 @@ def run_wl_chunk(spec: WLSamplerSpec) -> dict[str, Any]:
         for n_sites, count in hist.items()
     ]
 
-    step_end = step_start + spec.steps
-
-    # Defensive: fail fast if tip moved between our read and now
-    latest_now = get_tip(spec.wl_key)
-    if latest_now is not None and parent_hash != latest_now["hash"]:
-        raise RuntimeError(
-            f"Tip moved while running; aborting write to avoid fork. Expected {parent_hash}, found {latest_now['hash']}."
-        )
-
-    # Try insert; uniqueness on (wl_key,parent_hash) ensures linear chain
-    try:
-        _id, doc_inserted = insert_checkpoint(
-            wl_key=spec.wl_key,
-            step_end=step_end,
-            chunk_size=spec.steps,
-            parent_hash=parent_hash,
-            state=end_state,
-            occupancy=occ_last,
-            # --- first-class top-level metadata ---
-            mod_updates=mod_updates,
-            bin_samples=[{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
-            samples_per_bin=int(spec.samples_per_bin),
-            # --- NEW: persisted statistics ---
-            cation_counts=cation_counts_flat,
-            production_mode=bool(spec.production_mode),
-            collect_cation_stats=bool(spec.collect_cation_stats),
-        )
-    except DuplicateKeyError as e:
-        raise RuntimeError("Checkpoint insert conflict (not on tip or duplicate). Retry from new tip.") from e
-
+    wl_checkpoint_key = compute_wl_checkpoint_key(
+        wl_key=spec.wl_key,
+        parent_wl_checkpoint_key=parent_wl_checkpoint_key,
+        state=end_state,
+        occupancy=occ_last,
+    )
     return {
-        "_id": _id,
+        "kind": "WLCheckpointDoc",
         "wl_key": spec.wl_key,
-        "step_end": step_end,
-        "parent_hash": parent_hash,
-        "hash": doc_inserted["hash"],
-        "chunk_size": spec.steps,
+        "wl_checkpoint_key": wl_checkpoint_key,
+        "parent_wl_checkpoint_key": parent_wl_checkpoint_key,
+        "samples_per_bin": spec.samples_per_bin,
+        "checkpoint_steps": spec.steps,
+        "step_end": step_start + spec.steps,
+        "mod_updates": [{"step": int(st), "m": float(m)} for (st, m) in k.pop_mod_updates()],
+        "bin_samples": [{"bin": int(b), "occ": occ} for b, occs in bin_samples.items() for occ in occs],
+        "cation_counts": cation_counts_flat,
+        "production_mode": spec.production_mode,
+        "collect_cation_stats": spec.collect_cation_stats,
+        "state": end_state,
+        "occupancy": occ_last.tolist(),
     }

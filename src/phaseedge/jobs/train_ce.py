@@ -375,7 +375,6 @@ def train_ce(
         cutoffs=dict(basis.cutoffs),
         basis=basis.basis,
     )
-    assert len(subspace.orbits_by_size[1]) >= 2, "Primitive did not expose two cation site classes; check your prototype."
     # -------- 5) featurization (build once; re-used across CV folds) --------
     _, X = featurize_structures(subspace=subspace, structures=structures_pm, supercell_diag=supercell_diag)
     if X.size == 0 or X.shape[1] == 0:

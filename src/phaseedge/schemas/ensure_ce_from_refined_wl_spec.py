@@ -124,15 +124,15 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     
     @property
     def sl_comp_map(self) -> dict[str, dict[str, int]]:
-        comp_map = None
+        comp_maps = []
         for endpoint in self.endpoints:
             if all(len(v) == 1 for v in endpoint.values()):
-                if comp_map is not None:
-                    raise ValueError("Multiple valid sublattice composition maps found in endpoints.")
-                comp_map = endpoint
-        if comp_map is None:
+                comp_maps.append(endpoint)
+        if not comp_maps:
             raise ValueError("No valid sublattice composition map found in endpoints.")
-        return comp_map
+        # Sort the endpoints to get a deterministic order
+        comp_maps = sorted_composition_maps(comp_maps)
+        return comp_maps[0]
 
     @property
     def refine_mode(self) -> Literal["all", "refine"]:

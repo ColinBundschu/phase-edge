@@ -20,7 +20,7 @@ class Candidate(TypedDict):
     occ_hash: str
     # Required-but-optional-value fields (always present; can be None)
     wl_key: str | None
-    checkpoint_hash: str | None
+    wl_checkpoint_key: str | None
     bin: int | None
     counts: Mapping[str, int] | None  # endpoints carry counts; WL entries set None
 
@@ -71,7 +71,7 @@ def select_d_optimal_basis(
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     endpoints: Sequence[Mapping[str, Mapping[str, int]]],
-    # each chain: {"wl_key": str, "checkpoint_hash": str, "samples": [{"bin": int, "occ": [...]}, ...]}
+    # each chain: {"wl_key": str, "wl_checkpoint_key": str, "samples": [{"bin": int, "occ": [...]}, ...]}
     chains: Sequence[Mapping[str, Any]],
     budget: int,
     ridge: float = 1e-10,
@@ -111,7 +111,7 @@ def select_d_optimal_basis(
                 occ=occ,
                 occ_hash=_occ_hash(occ),
                 wl_key=None,
-                checkpoint_hash=None,
+                wl_checkpoint_key=None,
                 bin=None,
                 counts=composition_counts_from_map(ep),
             )
@@ -120,7 +120,7 @@ def select_d_optimal_basis(
     # WL candidates
     for ch in chains:
         wl_key = str(ch["wl_key"])
-        ck_hash = str(ch["checkpoint_hash"])
+        ck_hash = str(ch["wl_checkpoint_key"])
         samples = cast(Sequence[Mapping[str, Any]], ch.get("samples", []))
         for rec in samples:
             b = int(rec["bin"])
@@ -131,7 +131,7 @@ def select_d_optimal_basis(
                     occ=occ,
                     occ_hash=_occ_hash(occ),
                     wl_key=wl_key,
-                    checkpoint_hash=ck_hash,
+                    wl_checkpoint_key=ck_hash,
                     bin=b,
                     counts=None,  # will be resolved via wl_counts_map
                 )

@@ -1,125 +1,63 @@
-import argparse
+#!/usr/bin/env python3
+from __future__ import annotations
+
 import sys
+from typing import Iterable
 
 from phaseedge.storage import store
+from pymongo.errors import PyMongoError
 
 
-def _drop_phaseedge_collections(cols: list[str] | None = None) -> None:
+def _list_collections() -> list[str]:
     db = store.db_rw()
-    names = set(db.list_collection_names())
-    to_drop = cols if cols is not None else ["mace_relax", "ce_models"]
-    for col in to_drop:
-        if col in names:
-            db[col].drop()
-            print(f"[drop] {db.name}.{col}")
-        else:
-            print(f"[skip] {db.name}.{col} (missing)")
+    try:
+        return sorted(db.list_collection_names())
+    except PyMongoError as e:
+        print(f"[status] error listing collections: {e}")
+        return []
 
 
-def _reset_fireworks(launchpad_yaml: str) -> None:
-    from fireworks import LaunchPad  # local import to be safe
-    lp = LaunchPad.from_file(launchpad_yaml)
-    lp.reset(password=None, require_password=False)
-    dbname = getattr(lp, "name", getattr(lp, "fw_name", "<unknown>"))
-    print(f"[fw] reset FireWorks collections in DB='{dbname}'")
+def _print_status(prefix: str) -> None:
+    db = store.db_rw()
+    cols = _list_collections()
+    print(f"\n[status] {prefix} DB='{db.name}'")
+    if cols:
+        print(f"[status] Collections present ({len(cols)}): {', '.join(cols)}")
+    else:
+        print("[status] No collections present.")
 
 
 def _drop_entire_db() -> None:
     db = store.db_rw()
     name = db.name
-    db.client.drop_database(name)
-    print(f"[nuke] dropped database: {name}")
-
-
-def _print_counts() -> None:
-    """Print existence + doc counts for PhaseEdge + FireWorks collections."""
-    db = store.db_rw()
-    names = set(db.list_collection_names())
-    cols = [
-        "mace_relax",
-        "ce_models",
-        "fireworks",
-        "workflows",
-        "launches",
-        "outputs",
-        "fw_id_assigner",
-    ]
-    print("\n[status] Collections present:", sorted(names))
-    for c in cols:
-        if c in names:
-            try:
-                n = db[c].count_documents({})
-            except Exception as e:  # pragma: no cover
-                print(f"[status] {c:15s} exists, count: <error: {e}>")
-            else:
-                print(f"[status] {c:15s} exists, count: {n}")
-        else:
-            print(f"[status] {c:15s} missing")
+    client = db.client
+    client.drop_database(name)
+    print(f"[nuke] Dropped database: {name} (all collections + indexes)")
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Reset PhaseEdge data and/or FireWorks state."
-    )
-    p.add_argument(
-        "--mode",
-        choices=["phaseedge", "fw", "both", "all"],
-        default="both",
-        help=(
-            "phaseedge: drop PhaseEdge collections {mace_relax, ce_models, wang_landau}; "
-            "fw: FireWorks reset; "
-            "both: do both (default); "
-            "all: DROP ENTIRE DATABASE (no FW state survives)."
-        ),
-    )
-    p.add_argument(
-        "--launchpad",
-        type=str,
-        help="Path to my_launchpad.yaml (required for --mode fw or both).",
-    )
-    p.add_argument(
-        "-y", "--yes", action="store_true", help="Do not prompt for confirmation."
-    )
-    p.add_argument(
-        "--dry-run", action="store_true", help="Show what would happen and exit."
-    )
-    p.add_argument(
-        "--collections",
-        nargs="+",
-        choices=["mace_relax", "ce_models", "wang_landau"],
-        help="PhaseEdge collections to drop (default: all).",
-    )
-    args = p.parse_args()
+    # Final safety net. Remove this block if you want zero interaction.
+    print("WARNING: This will DROP your entire PhaseEdge MongoDB database "
+          "(including FireWorks and Jobflow collections) and ALL INDEXES.")
+    confirm = input("Type 'YES' to proceed: ").strip()
+    if confirm != "YES":
+        print("Aborted.")
+        sys.exit(1)
 
-    if args.mode in ("fw", "both") and not args.launchpad and args.mode != "all":
-        p.error("--launchpad is required for --mode fw or --mode both")
+    _print_status("Before")
+    _drop_entire_db()
 
-    if not args.yes:
-        print(f"About to run mode='{args.mode}'. This cannot be undone.")
-        inp = input("Type 'yes' to continue: ").strip().lower()
-        if inp != "yes":
-            print("Aborted.")
-            sys.exit(1)
+    # Verify drop using the same client (fresh handle)
+    db = store.db_rw()
+    client = db.client
+    remaining = [n for n in client.list_database_names() if n == db.name]
+    if remaining:
+        print(f"[warn] Database '{db.name}' still listed by server (may be cached).")
+    else:
+        print(f"[ok] Database '{db.name}' no longer listed by server.")
 
-    if args.dry_run:
-        print("[dry-run] No changes made.")
-        _print_counts()
-        sys.exit(0)
-
-    if args.mode == "phaseedge":
-        _drop_phaseedge_collections(args.collections)
-    elif args.mode == "fw":
-        _reset_fireworks(args.launchpad)  # type: ignore[arg-type]
-    elif args.mode == "both":
-        _drop_phaseedge_collections(args.collections)
-        _reset_fireworks(args.launchpad)  # type: ignore[arg-type]
-    elif args.mode == "all":
-        # all = drop entire DB (covers FW + PhaseEdge). No FW reset needed.
-        _drop_entire_db()
-    else:  # pragma: no cover
-        p.error(f"unknown mode: {args.mode}")
-
-    _print_counts()
+    _print_status("After")
+    print("\n[done] Clean reset complete.")
 
 
 if __name__ == "__main__":

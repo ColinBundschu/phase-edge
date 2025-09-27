@@ -3,8 +3,8 @@ from typing import Any, Mapping
 from jobflow.core.flow import Flow, JobOrder
 from jobflow.core.job import job, Job, Response
 
+from phaseedge.jobs.add_wl_chunk import add_wl_chunk
 from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
-from phaseedge.jobs.ensure_wl_samples import ensure_wl_samples
 from phaseedge.jobs.refine_wl_block import RefineWLSpec, refine_wl_block
 from phaseedge.jobs.select_d_optimal_basis import select_d_optimal_basis
 from phaseedge.jobs.ensure_dataset_selected import ensure_dataset_selected
@@ -12,7 +12,8 @@ from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
-from phaseedge.schemas.mixture import counts_sig, sublattices_from_mixtures
+from phaseedge.schemas.mixture import sublattices_from_mixtures
+from phaseedge.storage.wang_landau import get_first_matching_wl_checkpoint
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 
 
@@ -24,14 +25,14 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     
     # 1) Cache check: if CE exists, short-circuit
     wl_jobs: list[Job | Flow] = []
-    wl_chunks: list[Mapping[str, Any]] = []
+    wl_checkpoints = []
     
     wl_composition_map = {wl_key: comp for wl_key, comp in spec.wl_key_composition_pairs}
     if not wl_composition_map:
         raise ValueError("No WL chains specified in wl_key_composition_pairs.")
     
+
     for wl_key, composition_counts in wl_composition_map.items():
-        sig = counts_sig(composition_counts)
         run_spec = WLSamplerSpec(
             wl_key=wl_key,
             ce_key=spec.ce_spec.ce_key,
@@ -46,15 +47,14 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
             samples_per_bin=spec.wl_samples_per_bin,
         )
 
-        j_wl: Job = ensure_wl_samples(run_spec)
-        j_wl.name = f"ensure_wl_samples::{wl_key[:12]}::{sig}"
-        j_wl.update_metadata({"_category": spec.category, "wl_key": wl_key})
-        wl_jobs.append(j_wl)
-        wl_chunks.append({
-            "counts": sig,
-            "wl_key": wl_key,
-            "hash": j_wl.output["hash"],
-        })
+        tip = get_first_matching_wl_checkpoint(run_spec)
+        if tip:
+            wl_checkpoints.append(tip["wl_checkpoint_key"])
+        else:
+            j_wl = add_wl_chunk(run_spec)
+            j_wl.update_metadata({"_category": spec.category})
+            wl_jobs.append(j_wl)
+            wl_checkpoints.append(j_wl.output["wl_checkpoint_key"])
 
     # WL jobs run in parallel after CE completes (linear barrier at outer level)
     wl_flow_inner = Flow(wl_jobs, name="WL jobs (parallel)")
@@ -69,18 +69,14 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     # -------------------------------------------------------------------------
     # 2) Refine per WL checkpoint
     refine_jobs: list[Job | Flow] = []
-    for chunk in wl_chunks:
-        wl_key_ref = chunk["wl_key"]
-        ck_hash_ref = chunk["hash"]
+    for wl_checkpoint_key in wl_checkpoints:
         r_spec = RefineWLSpec(
-            wl_key=wl_key_ref,
             mode=spec.refine_mode,
             n_total=spec.refine_total,
             per_bin_cap=spec.refine_per_bin_cap,
             strategy=spec.refine_strategy,
         )
-        j_r = refine_wl_block(r_spec, checkpoint_hash=ck_hash_ref)
-        j_r.name = f"refine_wl_block[{wl_key_ref[:12]}]"
+        j_r = refine_wl_block(spec=r_spec, wl_checkpoint_key=wl_checkpoint_key)
         j_r.update_metadata({"_category": spec.category})
         refine_jobs.append(j_r)
     refine_flow = Flow(refine_jobs, name="stage2: refine (parallel)")
@@ -90,7 +86,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     chains_payload = [
         {
             "wl_key": r.output["wl_key"],
-            "checkpoint_hash": r.output["checkpoint_hash"],
+            "wl_checkpoint_key": r.output["wl_checkpoint_key"],
             "samples": r.output["selected"],
         }
         for r in refine_jobs
@@ -161,19 +157,20 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     j_store.update_metadata({"_category": spec.category})
 
     # -------------------------------------------------------------------------
+    base_flow = [ensure_wl_from_ce_flow] if ensure_wl_from_ce_flow else []
     flow = Flow(
-        [ensure_wl_from_ce_flow, refine_flow, j_select, j_relax, j_train, j_store],
+        [*base_flow, refine_flow, j_select, j_relax, j_train, j_store],
         name="Ensure CE from refined WL",
     )
 
     out = {
         "initial_ce_key": spec.ce_spec.ce_key,
         "final_ce_key": spec.final_ce_key,
-        "wl_chunks": wl_chunks,
+        "wl_checkpoints": wl_checkpoints,
         "refines": [
             {
                 "wl_key": r.output["wl_key"],
-                "checkpoint_hash": r.output["checkpoint_hash"],
+                "wl_checkpoint_key": r.output["wl_checkpoint_key"],
                 "refine_key": r.output["refine_key"],
             }
             for r in refine_jobs

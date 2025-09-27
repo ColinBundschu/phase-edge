@@ -1,0 +1,54 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel --a 8.08 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Mg:16},Fm:{Ga:32};K=1;seed=0" \
+--mix "composition_map=Es:{Mg:15,Ga:1},Fm:{Mg:1,Ga:31};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:14,Ga:2},Fm:{Mg:2,Ga:30};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:13,Ga:3},Fm:{Mg:3,Ga:29};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:12,Ga:4},Fm:{Mg:4,Ga:28};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:11,Ga:5},Fm:{Mg:5,Ga:27};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:10,Ga:6},Fm:{Mg:6,Ga:26};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:9,Ga:7},Fm:{Mg:7,Ga:25};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:8,Ga:8},Fm:{Mg:8,Ga:24};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:7,Ga:9},Fm:{Mg:9,Ga:23};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:6,Ga:10},Fm:{Mg:10,Ga:22};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:5,Ga:11},Fm:{Mg:11,Ga:21};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:4,Ga:12},Fm:{Mg:12,Ga:20};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:3,Ga:13},Fm:{Mg:13,Ga:19};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:2,Ga:14},Fm:{Mg:14,Ga:18};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:1,Ga:15},Fm:{Mg:15,Ga:17};K=5;seed=42" \
+--mix "composition_map=Es:{Ga:16},Fm:{Mg:16,Ga:16};K=5;seed=42" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell --dtype float64 \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 2dec4eb90d14eed280702cadca062a934009d4d9013e73964c377f8fabad5519 \
+--bin-width 0.1 \
+--composition-counts 'Mg:16,Ga:32' \
+--sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--repeats 100 \
+--json
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 2dec4eb90d14eed280702cadca062a934009d4d9013e73964c377f8fabad5519 \
+--bin-width 0.1 \
+--composition-counts 'Mg:16,Ga:32' \
+--sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--collect-cation-stats \
+--production-mode
+--json
+
+cc5d9ecdceab00af670e1ed7fcc0e84a6e5eac756bc79c1c1579379bc4bffd71

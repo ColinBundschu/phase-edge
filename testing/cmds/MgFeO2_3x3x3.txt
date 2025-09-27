@@ -1,0 +1,67 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt --a 4.3 \
+--supercell 3 3 3 \
+--mix "composition_map=Es:{Fe:10,Mg:98};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:20,Mg:88};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:30,Mg:78};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:39,Mg:69};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:49,Mg:59};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:59,Mg:49};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:69,Mg:39};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:78,Mg:30};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:88,Mg:20};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:98,Mg:10};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:108};K=1;seed=0" \
+--mix "composition_map=Es:{Mg:108};K=1;seed=0" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell --dtype float64 \
+--basis sinusoid --cutoffs "1:100,2:10,3:8,4:6" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-ce-from-refined-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt --a 4.3 \
+--supercell 3 3 3 \
+--mix "composition_map=Es:{Fe:10,Mg:98};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:20,Mg:88};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:30,Mg:78};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:39,Mg:69};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:49,Mg:59};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:59,Mg:49};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:69,Mg:39};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:78,Mg:30};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:88,Mg:20};K=10;seed=42" \
+--mix "composition_map=Es:{Fe:98,Mg:10};K=10;seed=42" \
+--endpoint "Es:{Fe:108}" \
+--endpoint "Es:{Mg:108}" \
+--seed 42 \
+--model MACE-MPA-0 --relax-cell --dtype float64 \
+--basis sinusoid --cutoffs "1:100,2:10,3:8,4:6" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.2 --samples-per-bin 5 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--refine-n-total 50 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--budget 102
+
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 2eb70b34e7d7cc7e2ac8f751ba70a77e3cddaa9b01f1957e6cfb8d9707cea9ed \
+--bin-width 0.05 \
+--composition-counts 'Fe:54,Mg:54' \
+--sl-comp-map 'Es:{Fe:108}' \
+--samples-per-bin 5 \
+--category cpu \
+--steps-to-run 1000000 \
+--repeats 5 \
+--json
+
+86faef5be3f2eacb173b482455f4a230366317640655494f4c4e90444a2771e7
