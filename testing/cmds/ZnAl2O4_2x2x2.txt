@@ -2,7 +2,7 @@ pe-ensure-ce-from-mixtures \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
 --prototype spinel --a 8.08 \
 --supercell 2 2 2 \
---mix "composition_map=Es:{Zn:16},Fm:{Al:32};K=1;seed=0" \
+--endpoint "Es:{Zn:16},Fm:{Al:32}" \
 --mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=10;seed=42" \
 --mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=10;seed=42" \
 --mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=10;seed=42" \
@@ -24,6 +24,7 @@ pe-ensure-ce-from-mixtures \
 --basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
+--sl-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --category gpu
 
 pe-extend-wl \

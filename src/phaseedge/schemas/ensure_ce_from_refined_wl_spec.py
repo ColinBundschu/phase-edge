@@ -54,6 +54,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     wl_bin_width: float
     wl_steps_to_run: int
     wl_samples_per_bin: int
+    sl_comp_map: dict[str, dict[str, int]]
 
     wl_step_type: str = "swap"
     wl_check_period: int = 5_000
@@ -77,6 +78,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "@class": type(self).__name__,
             "ce_spec": self.ce_spec.as_dict(),
             "endpoints": list(self.endpoints),
+            "sl_comp_map": self.sl_comp_map,
             "wl_bin_width": self.wl_bin_width,
             "wl_steps_to_run": self.wl_steps_to_run,
             "wl_samples_per_bin": self.wl_samples_per_bin,
@@ -105,6 +107,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
                 str(sublat): {str(k): int(v) for k, v in counts.items()}
                 for sublat, counts in e.items()
             } for e in d["endpoints"]]),
+            sl_comp_map={str(k): {str(k2): int(v2) for k2, v2 in v.items()} for k, v in d["sl_comp_map"].items()},
             wl_bin_width=float(d["wl_bin_width"]),
             wl_steps_to_run=int(d["wl_steps_to_run"]),
             wl_samples_per_bin=int(d["wl_samples_per_bin"]),
@@ -121,18 +124,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             budget=int(d["budget"]),
             category=str(d.get("category", "gpu")),
         )
-    
-    @property
-    def sl_comp_map(self) -> dict[str, dict[str, int]]:
-        comp_maps = []
-        for endpoint in self.endpoints:
-            if all(len(v) == 1 for v in endpoint.values()):
-                comp_maps.append(endpoint)
-        if not comp_maps:
-            raise ValueError("No valid sublattice composition map found in endpoints.")
-        # Sort the endpoints to get a deterministic order
-        comp_maps = sorted_composition_maps(comp_maps)
-        return comp_maps[0]
+
 
     @property
     def refine_mode(self) -> Literal["all", "refine"]:

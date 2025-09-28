@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--endpoint", action="append", default=[], help="Endpoint composition: 'composition_map=...'. No K/seed allowed. (repeatable)")
     p.add_argument("--seed", type=int, default=0, help="Default seed for CE mixture elements missing 'seed'.")
 
+    p.add_argument(
+        "--sl-comp-map",
+        required=True,
+        help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).',
+    )
+
     # Initial CE (engine for training energies of the initial dataset)
     p.add_argument("--model", default="MACE-MPA-0")
     p.add_argument("--relax-cell", action="store_true")
@@ -94,6 +100,7 @@ def main() -> int:
     proper_mixtures = [parse_mix_item(s) for s in args.mix]
     endpoints = sorted_composition_maps([parse_composition_map(s) for s in args.endpoint])
     mixtures = (*proper_mixtures, *(Mixture(composition_map=ep, K=1, seed=0) for ep in endpoints))
+    sl_comp_map = parse_composition_map(args.sl_comp_map)
 
     # Optional early validation
     conv = make_prototype(args.prototype, a=args.a)
@@ -139,6 +146,7 @@ def main() -> int:
         wl_check_period=int(args.check_period),
         wl_update_period=int(args.update_period),
         wl_seed=int(args.wl_seed),
+        sl_comp_map=sl_comp_map,
         refine_n_total=int(args.refine_n_total),
         refine_per_bin_cap=int(args.refine_per_bin_cap),
         refine_strategy=RefineStrategy(args.refine_strategy),
