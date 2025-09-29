@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any, ClassVar, Mapping
 from monty.json import MSONable
+
+from phaseedge.schemas.mixture import canonical_comp_map
+from phaseedge.utils.keys import compute_wl_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,16 +25,14 @@ class WLSamplerSpec(MSONable):
 
     __version__: ClassVar[str] = "3"
 
-    wl_key: str
     ce_key: str
     bin_width: float
     steps: int
 
     # which sublattice labels are active for WL sampling (immutable, canonical)
     sl_comp_map: dict[str, dict[str, int]]
-
-    # Counts for the *entire* WL supercell (immutable mapping)
-    composition_counts: Mapping[str, int]
+    reject_cross_sublattice_swaps: bool
+    initial_comp_map: dict[str, dict[str, int]]
 
     step_type: str = "swap"
     check_period: int = 5_000
@@ -57,25 +57,8 @@ class WLSamplerSpec(MSONable):
         if self.samples_per_bin < 0:
             raise ValueError("samples_per_bin must be >= 0.")
 
-        # --- composition_counts: defensive copy; ints; no negatives; canonical sort
-        raw_cc = dict(self.composition_counts)
-        canon_cc: dict[str, int] = {}
-        for k, v in raw_cc.items():
-            if not isinstance(k, str):
-                raise TypeError("composition_counts keys must be str.")
-            iv = int(v)
-            if iv < 0:
-                raise ValueError(f"composition_counts['{k}'] must be >= 0.")
-            canon_cc[k] = iv
-
-        # sort sl_comp_map for deterministic representation and freeze
-        canon_sl_comp_map = {k: self.sl_comp_map[k] for k in sorted(self.sl_comp_map)}
-        object.__setattr__(self, "sl_comp_map", MappingProxyType(canon_sl_comp_map))
-
-
-        # sort keys for deterministic representation and freeze
-        canon_cc = {k: canon_cc[k] for k in sorted(canon_cc)}
-        object.__setattr__(self, "composition_counts", MappingProxyType(canon_cc))
+        object.__setattr__(self, "sl_comp_map", canonical_comp_map(self.sl_comp_map))
+        object.__setattr__(self, "initial_comp_map", canonical_comp_map(self.initial_comp_map))
 
         # coerce runtime flags to bools
         object.__setattr__(self, "collect_cation_stats", bool(self.collect_cation_stats))
@@ -86,10 +69,11 @@ class WLSamplerSpec(MSONable):
         cls = self.__class__.__name__
         return (
             f"{cls}("
-            f"wl_key={self.wl_key!r}, ce_key={self.ce_key!r}, "
+            f"ce_key={self.ce_key!r}, "
             f"bin_width={self.bin_width}, steps={self.steps}, "
-            f"sl_comp_map={dict(self.sl_comp_map)!r}, "
-            f"composition_counts={dict(self.composition_counts)!r}, "
+            f"sl_comp_map={self.sl_comp_map!r}, "
+            f"initial_comp_map={self.initial_comp_map!r}, "
+            f"reject_cross_sublattice_swaps={self.reject_cross_sublattice_swaps}, "
             f"step_type={self.step_type!r}, check_period={self.check_period}, "
             f"update_period={self.update_period}, seed={self.seed}, "
             f"samples_per_bin={self.samples_per_bin}, "
@@ -104,12 +88,12 @@ class WLSamplerSpec(MSONable):
             "@module": self.__class__.__module__,
             "@class": self.__class__.__name__,
             "@version": self.__version__,
-            "wl_key": self.wl_key,
             "ce_key": self.ce_key,
             "bin_width": self.bin_width,
             "steps": self.steps,
-            "sl_comp_map": dict(self.sl_comp_map),
-            "composition_counts": dict(self.composition_counts),  # JSON-safe
+            "sl_comp_map": self.sl_comp_map,
+            "initial_comp_map": self.initial_comp_map,  # JSON-safe
+            "reject_cross_sublattice_swaps": self.reject_cross_sublattice_swaps,
             "step_type": self.step_type,
             "check_period": self.check_period,
             "update_period": self.update_period,
@@ -123,12 +107,12 @@ class WLSamplerSpec(MSONable):
     def from_dict(cls, d: Mapping[str, Any]) -> "WLSamplerSpec":
         payload = {k: v for k, v in d.items() if not k.startswith("@")}
         return cls(
-            wl_key=str(payload["wl_key"]),
             ce_key=str(payload["ce_key"]),
             bin_width=float(payload["bin_width"]),
             steps=int(payload["steps"]),
-            sl_comp_map=dict(payload["sl_comp_map"]),
-            composition_counts=dict(payload["composition_counts"]),
+            sl_comp_map=canonical_comp_map(payload["sl_comp_map"]),
+            initial_comp_map=canonical_comp_map(payload["initial_comp_map"]),
+            reject_cross_sublattice_swaps=bool(payload["reject_cross_sublattice_swaps"]),
             step_type=str(payload.get("step_type", "swap")),
             check_period=int(payload.get("check_period", 5_000)),
             update_period=int(payload.get("update_period", 1)),
@@ -143,12 +127,12 @@ class WLSamplerSpec(MSONable):
         if not isinstance(other, WLSamplerSpec):
             return NotImplemented
         return (
-            self.wl_key == other.wl_key
-            and self.ce_key == other.ce_key
+            self.ce_key == other.ce_key
             and self.bin_width == other.bin_width
             and self.steps == other.steps
             and dict(self.sl_comp_map) == dict(other.sl_comp_map)
-            and dict(self.composition_counts) == dict(other.composition_counts)
+            and dict(self.initial_comp_map) == dict(other.initial_comp_map)
+            and self.reject_cross_sublattice_swaps == other.reject_cross_sublattice_swaps
             and self.step_type == other.step_type
             and self.check_period == other.check_period
             and self.update_period == other.update_period
@@ -161,12 +145,12 @@ class WLSamplerSpec(MSONable):
     def __hash__(self) -> int:
         return hash(
             (
-                self.wl_key,
                 self.ce_key,
                 self.bin_width,
                 self.steps,
                 tuple(self.sl_comp_map.items()),  # sorted in __post_init__
-                tuple(self.composition_counts.items()), # sorted in __post_init__
+                tuple(self.initial_comp_map.items()), # sorted in __post_init__
+                self.reject_cross_sublattice_swaps,
                 self.step_type,
                 self.check_period,
                 self.update_period,
@@ -175,4 +159,18 @@ class WLSamplerSpec(MSONable):
                 self.collect_cation_stats,
                 self.production_mode,
             )
+        )
+
+    @property
+    def wl_key(self) -> str:
+        """The identity key for this WL sampling setup (no steps, no runtime flags)."""
+        return compute_wl_key(
+            ce_key=self.ce_key,
+            bin_width=self.bin_width,
+            step_type=self.step_type,
+            initial_comp_map=self.initial_comp_map,
+            reject_cross_sublattice_swaps=self.reject_cross_sublattice_swaps,
+            check_period=self.check_period,
+            update_period=self.update_period,
+            seed=self.seed,
         )

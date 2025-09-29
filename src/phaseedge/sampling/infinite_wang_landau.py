@@ -46,6 +46,7 @@ class InfiniteWangLandau(MCKernel):
         step_type: str,
         bin_size: float,
         *args,
+        reject_cross_sublattice_swaps: bool,
         flatness: float = 0.8,
         mod_factor: float = 1.0,
         check_period: int = 1000,
@@ -60,6 +61,7 @@ class InfiniteWangLandau(MCKernel):
         # - sublattice_indices: label -> indices in occupancy vector
         sublattice_indices: Mapping[str, list[int] | np.ndarray] | None = None,
         active_codes_to_elems: dict[int, str] | None = None,
+        # -------- NEW option: reject cross-sublattice swaps --------
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -79,6 +81,8 @@ class InfiniteWangLandau(MCKernel):
             collect_cation_stats (bool): If True, collect per-bin cation-count histograms per sublattice.
             production_mode (bool): If True, freeze WL updates (entropy/histogram/mod-factor) and only collect stats.
             sublattice_indices: Optional mapping label -> site indices for each replaceable sublattice.
+            active_codes_to_elems: Optional mapping from active species codes to element labels.
+            reject_cross_sublattice_swaps (bool): If True, veto any 2-site swap spanning different sublattices.
             *args, **kwargs: forwarded to MCUsher constructor.
         """
         if mod_factor <= 0:
@@ -133,6 +137,15 @@ class InfiniteWangLandau(MCKernel):
             for k, v in sublattice_indices.items():
                 self._sl_index_map[str(k)] = np.asarray(v, dtype=np.int32)
 
+        # site-index -> sublattice label (for fast cross-sublattice checks)
+        self._site_to_sl: dict[int, str] = {}
+        for sl, idx in self._sl_index_map.items():
+            for i in np.asarray(idx, dtype=np.int32):
+                self._site_to_sl[int(i)] = sl
+
+        # Policy: reject cross-sublattice swaps at acceptance stage (optional)
+        self._reject_cross_sublattice_swaps: bool = bool(reject_cross_sublattice_swaps)
+
         # Per-bin cation count histograms:
         # bin_id -> { sublattice_label -> { element_index -> { n_sites_on_sublattice: visits } } }
         self._bin_cation_counts: dict[int, dict[str, dict[str, dict[int, int]]]] = {}
@@ -152,6 +165,7 @@ class InfiniteWangLandau(MCKernel):
         # NEW runtime flags for clarity (not required by smol, just recorded)
         self.spec.collect_cation_stats = self._collect_cation_stats
         self.spec.production_mode = self._production_mode
+        self.spec.reject_cross_sublattice_swaps = self._reject_cross_sublattice_swaps
 
         # Additional clean-ups after base init.
         self._entropy_d.clear()
@@ -259,9 +273,36 @@ class InfiniteWangLandau(MCKernel):
                 # Increment the histogram at key "n_sites"
                 elem_dict[n_sites] = int(elem_dict.get(n_sites, 0) + 1)
 
+    # -------- NEW: cross-sublattice filter helpers -------- #
+
+    def _is_cross_sublattice_swap(self, step: Any) -> bool:
+        """
+        Return True iff 'step' looks like a 2-site swap whose sites belong to different sublattices.
+
+        Safely handles:
+          - initial empty step ([])
+          - non-2-site steps (e.g., flips) -> returns False
+          - indices missing from self._site_to_sl -> returns False (can't verify)
+        """
+        # If we weren't given sublattice info, nothing to enforce.
+        if not self._site_to_sl:
+            raise RuntimeError("Cannot check cross-sublattice swaps without sublattice_indices provided at init.")
+
+        # Early exit on empty step (identity transformation)
+        if not step:
+            return False
+
+        [(i0, _), (i1, _)] = step
+        return self._site_to_sl[i0] != self._site_to_sl[i1]
+
     # -------------------- MC step logic -------------------- #
 
     def _accept_step(self, occupancy: np.ndarray, step) -> np.ndarray:
+        # Early veto for cross-sublattice swaps when enabled.
+        if self._reject_cross_sublattice_swaps and self._is_cross_sublattice_swap(step):
+            self.trace.accepted = np.array(False)
+            return self.trace.accepted
+
         bin_id = self._get_bin_id(self._current_enthalpy)
         new_enthalpy = self._current_enthalpy + self.trace.delta_trace.enthalpy
 

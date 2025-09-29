@@ -57,16 +57,16 @@ pe-ensure-ce-from-refined-wl \
 --wl-bin-width 0.1 --samples-per-bin 5 \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---refine-n-total 500 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--refine-n-total 40 --refine-per-bin-cap 5 --refine-strategy energy_spread \
 --train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
+--reject-cross-sublattice-swaps \
 --budget 150
-
 
 
 pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key 60b6184cfd6235ea426566f8f3f536bcd75ff7f405619b6aaafa401b0000a9cb \
+--ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
 --bin-width 0.1 \
 --composition-counts 'Mg:16,Al:32' \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
@@ -78,7 +78,7 @@ pe-extend-wl \
 
 pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key 60b6184cfd6235ea426566f8f3f536bcd75ff7f405619b6aaafa401b0000a9cb \
+--ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
 --bin-width 0.1 \
 --composition-counts 'Mg:16,Al:32' \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
@@ -89,4 +89,5 @@ pe-extend-wl \
 --production-mode
 --json
 
-8f505feb913665b3f3662d4f2a1a71eb3d20517a8e7fabdc294ec3377e354983
+60b6184cfd6235ea426566f8f3f536bcd75ff7f405619b6aaafa401b0000a9cb
+12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89

@@ -14,7 +14,6 @@ from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
 from phaseedge.schemas.mixture import sublattices_from_mixtures
 from phaseedge.storage.wang_landau import get_first_matching_wl_block
-from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 
 
 @job
@@ -27,31 +26,13 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     wl_jobs: list[Job | Flow] = []
     wl_blocks = []
     
-    wl_composition_map = {wl_key: comp for wl_key, comp in spec.wl_key_composition_pairs}
-    if not wl_composition_map:
-        raise ValueError("No WL chains specified in wl_key_composition_pairs.")
-    
 
-    for wl_key, composition_counts in wl_composition_map.items():
-        run_spec = WLSamplerSpec(
-            wl_key=wl_key,
-            ce_key=spec.ce_spec.ce_key,
-            bin_width=spec.wl_bin_width,
-            steps=spec.wl_steps_to_run,
-            sl_comp_map=spec.sl_comp_map,
-            composition_counts=composition_counts,
-            step_type=spec.wl_step_type,
-            check_period=spec.wl_check_period,
-            update_period=spec.wl_update_period,
-            seed=spec.wl_seed,
-            samples_per_bin=spec.wl_samples_per_bin,
-        )
-
-        tip = get_first_matching_wl_block(run_spec)
+    for sampler_spec in spec.wl_sampler_specs:
+        tip = get_first_matching_wl_block(sampler_spec)
         if tip:
             wl_blocks.append(tip["wl_block_key"])
         else:
-            j_wl = add_wl_block(run_spec)
+            j_wl = add_wl_block(sampler_spec)
             j_wl.update_metadata({"_category": spec.category})
             wl_jobs.append(j_wl)
             wl_blocks.append(j_wl.output["wl_block_key"])
@@ -100,7 +81,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         chains=chains_payload,
         budget=spec.budget,
         ridge=1e-10,
-        wl_counts_map=wl_composition_map,
+        wl_compoisition_maps={sampler_spec.wl_key: sampler_spec.initial_comp_map for sampler_spec in spec.wl_sampler_specs},
     )
     j_select.name = "select_d_optimal_basis"
     j_select.update_metadata({"_category": spec.category})
@@ -110,7 +91,6 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     j_relax = ensure_dataset_selected(
         ce_key=spec.ce_spec.ce_key,
         selected=j_select.output["chosen"],
-        wl_counts_map=wl_composition_map,
         model=spec.train_model,
         relax_cell=spec.train_relax_cell,
         dtype=spec.train_dtype,

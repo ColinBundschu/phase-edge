@@ -27,24 +27,64 @@ pe-ensure-ce-from-mixtures \
 --sl-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --category gpu
 
+
+pe-ensure-ce-from-refined-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel --a 8.08 \
+--supercell 2 2 2 \
+--endpoint "Es:{Zn:16},Fm:{Al:32}" \
+--mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:12,Al:4},Fm:{Zn:4,Al:28};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:11,Al:5},Fm:{Zn:5,Al:27};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:10,Al:6},Fm:{Zn:6,Al:26};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:9,Al:7},Fm:{Zn:7,Al:25};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:8,Al:8},Fm:{Zn:8,Al:24};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:7,Al:9},Fm:{Zn:9,Al:23};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:6,Al:10},Fm:{Zn:10,Al:22};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:5,Al:11},Fm:{Zn:11,Al:21};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:4,Al:12},Fm:{Zn:12,Al:20};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:3,Al:13},Fm:{Zn:13,Al:19};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:2,Al:14},Fm:{Zn:14,Al:18};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=5;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=5;seed=42" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell --dtype float64 \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 5 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--refine-n-total 40 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--sl-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
+--reject-cross-sublattice-swaps \
+--budget 150
+
+
 pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key a626d36ebf9a643b59cca29b21a758c0ad3df01763b6474421992594cab12497 \
+--ce-key 7a71ede8a97d1ac8bf3eac9fe8b23de419bdf4f5311dabde05cf97f43a343151 \
 --bin-width 0.1 \
---composition-counts 'Zn:16,Al:32' \
 --sl-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
+--initial-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 1000000 \
 --repeats 100 \
 --json
 
+80d8c390132405b8ba7a1bb775c35a50ef1fe4acbafd10c247fe3e20a643638c
+
 pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key a626d36ebf9a643b59cca29b21a758c0ad3df01763b6474421992594cab12497 \
+--ce-key 7a71ede8a97d1ac8bf3eac9fe8b23de419bdf4f5311dabde05cf97f43a343151 \
 --bin-width 0.1 \
---composition-counts 'Zn:16,Al:32' \
 --sl-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
+--initial-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 1000000 \
@@ -52,4 +92,5 @@ pe-extend-wl \
 --production-mode \
 --json
 
-8b19e86833ba361b9d9e833331c8fc41bbd1e2ae98a750ff95d966c70ad56ffb
+8eaec7c74f156b4f70aac8fe506f2390e6fbf6d8ab72bd51579ec1f4e187d70b
+7a71ede8a97d1ac8bf3eac9fe8b23de419bdf4f5311dabde05cf97f43a343151

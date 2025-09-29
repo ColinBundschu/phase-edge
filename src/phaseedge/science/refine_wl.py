@@ -92,8 +92,8 @@ def refine_wl_samples(
         samples.append(RefinedSample(bin=b, occ=occ))
 
     total_available = len(samples)
-    if total_available < n_total:
-        raise ValueError(f"Block has only {total_available} samples; need n_total={n_total}.")
+    if total_available <= n_total:
+        return samples
 
     # Group by bin
     by_bin: dict[int, list[RefinedSample]] = {}

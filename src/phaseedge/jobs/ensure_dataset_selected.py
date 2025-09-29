@@ -6,7 +6,7 @@ from jobflow.core.flow import Flow
 
 from phaseedge.jobs.relax_structure import relax_structure
 from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
-from phaseedge.schemas.mixture import counts_sig
+from phaseedge.schemas.mixture import composition_map_sig, counts_sig
 from phaseedge.storage.store import lookup_total_energy_eV
 from phaseedge.utils.keys import compute_dataset_key, occ_key_for_structure
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
@@ -16,41 +16,20 @@ from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 def ensure_dataset_selected(
     *,
     ce_key: str,
-    # From select_d_optimal_basis: list of {"source","wl_key","wl_block_key","bin","occ","occ_hash", ["counts" for endpoints]}
     selected: Sequence[Mapping[str, Any]],
-    # Deterministic composition for each WL chain
-    wl_counts_map: Mapping[str, Mapping[str, int]],
     model: str,
     relax_cell: bool,
     dtype: str,
     category: str = "gpu",
     set_id_prefix: str = "wlref",
 ) -> Mapping[str, Any] | Response:
-    """
-    Group selected occupancies by composition (WL & endpoints), map to structures, schedule
-    relaxes in parallel, and return groups compatible with fetch_training_set_multi:
-        groups = [{"set_id": str, "counts": dict[str,int], "occ_keys": [str, ...], "occs": [[int,...], ...]}, ...]
-    """
-
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
     sub_jobs: list[Job | Flow] = []
-    groups_map: dict[str, dict[str, Any]] = {} # counts_sig -> {"set_id","counts","occ_keys","occs"}
     train_refs: list[CETrainRef] = []
     for rec in selected:
-        src = rec["source"]
-        if src == "wl":
-            wl_key = str(rec["wl_key"])
-            counts = wl_counts_map[wl_key]
-        elif src == "endpoint":
-            counts = rec["counts"]
-        else:
-            raise RuntimeError(f"ensure_dataset_selected: unrecognized source='{src}' in record.")
-
-        sig = counts_sig(counts)
+        sig = composition_map_sig(rec["composition_map"])
         set_id = f"{set_id_prefix}::{ce_key}::{sig}"
-        if sig not in groups_map:
-            groups_map[sig] = {"set_id": set_id, "occ_keys": [], "occs": []}
 
         # Build structure from occupancy via CE processor
         occ_seq = cast(Sequence[int], rec["occ"])

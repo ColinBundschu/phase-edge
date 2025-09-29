@@ -10,7 +10,7 @@ from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
 from phaseedge.jobs.ensure_ce_from_refined_wl import ensure_ce_from_refined_wl
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
-from phaseedge.schemas.mixture import Mixture, counts_sig, sorted_composition_maps
+from phaseedge.schemas.mixture import Mixture, composition_map_sig, sorted_composition_maps
 from phaseedge.science.prototypes import PrototypeName, make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.science.refine_wl import RefineStrategy
@@ -35,12 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mix", action="append", required=True, help="Composition mixture: 'composition_map=...;K=...;seed=...'")
     p.add_argument("--endpoint", action="append", default=[], help="Endpoint composition: 'composition_map=...'. No K/seed allowed. (repeatable)")
     p.add_argument("--seed", type=int, default=0, help="Default seed for CE mixture elements missing 'seed'.")
-
-    p.add_argument(
-        "--sl-comp-map",
-        required=True,
-        help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).',
-    )
+    p.add_argument("--sl-comp-map", required=True, help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).')
+    p.add_argument("--reject-cross-sublattice-swaps", action="store_true", help="Reject WL swap moves that cross sublattices.")
 
     # Initial CE (engine for training energies of the initial dataset)
     p.add_argument("--model", default="MACE-MPA-0")
@@ -147,6 +143,7 @@ def main() -> int:
         wl_update_period=int(args.update_period),
         wl_seed=int(args.wl_seed),
         sl_comp_map=sl_comp_map,
+        reject_cross_sublattice_swaps=bool(args.reject_cross_sublattice_swaps),
         refine_n_total=int(args.refine_n_total),
         refine_per_bin_cap=int(args.refine_per_bin_cap),
         refine_strategy=RefineStrategy(args.refine_strategy),
@@ -158,9 +155,9 @@ def main() -> int:
     )
 
     planned_wl_runs: list[dict[str, Any]] = [{
-        "counts_sig": counts_sig(composition_counts),
-        "wl_key": wl_key,
-    } for wl_key, composition_counts in spec.wl_key_composition_pairs]
+        "initial_comp_map": composition_map_sig(sampler_spec.initial_comp_map),
+        "wl_key": sampler_spec.wl_key,
+    } for sampler_spec in spec.wl_sampler_specs]
 
     # Build + submit workflow
     # Early exit keying
@@ -201,7 +198,7 @@ def main() -> int:
         })
         print("Planned WL chains:")
         for rec in planned_wl_runs:
-            print(f"  {rec['counts_sig']:>18}  wl_key={rec['wl_key']}")
+            print(f"  {rec['initial_comp_map']}  wl_key={rec['wl_key']}")
         print({
             "initial_training": {
                 "model": spec.ce_spec.model,

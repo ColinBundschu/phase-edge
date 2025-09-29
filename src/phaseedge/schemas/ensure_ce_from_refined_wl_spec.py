@@ -4,9 +4,10 @@ from typing import Any, Literal, Mapping
 from monty.json import MSONable
 
 from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
-from phaseedge.schemas.mixture import composition_counts_from_map, counts_sig, sorted_composition_maps
+from phaseedge.schemas.mixture import canonical_comp_map, sorted_composition_maps
+from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.science.refine_wl import RefineStrategy
-from phaseedge.utils.keys import compute_ce_key, compute_wl_key
+from phaseedge.utils.keys import compute_ce_key
 
 
 def composition_maps_equal(
@@ -55,6 +56,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     wl_steps_to_run: int
     wl_samples_per_bin: int
     sl_comp_map: dict[str, dict[str, int]]
+    reject_cross_sublattice_swaps: bool
 
     wl_step_type: str = "swap"
     wl_check_period: int = 5_000
@@ -79,6 +81,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "ce_spec": self.ce_spec.as_dict(),
             "endpoints": list(self.endpoints),
             "sl_comp_map": self.sl_comp_map,
+            "reject_cross_sublattice_swaps": self.reject_cross_sublattice_swaps,
             "wl_bin_width": self.wl_bin_width,
             "wl_steps_to_run": self.wl_steps_to_run,
             "wl_samples_per_bin": self.wl_samples_per_bin,
@@ -103,11 +106,9 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             ce_spec = EnsureCEFromMixturesSpec.from_dict(ce_spec)
         return cls(
             ce_spec=ce_spec,
-            endpoints=sorted_composition_maps([{
-                str(sublat): {str(k): int(v) for k, v in counts.items()}
-                for sublat, counts in e.items()
-            } for e in d["endpoints"]]),
-            sl_comp_map={str(k): {str(k2): int(v2) for k2, v2 in v.items()} for k, v in d["sl_comp_map"].items()},
+            endpoints=sorted_composition_maps(d["endpoints"]),
+            sl_comp_map=canonical_comp_map(d["sl_comp_map"]),
+            reject_cross_sublattice_swaps=bool(d["reject_cross_sublattice_swaps"]),
             wl_bin_width=float(d["wl_bin_width"]),
             wl_steps_to_run=int(d["wl_steps_to_run"]),
             wl_samples_per_bin=int(d["wl_samples_per_bin"]),
@@ -132,29 +133,20 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     
 
     @property
-    def wl_key_composition_pairs(self) -> tuple[tuple[str, dict[str, int]], ...]:
-        ce_key = self.ce_spec.ce_key
-        pairs = []
-        seen_sigs = set()
-        for mixture in self.ce_spec.mixtures:
-            composition_counts = composition_counts_from_map(mixture.composition_map)
-            sig = counts_sig(composition_counts)
-            if sig in seen_sigs or any(composition_maps_equal(mixture.composition_map, ep) for ep in self.endpoints):
-                continue
-            seen_sigs.add(sig)
-
-            wl_key = compute_wl_key(
-                ce_key=ce_key,
-                bin_width=self.wl_bin_width,
-                step_type=self.wl_step_type,
-                composition_counts=composition_counts,
-                check_period=self.wl_check_period,
-                update_period=self.wl_update_period,
-                seed=self.wl_seed,
-                algo_version="wl-grid-v1",
-            )
-            pairs.append((wl_key, composition_counts))
-        return tuple(sorted(pairs))
+    def wl_sampler_specs(self):
+        return [WLSamplerSpec(
+            ce_key=self.ce_spec.ce_key,
+            bin_width=self.wl_bin_width,
+            steps=self.wl_steps_to_run,
+            sl_comp_map=self.sl_comp_map,
+            initial_comp_map=mix.composition_map,
+            step_type=self.wl_step_type,
+            check_period=self.wl_check_period,
+            update_period=self.wl_update_period,
+            seed=self.wl_seed,
+            samples_per_bin=self.wl_samples_per_bin,
+            reject_cross_sublattice_swaps=self.reject_cross_sublattice_swaps,
+        ) for mix in self.ce_spec.mixtures if mix.composition_map not in self.endpoints]
     
     @property
     def final_ce_key(self) -> str:

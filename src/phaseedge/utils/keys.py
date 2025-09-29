@@ -7,7 +7,7 @@ from numpy.random import default_rng, Generator
 from pymatgen.core import Structure
 from numpy.typing import NDArray
 
-from phaseedge.schemas.mixture import Mixture, canonical_counts, sorted_composition_maps
+from phaseedge.schemas.mixture import Mixture, canonical_comp_map, sorted_composition_maps
 from phaseedge.science.prototypes import PrototypeName
 
 
@@ -296,7 +296,8 @@ def compute_wl_key(
     ce_key: str,
     bin_width: float,
     step_type: str,
-    composition_counts: Mapping[str, int],
+    initial_comp_map: Mapping[str, Mapping[str, int]],
+    reject_cross_sublattice_swaps: bool,
     check_period: int,
     update_period: int,
     seed: int,
@@ -307,23 +308,19 @@ def compute_wl_key(
     CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule (sans steps), and seed.
     Zero-count species are stripped; at least one positive count is required.
     """
-    comp_counts = canonical_counts(composition_counts)
-    comp_counts = {k: int(v) for k, v in comp_counts.items() if int(v) != 0}
-    if not comp_counts:
-        raise ValueError("composition_counts must include at least one species with a positive count.")
-
     payload = {
         "kind": "wl_key",
         "algo": algo_version,
         "ce_key": str(ce_key),
         "ensemble": {
             "type": "canonical",
-            "composition_counts": comp_counts,
+            "init_comp_map": canonical_comp_map(initial_comp_map),
         },
         "grid": {
             "bin_width": _round_float(float(bin_width)),
         },
         "mc": {
+            "reject_cross_sublattice_swaps": bool(reject_cross_sublattice_swaps),
             "step_type": str(step_type),
             "check_period": int(check_period),
             "update_period": int(update_period),

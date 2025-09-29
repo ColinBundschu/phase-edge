@@ -1,10 +1,9 @@
-from typing import Any, Mapping, Sequence, TypedDict, cast
+from typing import Any, Mapping
 
 import numpy as np
 
 from smol.moca import Sampler
 from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core import Structure
 
 from phaseedge.storage.wang_landau import WLBlockDoc, ensure_wl_output_indexes, fetch_wl_tip
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
@@ -18,13 +17,12 @@ from phaseedge.utils.keys import compute_wl_block_key
 
 # ---- shared helpers -------------------------------------------------------
 
-def _snapshot_struct_and_occ_from_counts(
+def _occ_from_initial_comp_map(
     *,
     ce_key: str,
-    sublattice_labels: Sequence[str],
-    composition_counts: Mapping[str, int],
+    initial_comp_map: Mapping[str, Mapping[str, int]],
     rng: np.random.Generator,
-) -> tuple[Structure, np.ndarray]:
+) -> np.ndarray:
     """
     Create ONE valid snapshot structure at the requested WL composition and
     the corresponding encoded occupancy for the ensemble.
@@ -35,77 +33,10 @@ def _snapshot_struct_and_occ_from_counts(
 
     conv = make_prototype(doc["prototype"], **doc["prototype_params"])
     sx, sy, sz = (int(x) for x in doc["supercell_diag"])
-
-    # Count the number of each sublattice label in the supercell
-    sc = conv.repeat((sx, sy, sz))
-    symbols = np.array(sc.get_chemical_symbols())
-    sublattice_counts: dict[str, int] = {}
-    for sl in sublattice_labels:
-        n_sites = int(np.sum(symbols == sl))
-        if n_sites <= 0:
-            raise ValueError(f"Sublattice label '{sl}' not found in prototype structure.")
-        sublattice_counts[sl] = n_sites
-
-    # Evenly distribute counts to sublattices (deterministically assigning remainder)
-    # composition_map: {placeholder_symbol -> {element -> count}}
-    composition_map: dict[str, dict[str, int]] = {sl: {} for sl in sublattice_counts}
-
-    # --- sanity checks
-    total_sites = int(sum(int(v) for v in sublattice_counts.values()))
-    total_requested = int(sum(int(v) for v in composition_counts.values()))
-    if total_requested != total_sites:
-        raise ValueError(
-            f"composition_counts sum ({total_requested}) != total sublattice sites ({total_sites})"
-        )
-
-    # Precompute sizes in a deterministic order of sublattices
-    # We'll always iterate keys in sorted order to keep results stable.
-    subl_sorted = sorted(composition_map.keys())
-    sizes = {sl: int(sublattice_counts[sl]) for sl in subl_sorted}
-
-    # Allocate each element across sublattices
-    for elem, N in sorted(composition_counts.items()):  # element order stable
-        N = int(N)
-        if N < 0:
-            raise ValueError(f"Negative total for element '{elem}': {N}")
-        if N == 0:
-            continue
-
-        # Quotas per sublattice
-        quotas: dict[str, float] = {sl: (N * sizes[sl]) / float(total_sites) for sl in subl_sorted}
-        base: dict[str, int] = {sl: int(np.floor(quotas[sl])) for sl in subl_sorted}
-        assigned = sum(base.values())
-        remainder = N - assigned
-        if remainder < 0:
-            # Shouldn't happen with floor; guard anyway.
-            raise RuntimeError(f"Internal apportionment error for '{elem}' (remainder < 0).")
-
-        # Fractional parts for tie-breaking
-        fracs: dict[str, float] = {sl: (quotas[sl] - base[sl]) for sl in subl_sorted}
-
-        # Rank sublattices by descending fractional part, then by sublattice key (stable)
-        rank = sorted(subl_sorted, key=lambda sl: (-fracs[sl], sl))
-
-        # Start with base, then hand out remainders
-        for sl in subl_sorted:
-            if base[sl] > 0:
-                composition_map[sl][elem] = composition_map[sl].get(elem, 0) + base[sl]
-        for i in range(remainder):
-            sl = rank[i]
-            composition_map[sl][elem] = composition_map[sl].get(elem, 0) + 1
-
-    # Final check: per-sublattice totals must match sublattice size exactly
-    for sl in subl_sorted:
-        subtotal = sum(int(v) for v in composition_map[sl].values())
-        if subtotal != sizes[sl]:
-            raise RuntimeError(
-                f"Sublattice '{sl}' assigned {subtotal} atoms, expected {sizes[sl]}."
-            )
-
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=(sx, sy, sz),
-        composition_map=composition_map,
+        composition_map=initial_comp_map,
         rng=rng,
     )
     struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
@@ -115,7 +46,7 @@ def _snapshot_struct_and_occ_from_counts(
     n_sites = getattr(ensemble.processor, "num_sites", occ.shape[0])
     if occ.shape[0] != n_sites:
         raise RuntimeError(f"Occupancy length {occ.shape[0]} != processor sites {n_sites}")
-    return struct, occ
+    return occ
 
 
 def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, int]]) -> tuple[dict[str, np.ndarray], dict[int, str]]:
@@ -192,6 +123,7 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
         production_mode=spec.production_mode,
         sublattice_indices=sublattice_indices,
         active_codes_to_elems=active_codes_to_elems,
+        reject_cross_sublattice_swaps=spec.reject_cross_sublattice_swaps,
     )
 
     # Parent hash & restore point
@@ -199,12 +131,7 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
         # Fresh initialization
         parent_wl_block_key = "GENESIS"
         step_start = 0
-        _, occ = _snapshot_struct_and_occ_from_counts(
-            ce_key=spec.ce_key,
-            sublattice_labels=list(spec.sl_comp_map.keys()),
-            composition_counts=spec.composition_counts,
-            rng=rng,
-        )
+        occ = _occ_from_initial_comp_map(ce_key=spec.ce_key, initial_comp_map=spec.initial_comp_map, rng=rng)
     else:
         # Load kernel + occupancy from tip
         parent_wl_block_key = str(tip["wl_block_key"])

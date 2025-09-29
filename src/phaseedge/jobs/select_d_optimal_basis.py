@@ -1,4 +1,4 @@
-from typing import Any, Mapping, Sequence, TypedDict, Literal, cast, Optional
+from typing import Any, Mapping, Sequence, TypedDict, Literal, cast
 
 import hashlib
 import math
@@ -9,7 +9,7 @@ from smol.moca.ensemble import Ensemble
 from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.science.prototypes import make_prototype
-from phaseedge.schemas.mixture import composition_counts_from_map
+from phaseedge.schemas.mixture import composition_map_sig
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
@@ -22,7 +22,7 @@ class Candidate(TypedDict):
     wl_key: str | None
     wl_block_key: str | None
     bin: int | None
-    counts: Mapping[str, int] | None  # endpoints carry counts; WL entries set None
+    composition_map: Mapping[str, Mapping[str, int]]
 
 
 def _occ_hash(occ: Sequence[int]) -> str:
@@ -59,10 +59,6 @@ def _corr_from_occ(ensemble: Ensemble, occ: Sequence[int]) -> np.ndarray:
     return np.asarray(vec, dtype=float).ravel()
 
 
-def _sig_from_counts(counts: Mapping[str, int]) -> str:
-    return ",".join(f"{k}:{int(v)}" for k, v in sorted(counts.items()))
-
-
 @job
 def select_d_optimal_basis(
     *,
@@ -71,12 +67,12 @@ def select_d_optimal_basis(
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     endpoints: Sequence[Mapping[str, Mapping[str, int]]],
+    wl_compoisition_maps: Mapping[str, Mapping[str, Mapping[str, int]]],
     # each chain: {"wl_key": str, "wl_block_key": str, "samples": [{"bin": int, "occ": [...]}, ...]}
     chains: Sequence[Mapping[str, Any]],
     budget: int,
     ridge: float = 1e-10,
     # NEW: map every WL chain to its composition counts so we can group by composition
-    wl_counts_map: Mapping[str, Mapping[str, int]] | None = None,
 ) -> Mapping[str, Any]:
     """
     Round-robin greedy D-opt selection by composition group.
@@ -113,7 +109,7 @@ def select_d_optimal_basis(
                 wl_key=None,
                 wl_block_key=None,
                 bin=None,
-                counts=composition_counts_from_map(ep),
+                composition_map=ep,
             )
         )
 
@@ -133,7 +129,7 @@ def select_d_optimal_basis(
                     wl_key=wl_key,
                     wl_block_key=ck_hash,
                     bin=b,
-                    counts=None,  # will be resolved via wl_counts_map
+                    composition_map=wl_compoisition_maps[wl_key],
                 )
             )
 
@@ -160,24 +156,9 @@ def select_d_optimal_basis(
     some_vec = feat(pool[0]["occ_hash"], pool[0]["occ"])
     p = int(some_vec.size)
 
-    # -------------------------
-    # Grouping by composition signature
-    # -------------------------
-    def comp_sig_for_candidate(c: Candidate) -> str:
-        if c["source"] == "endpoint":
-            assert c["counts"] is not None
-            return _sig_from_counts(c["counts"])
-        # WL: resolve via the wl_counts_map
-        if wl_counts_map is None:
-            return "unknown"
-        wk = cast(Optional[str], c["wl_key"])
-        if wk is None or wk not in wl_counts_map:
-            return "unknown"
-        return _sig_from_counts(wl_counts_map[wk])
-
     groups: dict[str, list[int]] = {}
     for i, c in enumerate(pool):
-        sig = comp_sig_for_candidate(c)
+        sig = composition_map_sig(c["composition_map"])
         groups.setdefault(sig, []).append(i)
 
     group_order = sorted(groups)  # deterministic round-robin

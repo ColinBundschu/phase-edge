@@ -8,8 +8,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.add_wl_block import add_wl_block, add_wl_chain
-from phaseedge.utils.keys import compute_wl_key
-from phaseedge.cli.common import parse_composition_map, parse_counts_arg
+from phaseedge.cli.common import parse_composition_map
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,18 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
     p.add_argument("--bin-width", required=True, type=float, help="Uniform enthalpy bin width (eV).")
+    p.add_argument("--sl-comp-map", required=True, help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).')
+    p.add_argument("--initial-comp-map", required=True, help='Initial composition map for the entire WL supercell (e.g., Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24}).')
+    p.add_argument("--reject-cross-sublattice-swaps", action="store_true", help="Reject WL swap moves that cross sublattices.")
 
-    p.add_argument(
-        "--sl-comp-map",
-        required=True,
-        help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).',
-    )
-
-    p.add_argument(
-        "--composition-counts",
-        required=True,
-        help="Exact counts per species over the WL supercell, e.g. 'Fe:54,Mg:54'.",
-    )
     p.add_argument("--step-type", default="swap", choices=["swap"], help="MC move type (canonical).")
     p.add_argument("--check-period", type=int, default=5_000)
     p.add_argument("--update-period", type=int, default=1)
@@ -83,30 +74,16 @@ def main() -> int:
     p = build_parser()
     args = p.parse_args()
 
-    composition_counts = parse_counts_arg(args.composition_counts)
+    initial_comp_map = parse_composition_map(args.initial_comp_map)
     sl_comp_map = parse_composition_map(args.sl_comp_map)
-
-    # wl_key encodes chain identity only (no steps, no samples_per_bin, no runtime flags).
-    wl_key: str = compute_wl_key(
-        ce_key=str(args.ce_key),
-        bin_width=float(args.bin_width),
-        step_type=str(args.step_type),
-        composition_counts=composition_counts,
-        check_period=int(args.check_period),
-        update_period=int(args.update_period),
-        seed=int(args.seed),
-        algo_version="wl-grid-v1",
-    )
-    short = wl_key[:12]
 
     # Build run_spec. steps/samples_per_bin/flags are runtime policies (non-key).
     run_spec = WLSamplerSpec(
-        wl_key=wl_key,
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
         steps=int(args.steps_to_run),
         sl_comp_map=sl_comp_map,
-        composition_counts=composition_counts,
+        initial_comp_map=initial_comp_map,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
         update_period=int(args.update_period),
@@ -114,7 +91,10 @@ def main() -> int:
         samples_per_bin=int(args.samples_per_bin),
         collect_cation_stats=bool(args.collect_cation_stats),
         production_mode=bool(args.production_mode),
+        reject_cross_sublattice_swaps=bool(args.reject_cross_sublattice_swaps),
     )
+
+    short = run_spec.wl_key[:12]
 
     # Build either a single-chunk flow or a linear chain of chunks.
     repeats = int(args.repeats)
@@ -122,31 +102,31 @@ def main() -> int:
         flow = add_wl_chain(run_spec, repeats=repeats)
         # Decorate each job with metadata and a clearer name; CLI has access to wl_key/category.
         for idx, j in enumerate(flow):
-            j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
+            j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": run_spec.wl_key}
             j.name = f"extend_wl::{short}::chunk{idx + 1}/{repeats}::+{int(args.steps_to_run):,}"
         flow.name = f"Extend WL :: {short} :: +{int(args.steps_to_run):,} × {repeats}"
     else:
         j = add_wl_block(run_spec)
         j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
-        j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": wl_key}
+        j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": run_spec.wl_key}
         flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")
 
     wf = flow_to_workflow(flow)
     for fw in wf.fws:
         # Append short wl_key to each FireWork name and propagate routing metadata to the manager.
         fw.name = f"{fw.name}::{short}"
-        fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": wl_key}
+        fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": run_spec.wl_key}
 
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
 
     payload: dict[str, Any] = {
         "submitted_workflow_id": wf_id,
-        "wl_key": wl_key,
+        "wl_key": run_spec.wl_key,
         "ce_key": args.ce_key,
         "bin_width": float(args.bin_width),
         "sl_comp_map": sl_comp_map,
-        "composition_counts": composition_counts,
+        "initial_comp_map": initial_comp_map,
         "step_type": str(args.step_type),
         "check_period": int(args.check_period),
         "update_period": int(args.update_period),
@@ -171,7 +151,7 @@ def main() -> int:
                     "ce_key",
                     "bin_width",
                     "sl_comp_map",
-                    "composition_counts",
+                    "initial_comp_map",
                     "step_type",
                     "check_period",
                     "update_period",

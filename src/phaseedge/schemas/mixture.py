@@ -45,7 +45,7 @@ def composition_counts_from_map(
     return canonical_counts(totals)
 
 
-def composition_counts_sig(
+def composition_map_sig(
     composition_map: Mapping[str, Mapping[str, int]],
     *,
     outer_sep: str = ",",
@@ -69,6 +69,20 @@ def composition_counts_sig(
     return outer_sep.join(parts)
 
 
+def canonical_comp_map(comp_map: Mapping[str, Mapping[str, int]]) -> dict[str, dict[str, int]]:
+    """
+    Canonicalize a composition_map by sorting outer keys and inner keys,
+    and casting all counts to int.
+
+    Args:
+        comp_map: e.g. {"Es": {"Fe": 10, "Mg": 98}, "B": {"Fe": 5, "Mg": 7}}
+
+    Returns:
+        e.g. {"B": {"Fe": 5, "Mg": 7}, "Es": {"Fe": 10, "Mg": 98}}
+    """
+    return {str(ok): canonical_counts(inner) for ok, inner in sorted(comp_map.items())}
+
+
 def sorted_composition_maps(
     composition_maps: Sequence[Mapping[str, Mapping[str, int]]],
 ) -> tuple[dict[str, dict[str, int]], ...]:
@@ -76,11 +90,9 @@ def sorted_composition_maps(
     Given a sequence of composition_map-like dicts, return a tuple of
     normalized (canonicalized) dicts with sorted keys and int counts.
     """
-    normalized_composition_maps = [
-        {str(ok): canonical_counts(inner) for ok, inner in sorted(cm.items())}
-        for cm in composition_maps
-    ]
-    return tuple(sorted(normalized_composition_maps, key=composition_counts_sig))
+    normalized_composition_maps = [canonical_comp_map(cm) for cm in composition_maps]
+    return tuple(sorted(normalized_composition_maps, key=composition_map_sig))
+
 
 @dataclass(frozen=True)
 class Mixture(MSONable):
