@@ -23,9 +23,9 @@ class WLBlockDoc(TypedDict, total=True):
 def fetch_wl_tip(wl_key: str) -> WLBlockDoc | None:
     js = build_jobstore()
     # fetch the last block for this wl_key
-    rows = list(js.docs_store.query(
+    rows = list(js.query(
         criteria={"output.kind": "WLBlockDoc", "output.wl_key": wl_key},
-        properties={"_id": 0, "output": 1},
+        load=True,
         sort={"output.step_end": -1},  # latest first
         limit=1,
     ))
