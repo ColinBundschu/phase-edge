@@ -15,7 +15,7 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Fe:108};K=1;seed=0" \
 --mix "composition_map=Es:{Mg:108};K=1;seed=0" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell --dtype float64 \
+--model "MACE-MPA-0" --relax-cell \
 --basis sinusoid --cutoffs "1:100,2:10,3:8,4:6" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -39,7 +39,7 @@ pe-ensure-ce-from-refined-wl \
 --endpoint "Es:{Fe:108}" \
 --endpoint "Es:{Mg:108}" \
 --seed 42 \
---model MACE-MPA-0 --relax-cell --dtype float64 \
+--model MACE-MPA-0 --relax-cell \
 --basis sinusoid --cutoffs "1:100,2:10,3:8,4:6" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -48,7 +48,7 @@ pe-ensure-ce-from-refined-wl \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
 --refine-n-total 50 --refine-per-bin-cap 5 --refine-strategy energy_spread \
---train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--train-model MACE-MPA-0 --train-relax-cell \
 --sl-comp-map 'Es:{Fe:108}' \
 --budget 102
 

@@ -25,7 +25,6 @@ class CEModelDoc(TypedDict, total=True):
     sources: Sequence[Mapping[str, Any]]  # e.g., training set fetch params
     model: str
     relax_cell: bool
-    dtype: str
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any]
     weighting: Mapping[str, Any]
@@ -107,7 +106,6 @@ def store_ce_model(
 
     model: str,
     relax_cell: bool,
-    dtype: str,
 
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
@@ -133,7 +131,6 @@ def store_ce_model(
         "sources": normalize_sources(sources),
         "model": model,
         "relax_cell": relax_cell,
-        "dtype": dtype,
         "basis_spec": dict(basis_spec),
         "regularization": dict(regularization),
         "weighting": dict(weighting),

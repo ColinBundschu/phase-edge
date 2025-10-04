@@ -1,21 +1,29 @@
 from dataclasses import dataclass
 from typing import Any, cast
+from enum import Enum
 
 from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow
 from atomate2.forcefields.jobs import ForceFieldRelaxMaker
 from pymatgen.core import Structure
+from atomate2.vasp.jobs.mp import MPGGARelaxMaker
+from atomate2.vasp.powerups import update_user_incar_settings
 
 from phaseedge.storage.store import lookup_total_energy_eV
 
 
+class RelaxType(str, Enum):
+    VASP = "vasp"
+    MACE_MPA_0 = "MACE-MPA-0"
+
+
 @dataclass(frozen=True)
-class _FFSpec:
-    force_field_name: str
+class RelaxSpec:
+    relax_type: RelaxType
     calculator_kwargs: dict[str, Any]
 
 
-def _parse_model_spec(model: str, *, dtype: str) -> _FFSpec:
+def _parse_relax_spec(model: str) -> RelaxSpec:
     """
     Interpret the user 'model' string.
 
@@ -24,15 +32,13 @@ def _parse_model_spec(model: str, *, dtype: str) -> _FFSpec:
       - 'NAME;EXTRA'                 -> force_field_name='NAME', calculator_kwargs['model']='EXTRA'
     Everything before the first ';' is the force-field name. Everything after (if non-empty)
     is passed through as the 'model' kwarg to the calculator. Whitespace is stripped.
-
-    We always add {'default_dtype': dtype}.
     """
     head, sep, tail = model.partition(";")
     ff_name = head.strip()
-    calc_kwargs: dict[str, Any] = {"default_dtype": dtype}
+    calc_kwargs: dict[str, Any] = {}
     if sep and tail.strip():
         calc_kwargs["model"] = tail.strip()
-    return _FFSpec(force_field_name=ff_name, calculator_kwargs=calc_kwargs)
+    return RelaxSpec(relax_type=RelaxType(ff_name), calculator_kwargs=calc_kwargs)
 
 
 @job
@@ -49,30 +55,33 @@ def relax_structure(
     structure: Structure,
     model: str,
     relax_cell: bool,
-    dtype: str,
     category: str,
 ) -> float | Response:
-    # Strict reuse: only return an existing doc if converged
-    existing_energy = lookup_total_energy_eV(
-        set_id=set_id, occ_key=occ_key, model=model,
-        relax_cell=relax_cell, dtype=dtype, require_converged=True
-    )
+    existing_energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, model=model, relax_cell=relax_cell)
     if existing_energy is not None:
         raise RuntimeError(
-            "A converged relaxation already exists for this set_id/occ_key/model/relax_cell/dtype. "
+            "A converged relaxation already exists for this set_id/occ_key/model/relax_cell. "
             "No new relaxation scheduled."
         )
 
-    ff_spec = _parse_model_spec(model, dtype=dtype)
-    maker = ForceFieldRelaxMaker(
-        force_field_name=ff_spec.force_field_name,
-        relax_cell=relax_cell,
-        steps=5000,  # large default so you don't have to pass flags
-        calculator_kwargs=ff_spec.calculator_kwargs,
-    )
+    relax_spec = _parse_relax_spec(model)
+
+    if relax_spec.relax_type == RelaxType.VASP:
+        if not relax_cell:
+            raise NotImplementedError("TODO: Implement fixed-cell VASP calculation.")
+        maker = MPGGARelaxMaker()
+    elif relax_spec.relax_type == RelaxType.MACE_MPA_0:
+        maker = ForceFieldRelaxMaker(
+            force_field_name=relax_spec.relax_type,
+            relax_cell=relax_cell,
+            steps=5000,
+            calculator_kwargs=relax_spec.calculator_kwargs | {"default_dtype": "float64"},
+        )
+    else:
+        raise ValueError(f"Unrecognized relax_type: {relax_spec.relax_type}")
 
     j_relax = cast(Job, maker.make(structure))
-    j_relax.name = "ff_relax"
+    j_relax.name = "geometry_relax"
     j_relax.update_metadata(
         {
             "_category": category,
@@ -80,14 +89,20 @@ def relax_structure(
             "occ_key": occ_key,
             "model": model,
             "relax_cell": relax_cell,
-            "dtype": dtype,
         }
     )
 
-    j_assert = _require_converged(j_relax.output.is_force_converged)
-    j_assert.name = "ff_require_converged"
-    j_assert.update_metadata(j_relax.metadata or {})
+    if relax_spec.relax_type == RelaxType.VASP:
+        # For VASP relaxations, just return the relax job as-is
+        j_relax = cast(Job, update_user_incar_settings(j_relax, incar_updates={"NCORE": 1, "NSIM": 8, "KPAR": 4}))
+        subflow = Flow([j_relax], name="vasp_relax")
+    elif relax_spec.relax_type == RelaxType.MACE_MPA_0:
+        j_assert = _require_converged(j_relax.output.is_force_converged)
+        j_assert.name = "ff_require_converged"
+        j_assert.update_metadata(j_relax.metadata)
+        subflow = Flow([j_relax, j_assert], name="ff_relax_then_assert")
+    else:
+        raise ValueError(f"Unrecognized relax_type: {relax_spec.relax_type}")
 
-    subflow = Flow([j_relax, j_assert], name="ff_relax_then_assert")
     # Expose the relax TaskDoc as the flow's output
     return Response(replace=subflow, output=j_relax.output.output.energy)

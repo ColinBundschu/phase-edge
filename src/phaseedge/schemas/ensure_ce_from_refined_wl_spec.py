@@ -68,7 +68,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     refine_strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
     train_model: str = "MACE-MPA-0"
     train_relax_cell: bool = False
-    train_dtype: str = "float64"
     budget: int = 64
 
     # Single category for *everything* (wrapper, CE subflow, WL jobs)
@@ -94,7 +93,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "refine_strategy": self.refine_strategy,
             "train_model": self.train_model,
             "train_relax_cell": self.train_relax_cell,
-            "train_dtype": self.train_dtype,
             "budget": self.budget,
             "category": self.category,
         }
@@ -121,7 +119,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             refine_strategy=RefineStrategy(d["refine_strategy"]),
             train_model=str(d["train_model"]),
             train_relax_cell=bool(d["train_relax_cell"]),
-            train_dtype=str(d["train_dtype"]),
             budget=int(d["budget"]),
             category=str(d.get("category", "gpu")),
         )
@@ -157,7 +154,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             sources=[self.source],
             model=self.train_model,
             relax_cell=self.train_relax_cell,
-            dtype=self.train_dtype,
             basis_spec=self.ce_spec.basis_spec,
             regularization=self.ce_spec.regularization,
             algo_version="refined-wl-dopt-v2",

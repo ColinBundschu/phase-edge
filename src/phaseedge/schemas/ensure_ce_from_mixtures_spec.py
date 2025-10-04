@@ -18,7 +18,6 @@ class EnsureCEFromMixturesSpec(MSONable):
 
     model: str
     relax_cell: bool
-    dtype: str
 
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
@@ -50,7 +49,6 @@ class EnsureCEFromMixturesSpec(MSONable):
             "seed": int(self.seed),
             "model": self.model,
             "relax_cell": self.relax_cell,
-            "dtype": self.dtype,
             "basis_spec": dict(self.basis_spec),
             "category": self.category,
         }
@@ -71,7 +69,6 @@ class EnsureCEFromMixturesSpec(MSONable):
             seed=int(d["seed"]),
             model=d["model"],
             relax_cell=bool(d["relax_cell"]),
-            dtype=d["dtype"],
             basis_spec=d["basis_spec"],
             regularization=d.get("regularization"),
             weighting=d.get("weighting"),
@@ -95,7 +92,6 @@ class EnsureCEFromMixturesSpec(MSONable):
             sources=[self.source],
             model=self.model,
             relax_cell=self.relax_cell,
-            dtype=self.dtype,
             basis_spec=self.basis_spec,
             regularization=self.regularization,
             algo_version=self.algo,

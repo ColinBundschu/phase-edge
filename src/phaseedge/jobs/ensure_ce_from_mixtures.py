@@ -33,7 +33,6 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         mixtures=spec.mixtures,
         model=spec.model,
         relax_cell=spec.relax_cell,
-        dtype=spec.dtype,
         category=spec.category,
     )
     f_ensure_all.name = "ensure_dataset_compositions"
@@ -65,7 +64,6 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         sources=[spec.source],
         model=spec.model,
         relax_cell=spec.relax_cell,
-        dtype=spec.dtype,
         basis_spec=spec.basis_spec,
         regularization=spec.regularization,
         weighting=spec.weighting,

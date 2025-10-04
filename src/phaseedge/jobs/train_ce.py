@@ -50,7 +50,6 @@ class CETrainRef(TypedDict):
     occ_key: str
     model: str
     relax_cell: bool
-    dtype: str
     structure: Structure
 
 
@@ -73,7 +72,6 @@ def lookup_train_ref_energy(train_ref: CETrainRef) -> float:
         occ_key=train_ref["occ_key"],
         model=train_ref["model"],
         relax_cell=train_ref["relax_cell"],
-        dtype=train_ref["dtype"],
     )
     if energy is None:
         raise KeyError(f"Could not find total energy for train_ref: {train_ref}")

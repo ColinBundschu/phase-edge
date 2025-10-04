@@ -92,8 +92,6 @@ def lookup_total_energy_eV(
     occ_key: str,
     model: str,
     relax_cell: bool,
-    dtype: str,
-    require_converged: bool = True,
 ) -> float | None:
     """
     Efficiently fetch just the total energy (eV) for a ForceFieldTaskDocument
@@ -108,18 +106,16 @@ def lookup_total_energy_eV(
         "metadata.occ_key": occ_key,
         "metadata.model": model,
         "metadata.relax_cell": relax_cell,
-        "metadata.dtype": dtype,
         "output.output.energy": {"$exists": True},
     }
-    if require_converged:
+    if model != "vasp":
         criteria["output.is_force_converged"] = True
 
     projection = {
         "output.output.energy": 1,
     }
 
-    # limit=2 prevents loading a huge cursor if duplicates exist; we still fail unless exactly one.
-    docs_iter = js.docs_store.query(criteria=criteria, properties=projection, limit=2)
+    docs_iter = js.docs_store.query(criteria=criteria, properties=projection)
     docs = list(docs_iter)
 
     if not docs:
@@ -127,7 +123,7 @@ def lookup_total_energy_eV(
     if len(docs) > 1:
         raise RuntimeError(
             f"Expected exactly one FF task, found {len(docs)} for set_id={set_id} occ_key={occ_key} "
-            f"model={model} relax_cell={relax_cell} dtype={dtype}"
+            f"model={model} relax_cell={relax_cell}"
         )
     
     energy = docs[0]["output"]["output"]["energy"]

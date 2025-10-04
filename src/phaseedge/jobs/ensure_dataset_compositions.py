@@ -21,14 +21,13 @@ def ensure_dataset_compositions(
     mixtures: Sequence[Mixture],
     model: str,
     relax_cell: bool,
-    dtype: str,
-    category: str = "gpu",
+    category: str,
 ) -> Mapping[str, Any] | Response:
     if not mixtures:
         raise ValueError("mixtures must be a non-empty sequence.")
 
     # Build prototype once
-    conv_cell = make_prototype(prototype, **(prototype_params or {}))
+    conv_cell = make_prototype(prototype, **prototype_params)
 
     train_refs: list[CETrainRef] = []
     sub_jobs: list[Job | Flow] = []
@@ -40,6 +39,7 @@ def ensure_dataset_compositions(
             composition_map=mixture.composition_map,
             seed=mixture.seed,
         )
+        duplicate_map = {}
         for idx in range(mixture.K):
             rng = rng_for_index(set_id, idx)
             snapshot = make_one_snapshot(
@@ -52,24 +52,24 @@ def ensure_dataset_compositions(
             occ_key = occ_key_for_structure(structure)
 
             # 1) schedule relax
-            energy = lookup_total_energy_eV(
-                set_id=set_id, occ_key=occ_key, model=model,
-                relax_cell=relax_cell, dtype=dtype, require_converged=True
-            )
+            energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, model=model, relax_cell=relax_cell)
             if energy is None:
-                j_relax = relax_structure(
-                    set_id=set_id,
-                    occ_key=occ_key,
-                    structure=structure,
-                    model=model,
-                    relax_cell=relax_cell,
-                    dtype=dtype,
-                    category=category,
-                )
-                j_relax.name = f"relax[{m_ix}:{idx}:{occ_key[:12]}]"
-                j_relax.update_metadata({"_category": category})
-                sub_jobs.append(j_relax)
-                energy = j_relax.output
+                if occ_key in duplicate_map:
+                    energy = duplicate_map[occ_key]
+                else:
+                    j_relax = relax_structure(
+                        set_id=set_id,
+                        occ_key=occ_key,
+                        structure=structure,
+                        model=model,
+                        relax_cell=relax_cell,
+                        category=category,
+                    )
+                    j_relax.name = f"relax[{m_ix}:{idx}:{occ_key[:12]}]"
+                    j_relax.update_metadata({"_category": category})
+                    sub_jobs.append(j_relax)
+                    energy = j_relax.output
+                    duplicate_map[occ_key] = energy
 
             # 3) reference the scalar energy output (clean OutputReference[float])
             train_refs.append(
@@ -78,7 +78,6 @@ def ensure_dataset_compositions(
                     occ_key=occ_key,
                     model=model,
                     relax_cell=relax_cell,
-                    dtype=dtype,
                     structure=structure,
                 )
             )
@@ -86,14 +85,12 @@ def ensure_dataset_compositions(
     train_refs_out = sorted(train_refs, key=lambda r: (r["set_id"], r["occ_key"]))
     dataset_key = compute_dataset_key([{k:v for k,v in train_ref.items() if k != "structure"} for train_ref in train_refs_out])
     output = {"dataset_key": dataset_key}
-    if train_refs_exist(dataset_key):
-        return output
+    if not train_refs_exist(dataset_key):
+        output = output | {"train_refs": train_refs_out, "kind": "CETrainRef_dataset"}
 
-    output = output | {"train_refs": train_refs_out, "kind": "CETrainRef_dataset"}
     if not sub_jobs:
         # All references were already relaxed; just return the train_refs
         return output
-
 
     subflow = Flow(sub_jobs, name="Relax + extract energies (parallel)")
     return Response(replace=subflow, output=output)

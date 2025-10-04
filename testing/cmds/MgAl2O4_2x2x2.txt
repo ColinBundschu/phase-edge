@@ -20,7 +20,7 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=5;seed=42" \
 --mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=5;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell --dtype float64 \
+--model vasp --relax-cell \
 --basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -49,7 +49,7 @@ pe-ensure-ce-from-refined-wl \
 --mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=5;seed=42" \
 --mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=5;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell --dtype float64 \
+--model "MACE-MPA-0" --relax-cell \
 --basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -58,7 +58,7 @@ pe-ensure-ce-from-refined-wl \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
 --refine-n-total 40 --refine-per-bin-cap 5 --refine-strategy energy_spread \
---train-model MACE-MPA-0 --train-relax-cell --train-dtype float64 \
+--train-model vasp --train-relax-cell \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --reject-cross-sublattice-swaps \
 --budget 150
@@ -68,7 +68,7 @@ pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
 --ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
 --bin-width 0.1 \
---composition-counts 'Mg:16,Al:32' \
+--initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
 --category cpu \
@@ -80,7 +80,7 @@ pe-extend-wl \
 --launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
 --ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
 --bin-width 0.1 \
---composition-counts 'Mg:16,Al:32' \
+--initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --sl-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
 --category cpu \

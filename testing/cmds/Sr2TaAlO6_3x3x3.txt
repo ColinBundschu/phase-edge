@@ -1,0 +1,78 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype double_perovskite --inactive-cation Sr --a 7.86 \
+--supercell 3 3 3 \
+--mix "composition_map=Es:{Ta:27},Fm:{Al:27};K=1;seed=0" \
+--mix "composition_map=Es:{Ta:24,Al:3},Fm:{Ta:3,Al:24};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:21,Al:6},Fm:{Ta:6,Al:21};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:18,Al:9},Fm:{Ta:9,Al:18};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:15,Al:12},Fm:{Ta:12,Al:15};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:12,Al:15},Fm:{Ta:15,Al:12};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:9,Al:18},Fm:{Ta:18,Al:9};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:6,Al:21},Fm:{Ta:21,Al:6};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:3,Al:24},Fm:{Ta:24,Al:3};K=10;seed=42" \
+--mix "composition_map=Es:{Al:27},Fm:{Ta:27};K=1;seed=0" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell \
+--basis sinusoid --cutoffs "1:100,2:11,3:9,4:6" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category macegpu
+
+
+
+pe-ensure-ce-from-refined-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype double_perovskite --inactive-cation Sr --a 7.86 \
+--supercell 3 3 3 \
+--endpoint "Es:{Ta:27},Fm:{Al:27}" \
+--mix "composition_map=Es:{Ta:24,Al:3},Fm:{Ta:3,Al:24};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:21,Al:6},Fm:{Ta:6,Al:21};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:18,Al:9},Fm:{Ta:9,Al:18};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:15,Al:12},Fm:{Ta:12,Al:15};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:12,Al:15},Fm:{Ta:15,Al:12};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:9,Al:18},Fm:{Ta:18,Al:9};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:6,Al:21},Fm:{Ta:21,Al:6};K=10;seed=42" \
+--mix "composition_map=Es:{Ta:3,Al:24},Fm:{Ta:24,Al:3};K=10;seed=42" \
+--endpoint "Es:{Al:27},Fm:{Ta:27}" \
+--seed 42 \
+--model "MACE-MPA-0" --relax-cell \
+--basis sinusoid --cutoffs "1:100,2:11,3:9,4:6" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category macegpu \
+--wl-bin-width 0.1 --samples-per-bin 5 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--refine-n-total 100 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--train-model MACE-MPA-0 --train-relax-cell \
+--sl-comp-map 'Es:{Ta:27},Fm:{Al:27}' \
+--reject-cross-sublattice-swaps \
+--budget 150
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 65bf3a871d25b364c65dbd86096ea65a25278e584c6919497ce59d756453d433 \
+--bin-width 0.1 \
+--sl-comp-map 'Es:{Ta:27},Fm:{Al:27}' \
+--initial-comp-map 'Es:{Ta:27},Fm:{Al:27}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--repeats 100 \
+--json
+
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 65bf3a871d25b364c65dbd86096ea65a25278e584c6919497ce59d756453d433 \
+--bin-width 0.1 \
+--sl-comp-map 'Es:{Ta:27},Fm:{Al:27}' \
+--initial-comp-map 'Es:{Ta:27},Fm:{Al:27}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--collect-cation-stats \
+--production-mode \
+--json
+

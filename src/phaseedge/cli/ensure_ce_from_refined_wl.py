@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prototype", required=True, choices=[p.value for p in PrototypeName])
     p.add_argument("--a", required=True, type=float)
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
+    p.add_argument("--inactive-cation", dest="inactive_cation", default=None, help="Fixed A-site for double_perovskite (e.g., 'Sr').")
 
     # Composition input
     p.add_argument("--mix", action="append", required=True, help="Composition mixture: 'composition_map=...;K=...;seed=...'")
@@ -41,7 +42,6 @@ def build_parser() -> argparse.ArgumentParser:
     # Initial CE (engine for training energies of the initial dataset)
     p.add_argument("--model", default="MACE-MPA-0")
     p.add_argument("--relax-cell", action="store_true")
-    p.add_argument("--dtype", default="float64")
 
     # CE hyperparameters
     p.add_argument("--basis", default="sinusoid")
@@ -76,7 +76,6 @@ def build_parser() -> argparse.ArgumentParser:
     # Final CE training (for relaxations + final ce_key)
     p.add_argument("--train-model", required=True)
     p.add_argument("--train-relax-cell", action="store_true")
-    p.add_argument("--train-dtype", default="float64")
 
     # D-optimal budget
     p.add_argument("--budget", required=True, type=int)
@@ -98,8 +97,16 @@ def main() -> int:
     mixtures = (*proper_mixtures, *(Mixture(composition_map=ep, K=1, seed=0) for ep in endpoints))
     sl_comp_map = parse_composition_map(args.sl_comp_map)
 
+    proto_params: dict[str, Any] = {"a": float(args.a)}
+    if args.prototype == PrototypeName.DOUBLE_PEROVSKITE.value:
+        if not args.inactive_cation:
+            raise SystemExit("--inactive-cation is required when --prototype=double_perovskite")
+        proto_params["inactive_cation"] = str(args.inactive_cation)
+    elif args.inactive_cation:
+        raise SystemExit("--inactive-cation is only valid when --prototype=double_perovskite")
+    
     # Optional early validation
-    conv = make_prototype(args.prototype, a=args.a)
+    conv = make_prototype(PrototypeName(args.prototype), **proto_params)
     for mixture in mixtures:
         validate_counts_for_sublattices(
             conv_cell=conv,
@@ -118,13 +125,12 @@ def main() -> int:
     # Build CE spec
     ce_spec = EnsureCEFromMixturesSpec(
         prototype=PrototypeName(args.prototype),
-        prototype_params={"a": args.a},
+        prototype_params=proto_params,
         supercell_diag=supercell_diag,
         mixtures=mixtures,
         seed=int(args.seed),
         model=args.model,
         relax_cell=bool(args.relax_cell),
-        dtype=args.dtype,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
         category=args.category,
@@ -149,7 +155,6 @@ def main() -> int:
         refine_strategy=RefineStrategy(args.refine_strategy),
         train_model=str(args.train_model),
         train_relax_cell=bool(args.train_relax_cell),
-        train_dtype=str(args.train_dtype),
         budget=int(args.budget),
         category=str(args.category),
     )
@@ -203,14 +208,12 @@ def main() -> int:
             "initial_training": {
                 "model": spec.ce_spec.model,
                 "relax_cell": spec.ce_spec.relax_cell,
-                "dtype": spec.ce_spec.dtype,
             },
         })
         print({
             "final_training": {
                 "model": spec.train_model,
                 "relax_cell": spec.train_relax_cell,
-                "dtype": spec.train_dtype,
             },
             "budget": spec.budget,
             "seed_size_estimate": payload["seed_size_estimate"],

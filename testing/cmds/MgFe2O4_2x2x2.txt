@@ -1,0 +1,90 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel --a 8.08 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Mg:16},Fm:{Fe:32};K=1;seed=0" \
+--mix "composition_map=Es:{Mg:15,Fe:1},Fm:{Mg:1,Fe:31};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:14,Fe:2},Fm:{Mg:2,Fe:30};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:13,Fe:3},Fm:{Mg:3,Fe:29};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:12,Fe:4},Fm:{Mg:4,Fe:28};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:11,Fe:5},Fm:{Mg:5,Fe:27};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:10,Fe:6},Fm:{Mg:6,Fe:26};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:9,Fe:7},Fm:{Mg:7,Fe:25};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:8,Fe:8},Fm:{Mg:8,Fe:24};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:7,Fe:9},Fm:{Mg:9,Fe:23};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:6,Fe:10},Fm:{Mg:10,Fe:22};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:5,Fe:11},Fm:{Mg:11,Fe:21};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:4,Fe:12},Fm:{Mg:12,Fe:20};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:3,Fe:13},Fm:{Mg:13,Fe:19};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:2,Fe:14},Fm:{Mg:14,Fe:18};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:1,Fe:15},Fm:{Mg:15,Fe:17};K=5;seed=42" \
+--mix "composition_map=Es:{Fe:16},Fm:{Mg:16,Fe:16};K=5;seed=42" \
+--seed 42 \
+--model vasp --relax-cell \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-ce-from-refined-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel --a 8.08 \
+--supercell 2 2 2 \
+--endpoint "Es:{Mg:16},Fm:{Fe:32}" \
+--mix "composition_map=Es:{Mg:15,Fe:1},Fm:{Mg:1,Fe:31};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:14,Fe:2},Fm:{Mg:2,Fe:30};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:13,Fe:3},Fm:{Mg:3,Fe:29};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:12,Fe:4},Fm:{Mg:4,Fe:28};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:11,Fe:5},Fm:{Mg:5,Fe:27};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:10,Fe:6},Fm:{Mg:6,Fe:26};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:9,Fe:7},Fm:{Mg:7,Fe:25};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:8,Fe:8},Fm:{Mg:8,Fe:24};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:7,Fe:9},Fm:{Mg:9,Fe:23};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:6,Fe:10},Fm:{Mg:10,Fe:22};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:5,Fe:11},Fm:{Mg:11,Fe:21};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:4,Fe:12},Fm:{Mg:12,Fe:20};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:3,Fe:13},Fm:{Mg:13,Fe:19};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:2,Fe:14},Fm:{Mg:14,Fe:18};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:1,Fe:15},Fm:{Mg:15,Fe:17};K=5;seed=42" \
+--mix "composition_map=Es:{Fe:16},Fm:{Mg:16,Fe:16};K=5;seed=42" \
+--seed 42 \
+--model vasp --relax-cell \
+--basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
+--reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 5 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--refine-n-total 40 --refine-per-bin-cap 5 --refine-strategy energy_spread \
+--train-model vasp --train-relax-cell \
+--sl-comp-map 'Es:{Mg:16},Fm:{Fe:32}' \
+--reject-cross-sublattice-swaps \
+--budget 150
+
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Mg:16},Fm:{Fe:32}' \
+--sl-comp-map 'Es:{Mg:16},Fm:{Fe:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--repeats 100 \
+--json
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 12f34e8ed8bb3e43a2abbf4d881825cb507a718dd7011c5b99b9c192dc8a7b89 \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Mg:16},Fm:{Fe:32}' \
+--sl-comp-map 'Es:{Mg:16},Fm:{Fe:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--collect-cation-stats \
+--production-mode
+--json

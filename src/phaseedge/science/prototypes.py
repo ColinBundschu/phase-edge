@@ -8,13 +8,14 @@ from enum import Enum
 class PrototypeName(str, Enum):
     ROCKSALT = "rocksalt"
     SPINEL = "spinel"
+    DOUBLE_PEROVSKITE = "double_perovskite"
 
 
 def make_prototype(
     name: PrototypeName,
     *,
-    a: float = 4.3,
-    cubic: bool = True,
+    a: float,
+    inactive_cation: str | None = None,
 ) -> Atoms:
     """
     Build a primitive prototype cell as an ASE Atoms.
@@ -32,11 +33,9 @@ def make_prototype(
     a
         Lattice constant 'a' in Å. For spinel, typical values are ~8.08 Å for MgAl2O4,
         but this is left to the caller.
-    cubic
-        Unused for spinel; kept for rocksalt parity.
     """
     if name == PrototypeName.ROCKSALT:
-        atoms = bulk("MgO", crystalstructure="rocksalt", a=a, cubic=cubic)
+        atoms = bulk("MgO", crystalstructure="rocksalt", a=a, cubic=True)
 
         # Identify cation sites (Mg in this prototype)
         syms = np.array(atoms.get_chemical_symbols())
@@ -57,7 +56,24 @@ def make_prototype(
         atoms = crystal(
             symbols=["Es", "Fm", "O"],                     # A=Es(99), B=Fm(100), O
             basis=[(1/4, 3/4, 3/4), (5/8, 3/8, 3/8), (u + 1/2, u, u)],  # 8a, 16d, 32e(u)
-            spacegroup=227,                                 # Fd-3m
+            spacegroup=227, # Fd-3m
+            cellpar=[a, a, a, 90, 90, 90],
+            primitive_cell=True,
+        )
+        return atoms
+    
+    if name == PrototypeName.DOUBLE_PEROVSKITE:
+        # Use a standard oxygen parameter u. Caller can vary 'a'.
+        u = 0.254328
+        
+        if inactive_cation is None:
+            raise ValueError("inactive_cation must be specified for double_perovskite prototype.")
+
+        # Build primitive cell directly.
+        atoms = crystal(
+            symbols=["Es", "Fm", inactive_cation, "O"],
+            basis=[(0, 0, 0), (0, 0, 1/2), (1/4, 3/4, 3/4), (u, 0, 0)],
+            spacegroup=225, # Fm-3m
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,
         )

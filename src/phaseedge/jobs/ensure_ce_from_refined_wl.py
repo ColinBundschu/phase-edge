@@ -93,7 +93,6 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         selected=j_select.output["chosen"],
         model=spec.train_model,
         relax_cell=spec.train_relax_cell,
-        dtype=spec.train_dtype,
         category=spec.category,
     )
     j_relax.name = "ensure_dataset_selected"
@@ -124,7 +123,6 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         sources=[spec.source],
         model=spec.train_model,
         relax_cell=spec.train_relax_cell,
-        dtype=spec.train_dtype,
         basis_spec=spec.ce_spec.basis_spec,
         regularization=spec.ce_spec.regularization,
         weighting=spec.ce_spec.weighting,

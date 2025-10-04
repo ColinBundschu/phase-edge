@@ -255,7 +255,6 @@ def compute_ce_key(
     algo_version: str,
     model: str,
     relax_cell: bool,
-    dtype: str,
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None = None,
     weighting: Mapping[str, Any] | None = None,
@@ -277,7 +276,7 @@ def compute_ce_key(
             "algo": algo_version,
             "sources": norm_sources,
         },
-        "engine": {"model": model, "relax_cell": bool(relax_cell), "dtype": dtype},
+        "engine": {"model": model, "relax_cell": bool(relax_cell)},
         "hyperparams": {
             "basis": _json_canon(basis_spec),
             "regularization": _json_canon(regularization or {}),
@@ -359,20 +358,19 @@ def compute_dataset_key(
         A versioned SHA-256 hex digest like "ds1:<hex>".
     """
     # normalize each item to a minimal tuple that survives sorting
-    norm: list[tuple[str, str, str, bool, str]] = []
+    norm: list[tuple[str, str, str, bool]] = []
     for i, r in enumerate(refs):
         try:
             set_id = str(r["set_id"])
             occ_key = str(r["occ_key"])
             model = str(r["model"])
             relax_cell = bool(r["relax_cell"])
-            dtype = str(r["dtype"])
         except Exception as exc:
             raise ValueError(f"Bad CETrainRef at index {i}: {exc}") from exc
-        norm.append((set_id, occ_key, model, relax_cell, dtype))
+        norm.append((set_id, occ_key, model, relax_cell))
 
     # sort for order independence
-    norm.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+    norm.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
 
     # canonical JSON: compact separators, sorted keys not needed for lists, but stable anyway
     payload = json.dumps(norm, separators=(",", ":"), sort_keys=False)
