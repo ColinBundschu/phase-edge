@@ -47,7 +47,7 @@ def ensure_dataset_selected(
                 relax_cell=relax_cell,
                 category=category,
             )
-            j_relax.name = f"relax[{sig}::{occ_key[:12]}]"
+            j_relax.name = f"relax_selected::{sig}::{occ_key[:12]}"
             j_relax.update_metadata({"_category": category})
             sub_jobs.append(j_relax)
             energy = j_relax.output

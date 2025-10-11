@@ -8,12 +8,11 @@ from pymatgen.core import Structure
 from numpy.typing import NDArray
 
 from phaseedge.schemas.mixture import Mixture, canonical_comp_map, sorted_composition_maps
-from phaseedge.science.prototypes import PrototypeName
 
 
 def compute_set_id(
     *,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any] | None,
     supercell_diag: tuple[int, int, int],
     composition_map: dict[str, dict[str, int]],
@@ -27,7 +26,7 @@ def compute_set_id(
     Parameters
     ----------
     prototype
-        Prototype name (e.g., "rocksalt").
+        Prototype (e.g., "rocksalt_Q0O").
     prototype_params
         Prototype parameters (e.g., {"a": 4.3}).
     supercell_diag
@@ -248,7 +247,7 @@ def normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, An
 
 def compute_ce_key(
     *,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sources: Sequence[Mapping[str, Any]],

@@ -1,10 +1,9 @@
 import os
 from urllib.parse import quote_plus
-from typing import Literal, Any, Mapping, cast
+from typing import Any, Mapping, cast
 
 from pymongo import MongoClient
 from pymongo.database import Database
-from pymongo.collection import Collection
 from monty.serialization import loadfn
 from jobflow.core.store import JobStore
 from maggma.stores import MongoStore, GridFSStore
@@ -108,7 +107,8 @@ def lookup_total_energy_eV(
         "metadata.relax_cell": relax_cell,
         "output.output.energy": {"$exists": True},
     }
-    if model != "vasp":
+    from phaseedge.jobs.relax_structure import RelaxType
+    if model == RelaxType.MACE_MPA_0:
         criteria["output.is_force_converged"] = True
 
     projection = {

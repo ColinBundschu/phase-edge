@@ -6,7 +6,6 @@ from jobflow.core.job import job
 from smol.cofe import ClusterExpansion
 from smol.moca.ensemble import Ensemble
 
-from phaseedge.science.prototypes import PrototypeName
 from phaseedge.storage.store import lookup_unique
 from phaseedge.utils.keys import normalize_sources
 
@@ -18,7 +17,7 @@ from phaseedge.utils.keys import normalize_sources
 class CEModelDoc(TypedDict, total=True):
     kind: str  # "CEModelDoc"
     ce_key: str
-    prototype: PrototypeName
+    prototype: str
     prototype_params: Mapping[str, Any]
     supercell_diag: tuple[int, int, int]
     algo_version: str
@@ -97,7 +96,7 @@ def store_ce_model(
     *,
     ce_key: str,
 
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
 

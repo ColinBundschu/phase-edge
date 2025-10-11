@@ -14,10 +14,9 @@ from sklearn.metrics import mean_squared_error
 from smol.cofe import ClusterExpansion, ClusterSubspace, StructureWrangler
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 
-from phaseedge.science.prototypes import make_prototype, PrototypeName
+from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.design_metrics import compute_design_metrics, MetricOptions, DesignMetrics
 from phaseedge.storage.store import exists_unique, lookup_total_energy_eV, lookup_unique
-from phaseedge.utils.keys import compute_dataset_key
 
 __all__ = ["train_ce"]
 
@@ -58,7 +57,18 @@ def lookup_train_refs_by_key(dataset_key: str) -> list[CETrainRef]:
     dataset = lookup_unique(criteria=criteria)
     if dataset is None:
         raise KeyError(f"No CETrainRef_dataset found for dataset_key={dataset_key!r}")
-    return cast(list[CETrainRef], dataset["train_refs"])
+    train_refs = []
+    for r in dataset["train_refs"]:
+        train_refs.append(
+            CETrainRef(
+                set_id=r["set_id"],
+                occ_key=r["occ_key"],
+                model=r["model"],
+                relax_cell=r["relax_cell"],
+                structure=Structure.from_dict(r["structure"]),
+            )
+        )
+    return train_refs
 
 
 def train_refs_exist(dataset_key: str) -> bool:
@@ -214,25 +224,9 @@ def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
     return {"n": n, "mae_per_site": mae, "rmse_per_site": rmse, "max_abs_per_site": mex}
 
 
-def _ensure_structures(structures: Sequence[Structure | Mapping[str, Any]]) -> list[Structure]:
-    out: list[Structure] = []
-    for i, s in enumerate(structures):
-        if isinstance(s, Structure):
-            out.append(s)
-        elif isinstance(s, Mapping):
-            try:
-                sd = cast(dict[str, Any], dict(s))
-                out.append(Structure.from_dict(sd))
-            except Exception as exc:
-                raise ValueError(f"structures[{i}] could not be converted from dict to Structure") from exc
-        else:
-            raise TypeError(f"structures[{i}] has unsupported type: {type(s)!r}")
-    return out
-
-
 def _n_replace_sites_from_prototype(
     *,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sublattices: dict[str, tuple[str, ...]],
@@ -243,7 +237,7 @@ def _n_replace_sites_from_prototype(
     """
     conv_cell = make_prototype(prototype, **dict(prototype_params))
     n_per_prim = sum(1 for at in conv_cell if at.symbol in sublattices)
-    if n_per_prim <= 0:
+    if n_per_prim < 1:
         raise ValueError(f"Prototype has no sites for sublattices='{sublattices}'.")
     nx, ny, nz = supercell_diag
     return int(n_per_prim) * nx * ny * nz
@@ -317,7 +311,7 @@ def train_ce(
     # training data
     dataset_key: str,
     # prototype-only system identity (needed to build subspace)
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     sublattices: dict[str, tuple[str, ...]],
@@ -340,11 +334,8 @@ def train_ce(
     """
     # -------- basic validation --------
     train_refs = lookup_train_refs_by_key(dataset_key)
-
+    structures_pm = [ref["structure"] for ref in train_refs]
     n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
-
-    # Convert any Monty-serialized dicts into real Structures
-    structures_pm: list[Structure] = _ensure_structures([ref["structure"] for ref in train_refs])
 
     # -------- 1) per-primitive/conventional-cell targets (training unit) --------
     y_cell = [float(E) / float(n_prims) for E in [lookup_train_ref_energy(ref) for ref in train_refs]]
@@ -356,10 +347,6 @@ def train_ce(
         supercell_diag=supercell_diag,
         sublattices=sublattices,
     )
-    if n_sites_const % n_prims != 0:
-        raise ValueError(
-            f"Active-site count ({n_sites_const}) is not divisible by number of prim cells ({n_prims})."
-        )
     sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
 
     # -------- 3) prototype conv cell + allowed species inference --------

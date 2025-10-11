@@ -1,4 +1,4 @@
-from jobflow.core.job import job
+from jobflow.core.job import job, Job
 from jobflow.core.flow import Flow, JobOrder
 
 from phaseedge.storage.wang_landau import WLBlockDoc
@@ -7,12 +7,26 @@ from phaseedge.sampling.wl_block_driver import run_wl_block
 
 
 @job(data=["bin_samples", "cation_counts"])
-def add_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
+def _add_wl_block_job(spec: WLSamplerSpec) -> WLBlockDoc:
     """Extend the WL chain by run_spec.steps, idempotently. Fails if not on tip."""
     return run_wl_block(spec=spec)
 
+def add_wl_block(
+    spec: WLSamplerSpec,
+    *,
+    name: str,
+    category: str,
+) -> Job:
+    """
+    Create a Job that extends the WL chain and automatically sets Job.name and metadata.
+    """
+    j: Job = _add_wl_block_job(spec)
+    j.name = name
+    j.update_metadata({"_category": category, "wl_key": spec.wl_key})
+    return j
 
-def add_wl_chain(spec: WLSamplerSpec, repeats: int) -> Flow:
+
+def add_wl_chain(*, spec: WLSamplerSpec, base_name: str, repeats: int, category: str) -> Flow:
     """
     Build a *sequential* (linear-ordered) Flow of WL chunks.
 
@@ -39,10 +53,8 @@ def add_wl_chain(spec: WLSamplerSpec, repeats: int) -> Flow:
 
     jobs: list = []
     for i in range(repeats):
-        j = add_wl_block(spec)
-        # Give each chunk a stable, distinguishable name; the caller may further
-        # decorate names/metadata at submission time.
-        j.name = f"add_wl_block[{i + 1}/{repeats}]"
+        j = add_wl_block(spec, name=base_name, category=category)
+        j.name += f"::chunk[{i + 1}/{repeats}]"
         jobs.append(j)
 
     # Force linear execution order irrespective of data refs.

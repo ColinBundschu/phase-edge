@@ -35,7 +35,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         relax_cell=spec.relax_cell,
         category=spec.category,
     )
-    f_ensure_all.name = "ensure_dataset_compositions"
+    f_ensure_all.name = f"ensure_dataset_compositions::{spec.prototype}::{tuple(spec.supercell_diag)}::{spec.model}"
     f_ensure_all.update_metadata({"_category": spec.category})
 
     # 4) Train CE (pooled); pass cv_seed for deterministic folds

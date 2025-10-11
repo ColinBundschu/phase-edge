@@ -3,8 +3,8 @@ from jobflow.core.flow import Flow
 from jobflow.core.job import job, Response, Job
 
 from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
-from phaseedge.schemas.mixture import Mixture
-from phaseedge.science.prototypes import PrototypeName, make_prototype
+from phaseedge.schemas.mixture import Mixture, composition_map_sig
+from phaseedge.science.prototypes import make_prototype
 from phaseedge.jobs.relax_structure import relax_structure
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.store import lookup_total_energy_eV
@@ -15,7 +15,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 @job(data="train_refs")
 def ensure_dataset_compositions(
     *,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     mixtures: Sequence[Mixture],
@@ -65,7 +65,7 @@ def ensure_dataset_compositions(
                         relax_cell=relax_cell,
                         category=category,
                     )
-                    j_relax.name = f"relax[{m_ix}:{idx}:{occ_key[:12]}]"
+                    j_relax.name = f"relax_composition::{composition_map_sig(mixture.composition_map)}"
                     j_relax.update_metadata({"_category": category})
                     sub_jobs.append(j_relax)
                     energy = j_relax.output

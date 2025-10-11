@@ -32,8 +32,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         if tip:
             wl_blocks.append(tip["wl_block_key"])
         else:
-            j_wl = add_wl_block(sampler_spec)
-            j_wl.update_metadata({"_category": spec.category})
+            j_wl = add_wl_block(sampler_spec, name=f"extend_wl::{sampler_spec.wl_key}", category=spec.category)
             wl_jobs.append(j_wl)
             wl_blocks.append(j_wl.output["wl_block_key"])
 
@@ -43,7 +42,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         ensure_wl_from_ce_flow = wl_flow_inner
     else:
         j_ce: Job = ensure_ce_from_mixtures(spec.ce_spec)
-        j_ce.name = "ensure_ce"
+        j_ce.name = f"ensure_ce::{spec.ce_spec.ce_key}"
         j_ce.update_metadata({"_category": spec.category})
         ensure_wl_from_ce_flow = Flow([j_ce, wl_flow_inner], name="Ensure WL samples from CE", order=JobOrder.LINEAR)
 
@@ -111,7 +110,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         cv_seed=spec.ce_spec.seed,
         weighting=spec.ce_spec.weighting,
     )
-    j_train.name = "train_ce"
+    j_train.name = f"train_ce::{spec.final_ce_key}"
     j_train.update_metadata({"_category": spec.category})
 
     j_store: Job = store_ce_model(
@@ -131,7 +130,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         stats=j_train.output["stats"],
         design_metrics=j_train.output["design_metrics"],
     )
-    j_store.name = "store_ce_model"
+    j_store.name = f"store_ce_model::{spec.final_ce_key}"
     j_store.update_metadata({"_category": spec.category})
 
     # -------------------------------------------------------------------------

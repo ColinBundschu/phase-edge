@@ -1,16 +1,17 @@
 from dataclasses import dataclass
+import dataclasses
 from typing import Any, Mapping
 
 from monty.json import MSONable
 
 from phaseedge.schemas.mixture import Mixture
-from phaseedge.science.prototypes import PrototypeName
 from phaseedge.utils.keys import compute_ce_key
 
 
 @dataclass(frozen=True, slots=True)
 class EnsureCEFromMixturesSpec(MSONable):
-    prototype: PrototypeName
+    _: dataclasses.KW_ONLY
+    prototype: str
     prototype_params: Mapping[str, Any]
     supercell_diag: tuple[int, int, int]
     mixtures: tuple[Mixture, ...]
@@ -18,12 +19,11 @@ class EnsureCEFromMixturesSpec(MSONable):
 
     model: str
     relax_cell: bool
+    category: str
 
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any] | None = None
     weighting: Mapping[str, Any] | None = None
-
-    category: str = "gpu"
 
     def __post_init__(self) -> None:
         # canonicalize/cast
@@ -62,7 +62,7 @@ class EnsureCEFromMixturesSpec(MSONable):
     def from_dict(cls, d: dict) -> "EnsureCEFromMixturesSpec":
         sx, sy, sz = (int(x) for x in d["supercell_diag"])
         return cls(
-            prototype=PrototypeName(d["prototype"]),
+            prototype=d["prototype"],
             prototype_params=d["prototype_params"],
             supercell_diag=(sx, sy, sz),
             mixtures=tuple(Mixture.from_dict(m) for m in d["mixtures"]),

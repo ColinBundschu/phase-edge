@@ -6,7 +6,6 @@ import numpy as np
 from jobflow.core.job import job
 from smol.moca.ensemble import Ensemble
 
-from phaseedge.science.prototypes import PrototypeName
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.schemas.mixture import composition_map_sig
@@ -32,7 +31,7 @@ def _occ_hash(occ: Sequence[int]) -> str:
 def _occ_for_counts(
     *,
     ensemble: Ensemble,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     composition_map: Mapping[str, Mapping[str, int]],
@@ -63,7 +62,7 @@ def _corr_from_occ(ensemble: Ensemble, occ: Sequence[int]) -> np.ndarray:
 def select_d_optimal_basis(
     *,
     ce_key: str,
-    prototype: PrototypeName,
+    prototype: str,
     prototype_params: Mapping[str, Any],
     supercell_diag: tuple[int, int, int],
     endpoints: Sequence[Mapping[str, Mapping[str, int]]],

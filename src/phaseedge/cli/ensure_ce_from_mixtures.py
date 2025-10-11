@@ -6,9 +6,8 @@ from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.science.prototypes import PrototypeName, make_prototype
+from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
-from phaseedge.utils.keys import compute_ce_key
 from phaseedge.cli.common import parse_cutoffs_arg, parse_mix_item
 from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
 from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
@@ -22,10 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--launchpad", required=True)
 
     # System / snapshot identity (prototype-only)
-    p.add_argument("--prototype", required=True, choices=[p.value for p in PrototypeName])
+    p.add_argument("--prototype", required=True)
     p.add_argument("--a", required=True, type=float, help="Prototype lattice parameter (e.g., 4.3).")
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
-    p.add_argument("--inactive-cation", dest="inactive_cation", default=None, help="Fixed A-site for double_perovskite (e.g., 'Sr').")
 
     # Composition input (repeatable)
     p.add_argument("--mix", action="append", required=True, help="Composition mixture: 'composition_map=...;K=...;seed=...'")
@@ -64,15 +62,9 @@ def main() -> None:
     mixtures = tuple([parse_mix_item(s) for s in args.mix])
 
     proto_params: dict[str, Any] = {"a": float(args.a)}
-    if args.prototype == PrototypeName.DOUBLE_PEROVSKITE.value:
-        if not args.inactive_cation:
-            raise SystemExit("--inactive-cation is required when --prototype=double_perovskite")
-        proto_params["inactive_cation"] = str(args.inactive_cation)
-    elif args.inactive_cation:
-        raise SystemExit("--inactive-cation is only valid when --prototype=double_perovskite")
     
     # Optional early validation
-    conv = make_prototype(PrototypeName(args.prototype), **proto_params)
+    conv = make_prototype(args.prototype, **proto_params)
     for mixture in mixtures:
         validate_counts_for_sublattices(
             conv_cell=conv,
@@ -87,7 +79,7 @@ def main() -> None:
 
     # Build the idempotent ensure job (mixture spec retained) and submit
     spec = EnsureCEFromMixturesSpec(
-        prototype=PrototypeName(args.prototype),
+        prototype=args.prototype,
         prototype_params=proto_params,
         supercell_diag=tuple(args.supercell),
         mixtures=mixtures,
@@ -105,7 +97,7 @@ def main() -> None:
         print("CE already exists for ce_key:", spec.ce_key)
     else:
         j = ensure_ce_from_mixtures(spec)
-        j.name = "ensure_ce"
+        j.name = f"ensure_ce::{args.prototype}::{tuple(args.supercell)}::{args.model}"
         j.metadata = {**(j.metadata or {}), "_category": args.category}
 
         flow = Flow([j], name="Ensure CE (compositions)")
