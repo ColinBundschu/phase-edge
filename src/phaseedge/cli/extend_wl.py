@@ -6,6 +6,7 @@ from fireworks import LaunchPad
 from jobflow.core.flow import Flow
 from jobflow.managers.fireworks import flow_to_workflow
 
+from phaseedge.schemas.mixture import composition_map_sig
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.add_wl_block import add_wl_block, add_wl_chain
 from phaseedge.cli.common import parse_composition_map
@@ -95,27 +96,21 @@ def main() -> int:
     )
 
     short = run_spec.wl_key[:12]
+    init_comp_sig = composition_map_sig(initial_comp_map)
 
     # Build either a single-chunk flow or a linear chain of chunks.
     repeats = int(args.repeats)
+    base_name = f"extend_wl::{short}::{init_comp_sig}::+{int(args.steps_to_run):,}"
     if repeats > 1:
-        flow = add_wl_chain(run_spec, repeats=repeats)
-        # Decorate each job with metadata and a clearer name; CLI has access to wl_key/category.
-        for idx, j in enumerate(flow):
-            j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": run_spec.wl_key}
-            j.name = f"extend_wl::{short}::chunk{idx + 1}/{repeats}::+{int(args.steps_to_run):,}"
-        flow.name = f"Extend WL :: {short} :: +{int(args.steps_to_run):,} × {repeats}"
+        flow_or_job = add_wl_chain(spec=run_spec, base_name=base_name, repeats=repeats, category=args.category)
     else:
-        j = add_wl_block(run_spec)
-        j.name = f"extend_wl::{short}::+{int(args.steps_to_run):,}"
-        j.metadata = {**(j.metadata or {}), "_category": args.category, "wl_key": run_spec.wl_key}
-        flow = Flow([j], name=f"Extend WL :: {short} :: +{int(args.steps_to_run):,}")
+        flow_or_job = add_wl_block(run_spec, name=base_name, category=args.category)
 
-    wf = flow_to_workflow(flow)
-    for fw in wf.fws:
-        # Append short wl_key to each FireWork name and propagate routing metadata to the manager.
-        fw.name = f"{fw.name}::{short}"
-        fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": run_spec.wl_key}
+    wf = flow_to_workflow(flow_or_job)
+    # for fw in wf.fws:
+    #     # Append short wl_key to each FireWork name and propagate routing metadata to the manager.
+    #     fw.name = f"{fw.name}::{short}::{init_comp_sig}"
+    #     fw.spec = {**(fw.spec or {}), "_category": args.category, "wl_key": run_spec.wl_key}
 
     lp = LaunchPad.from_file(args.launchpad)
     wf_id = lp.add_wf(wf)
