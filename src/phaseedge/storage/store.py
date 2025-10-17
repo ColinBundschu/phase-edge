@@ -20,8 +20,7 @@ def _mongo_uri(user_env: str, pass_env: str) -> str:
     Required env:
       - MONGO_HOST
       - MONGO_DB
-      - user_env, pass_env (e.g., MONGO_ADMIN_USER / MONGO_ADMIN_PASS
-        or MONGO_RO_USER / MONGO_RO_PASS)
+      - user_env, pass_env
 
     Optional env:
       - MONGO_PORT (default: 27017)
@@ -40,7 +39,7 @@ def _mongo_uri(user_env: str, pass_env: str) -> str:
     user_q = quote_plus(user)
     pwd_q = quote_plus(pwd)
 
-    base = f"mongodb://{user_q}:{pwd_q}@{host}:{port}/{db}?authSource={authsource}"
+    base = f"mongodb://{user_q}:{pwd_q}@{host}:{port}/{db}?authSource={authsource}&tls=true&replicaSet=rs0"
     if options:
         base = f"{base}&{options}"
     return base

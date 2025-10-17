@@ -72,16 +72,34 @@ def relax_structure(
             raise NotImplementedError("TODO: Implement fixed-cell VASP calculation.")
         maker = MPGGARelaxMaker()
         j_relax = cast(Job, maker.make(structure))
+        j_relax.update_metadata(
+            {
+                "set_id": set_id,
+                "occ_key": occ_key,
+                "model": model,
+                "relax_cell": relax_cell,
+            }
+        )
     elif relax_spec.relax_type == RelaxType.VASP_MP_24:
         if not relax_cell:
             raise NotImplementedError("TODO: Implement fixed-cell VASP calculation.")
         maker1 = ForceFieldRelaxMaker(
             force_field_name="MATPES_R2SCAN",
             relax_cell=True,
+            fix_symmetry=True,
+            symprec=1e-2,
         )
         relax1 = cast(Job, maker1.make(structure))
         maker2 = MP24RelaxMaker()
         relax2 = cast(Job, maker2.make(cast(Structure, relax1.output.structure)))
+        relax2.update_metadata(
+            {
+                "set_id": set_id,
+                "occ_key": occ_key,
+                "model": model,
+                "relax_cell": relax_cell,
+            }
+        )
         j_relax = Flow([relax1, relax2], output=relax2.output, name="DoubleRelax")
 
     elif relax_spec.relax_type == RelaxType.MACE_MPA_0:
@@ -92,22 +110,22 @@ def relax_structure(
             calculator_kwargs=relax_spec.calculator_kwargs | {"default_dtype": "float64"},
         )
         j_relax = cast(Job, maker.make(structure))
+        j_relax.update_metadata(
+            {
+                "set_id": set_id,
+                "occ_key": occ_key,
+                "model": model,
+                "relax_cell": relax_cell,
+            }
+        )
     else:
         raise ValueError(f"Unrecognized relax_type: {relax_spec.relax_type}")
 
     j_relax.name = f"{relax_spec.relax_type}_relax"
-    j_relax.update_metadata(
-        {
-            "_category": category,
-            "set_id": set_id,
-            "occ_key": occ_key,
-            "model": model,
-            "relax_cell": relax_cell,
-        }
-    )
+    j_relax.update_metadata({"_category": category})
 
     if relax_spec.relax_type == RelaxType.VASP_MP_GGA or relax_spec.relax_type == RelaxType.VASP_MP_24:
-        j_relax = cast(Job, update_user_incar_settings(j_relax, incar_updates={"NCORE": 1, "NSIM": 8, "KPAR": 4, "EDIFF": 1e-6, "EDIFFG": -0.02}))
+        j_relax = cast(Job, update_user_incar_settings(j_relax, incar_updates={"NCORE": 1, "NSIM": 1, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -0.02, "SYMPREC": 1E-6}))
         subflow = Flow([j_relax], name=f"{relax_spec.relax_type}_relax")
     elif relax_spec.relax_type == RelaxType.MACE_MPA_0:
         j_assert = _require_converged(j_relax.output.is_force_converged)
