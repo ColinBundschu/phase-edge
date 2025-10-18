@@ -2,7 +2,6 @@ from typing import Any, TypedDict, cast
 from phaseedge.storage.store import build_jobstore, lookup_unique
 from pymongo.collection import Collection
 
-
 class WLBlockDoc(TypedDict, total=True):
     kind: str  # "WLBlockDoc"
     wl_key: str
@@ -61,24 +60,11 @@ def get_first_matching_wl_block(run_spec) -> WLBlockDoc | None:
     return tip["output"]
 
 
-def ensure_wl_output_indexes() -> None:
+def verify_wl_output_indexes() -> None:
     coll = cast(Collection, build_jobstore().docs_store._collection)
-
-    coll.create_index(
-        [("output.wl_block_key", 1)],
-        name="wl_out_uniq_ckpt_key",
-        unique=True,
-        partialFilterExpression={"output.kind": "WLBlockDoc"},
-    )
-    coll.create_index(
-        [("output.wl_key", 1), ("output.parent_wl_block_key", 1)],
-        name="wl_out_uniq_parent_per_wl",
-        unique=True,
-        partialFilterExpression={"output.kind": "WLBlockDoc"},
-    )
-    coll.create_index(
-        [("output.wl_key", 1), ("output.step_end", -1)],
-        name="wl_out_tip",
-        unique=False,
-        partialFilterExpression={"output.kind": "WLBlockDoc"},
-    )
+    existing = {ix["name"] for ix in coll.list_indexes()}
+    wl_indices = ['wl_out_uniq_ckpt_key', 'wl_out_uniq_parent_per_wl', 'wl_out_tip']
+    #if any are missing, raise an exception
+    missing = [ix for ix in wl_indices if ix not in existing]
+    if missing:
+        raise RuntimeError(f"Missing WLBlockDoc indexes in Jobstore: {missing}")

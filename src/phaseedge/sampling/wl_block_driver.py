@@ -5,7 +5,7 @@ import numpy as np
 from smol.moca import Sampler
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from phaseedge.storage.wang_landau import WLBlockDoc, ensure_wl_output_indexes, fetch_wl_tip
+from phaseedge.storage.wang_landau import WLBlockDoc, verify_wl_output_indexes, fetch_wl_tip
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
@@ -94,7 +94,7 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
 
 
 def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
-    ensure_wl_output_indexes()
+    verify_wl_output_indexes()
 
     """Extend the WL chain by `run_spec.steps` steps, idempotently, and write a block."""
     tip = fetch_wl_tip(spec.wl_key)
