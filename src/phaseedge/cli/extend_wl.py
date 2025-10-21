@@ -20,7 +20,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--launchpad", required=True, help="Path to LaunchPad YAML.")
     p.add_argument("--ce-key", required=True)
     p.add_argument("--bin-width", required=True, type=float, help="Uniform enthalpy bin width (eV).")
-    p.add_argument("--sl-comp-map", required=True, help='Canonical map to identify the sublattices (e.g., Es:{Mg:16},Fm:{Al:32}).')
     p.add_argument("--initial-comp-map", required=True, help='Initial composition map for the entire WL supercell (e.g., Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24}).')
     p.add_argument("--reject-cross-sublattice-swaps", action="store_true", help="Reject WL swap moves that cross sublattices.")
 
@@ -76,14 +75,12 @@ def main() -> int:
     args = p.parse_args()
 
     initial_comp_map = parse_composition_map(args.initial_comp_map)
-    sl_comp_map = parse_composition_map(args.sl_comp_map)
 
     # Build run_spec. steps/samples_per_bin/flags are runtime policies (non-key).
     run_spec = WLSamplerSpec(
         ce_key=str(args.ce_key),
         bin_width=float(args.bin_width),
         steps=int(args.steps_to_run),
-        sl_comp_map=sl_comp_map,
         initial_comp_map=initial_comp_map,
         step_type=str(args.step_type),
         check_period=int(args.check_period),
@@ -120,7 +117,6 @@ def main() -> int:
         "wl_key": run_spec.wl_key,
         "ce_key": args.ce_key,
         "bin_width": float(args.bin_width),
-        "sl_comp_map": sl_comp_map,
         "initial_comp_map": initial_comp_map,
         "step_type": str(args.step_type),
         "check_period": int(args.check_period),
@@ -145,7 +141,6 @@ def main() -> int:
                     "wl_key",
                     "ce_key",
                     "bin_width",
-                    "sl_comp_map",
                     "initial_comp_map",
                     "step_type",
                     "check_period",

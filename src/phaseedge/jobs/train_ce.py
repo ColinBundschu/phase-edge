@@ -129,15 +129,17 @@ def build_disordered_primitive(
         raise ValueError("sublattices must be non-empty.")
 
     prim_cfg = AseAtomsAdaptor.get_structure(conv_cell)  # type: ignore[arg-type]
-
+    replace_elements = tuple(sublattices.keys())
+    disordered_map = {}
     for replace_element, allowed_species in sublattices.items():
         # Uniform prior over the allowed cations. The actual fractions do not encode
         # training composition; they just declare the site space.
-        frac = 1.0 / float(len(allowed_species))
-        disordered: dict[Element, float] = {Element(el): frac for el in allowed_species}
+        species_and_labels = tuple(allowed_species) + replace_elements
+        frac = 1.0 / len(species_and_labels)
+        disordered_map[Element(replace_element)] = {Element(el): frac for el in species_and_labels}
 
-        # Replace the prototype cation with the disordered site space
-        prim_cfg.replace_species({Element(replace_element): disordered}) # pyright: ignore[reportArgumentType]
+    # Replace the prototype cations with the disordered site space
+    prim_cfg.replace_species(disordered_map)
     return prim_cfg
 
 
@@ -350,7 +352,7 @@ def train_ce(
     sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
 
     # -------- 3) prototype conv cell + allowed species inference --------
-    conv_cell: Atoms = make_prototype(prototype, **dict(prototype_params))
+    conv_cell = make_prototype(prototype, **dict(prototype_params))
     primitive_cfg = build_disordered_primitive(conv_cell=conv_cell, sublattices=sublattices)
 
     # -------- 4) subspace --------

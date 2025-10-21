@@ -55,7 +55,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     wl_bin_width: float
     wl_steps_to_run: int
     wl_samples_per_bin: int
-    sl_comp_map: dict[str, dict[str, int]]
     reject_cross_sublattice_swaps: bool
 
     wl_step_type: str = "swap"
@@ -79,7 +78,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "@class": type(self).__name__,
             "ce_spec": self.ce_spec.as_dict(),
             "endpoints": list(self.endpoints),
-            "sl_comp_map": self.sl_comp_map,
             "reject_cross_sublattice_swaps": self.reject_cross_sublattice_swaps,
             "wl_bin_width": self.wl_bin_width,
             "wl_steps_to_run": self.wl_steps_to_run,
@@ -105,7 +103,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
         return cls(
             ce_spec=ce_spec,
             endpoints=sorted_composition_maps(d["endpoints"]),
-            sl_comp_map=canonical_comp_map(d["sl_comp_map"]),
             reject_cross_sublattice_swaps=bool(d["reject_cross_sublattice_swaps"]),
             wl_bin_width=float(d["wl_bin_width"]),
             wl_steps_to_run=int(d["wl_steps_to_run"]),
@@ -135,7 +132,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             ce_key=self.ce_spec.ce_key,
             bin_width=self.wl_bin_width,
             steps=self.wl_steps_to_run,
-            sl_comp_map=self.sl_comp_map,
             initial_comp_map=mix.composition_map,
             step_type=self.wl_step_type,
             check_period=self.wl_check_period,

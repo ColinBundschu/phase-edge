@@ -30,7 +30,6 @@ class WLSamplerSpec(MSONable):
     steps: int
 
     # which sublattice labels are active for WL sampling (immutable, canonical)
-    sl_comp_map: dict[str, dict[str, int]]
     reject_cross_sublattice_swaps: bool
     initial_comp_map: dict[str, dict[str, int]]
 
@@ -57,7 +56,6 @@ class WLSamplerSpec(MSONable):
         if self.samples_per_bin < 0:
             raise ValueError("samples_per_bin must be >= 0.")
 
-        object.__setattr__(self, "sl_comp_map", canonical_comp_map(self.sl_comp_map))
         object.__setattr__(self, "initial_comp_map", canonical_comp_map(self.initial_comp_map))
 
         # coerce runtime flags to bools
@@ -71,7 +69,6 @@ class WLSamplerSpec(MSONable):
             f"{cls}("
             f"ce_key={self.ce_key!r}, "
             f"bin_width={self.bin_width}, steps={self.steps}, "
-            f"sl_comp_map={self.sl_comp_map!r}, "
             f"initial_comp_map={self.initial_comp_map!r}, "
             f"reject_cross_sublattice_swaps={self.reject_cross_sublattice_swaps}, "
             f"step_type={self.step_type!r}, check_period={self.check_period}, "
@@ -91,7 +88,6 @@ class WLSamplerSpec(MSONable):
             "ce_key": self.ce_key,
             "bin_width": self.bin_width,
             "steps": self.steps,
-            "sl_comp_map": self.sl_comp_map,
             "initial_comp_map": self.initial_comp_map,  # JSON-safe
             "reject_cross_sublattice_swaps": self.reject_cross_sublattice_swaps,
             "step_type": self.step_type,
@@ -110,7 +106,6 @@ class WLSamplerSpec(MSONable):
             ce_key=str(payload["ce_key"]),
             bin_width=float(payload["bin_width"]),
             steps=int(payload["steps"]),
-            sl_comp_map=canonical_comp_map(payload["sl_comp_map"]),
             initial_comp_map=canonical_comp_map(payload["initial_comp_map"]),
             reject_cross_sublattice_swaps=bool(payload["reject_cross_sublattice_swaps"]),
             step_type=str(payload.get("step_type", "swap")),
@@ -130,7 +125,6 @@ class WLSamplerSpec(MSONable):
             self.ce_key == other.ce_key
             and self.bin_width == other.bin_width
             and self.steps == other.steps
-            and dict(self.sl_comp_map) == dict(other.sl_comp_map)
             and dict(self.initial_comp_map) == dict(other.initial_comp_map)
             and self.reject_cross_sublattice_swaps == other.reject_cross_sublattice_swaps
             and self.step_type == other.step_type
@@ -148,7 +142,6 @@ class WLSamplerSpec(MSONable):
                 self.ce_key,
                 self.bin_width,
                 self.steps,
-                tuple(self.sl_comp_map.items()),  # sorted in __post_init__
                 tuple(self.initial_comp_map.items()), # sorted in __post_init__
                 self.reject_cross_sublattice_swaps,
                 self.step_type,

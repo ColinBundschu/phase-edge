@@ -49,7 +49,7 @@ def _occ_from_initial_comp_map(
     return occ
 
 
-def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, int]]) -> tuple[dict[str, np.ndarray], dict[int, str]]:
+def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[str, int]]) -> tuple[dict[str, np.ndarray], dict[int, str]]:
     """
     Build label -> site-index map from the CE prototype+supercell used by WL.
     """
@@ -61,6 +61,7 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
     rng = np.random.default_rng(12345)
     conv = make_prototype(doc["prototype"], **doc["prototype_params"])
     sx, sy, sz = (int(x) for x in doc["supercell_diag"])
+    sl_comp_map = {k: {k: sum(initial_comp_map[k].values())} for k in initial_comp_map.keys()}
     snap = make_one_snapshot(
         conv_cell=conv,
         supercell_diag=(sx, sy, sz),
@@ -72,8 +73,6 @@ def _build_sublattice_indices(*, ce_key: str, sl_comp_map: dict[str, dict[str, i
     occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=True)
     [active_sl] = ensemble.active_sublattices
     code_to_elem = {int(code): str(elem) for code, elem in zip(active_sl.encoding, active_sl.species)}
-    if any(len(v.keys()) != 1 for v in sl_comp_map.values()):
-        raise NotImplementedError("This helper only supports single-element sublattices.")
     inverted_comp_map = {list(v.keys())[0]: k for k, v in sl_comp_map.items()}
 
     sl_map: dict[str, np.ndarray] = {}
@@ -105,7 +104,7 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
     # Precompute sublattice site-index mapping for this WL key/spec
     sublattice_indices, active_codes_to_elems = _build_sublattice_indices(
         ce_key=spec.ce_key,
-        sl_comp_map=spec.sl_comp_map,
+        initial_comp_map=spec.initial_comp_map,
     )
 
     sampler = Sampler.from_ensemble(
