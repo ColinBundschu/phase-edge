@@ -77,12 +77,6 @@ def _quantize(a: NDArray[np.floating], scale: int) -> NDArray[np.int64]:
     # rint does bankers rounding; that’s fine here and deterministic.
     return np.rint(a * scale).astype(np.int64, copy=False)
 
-def _frac_wrap(frac: NDArray[np.floating]) -> NDArray[np.floating]:
-    """Map fractional coords to [0, 1) deterministically."""
-    f = np.mod(frac, 1.0)
-    # Snap values that are 1.0 within float noise back to 0.0 prior to quantization
-    f[np.isclose(f, 1.0, atol=1e-12)] = 0.0
-    return f
 
 # ---- canonical payload builders ----
 
@@ -90,7 +84,7 @@ def _canonical_payload_for_structure(s: Structure, *, ndigits: int = 10) -> dict
     """
     Build a library-agnostic, order-invariant payload for hashing:
       - lattice: quantized 3x3 in row-major
-      - sites  : sorted list of (Z, fx_q, fy_q, fz_q), with frac coords quantized
+      - sites  : sorted list of (species_str, fx_q, fy_q, fz_q), with frac coords quantized
     """
     scale = 10 ** int(ndigits)
 
@@ -98,22 +92,25 @@ def _canonical_payload_for_structure(s: Structure, *, ndigits: int = 10) -> dict
     L = np.asarray(s.lattice.matrix, dtype=float)
     L_q = _quantize(L, scale).reshape(3, 3)
 
-    # Fractional coords wrapped to [0,1)
-    F = _frac_wrap(np.asarray(s.frac_coords, dtype=float))
-    F_q = _quantize(F, scale)
+    # Fractional coords: quantize first, THEN wrap by modulo on integers
+    F_raw = np.asarray(s.frac_coords, dtype=float)
+    F_q = np.rint(F_raw * scale).astype(np.int64, copy=False)
+    F_q = np.mod(F_q, scale)  # map to [0, scale) exactly in integer space
 
-    # Atomic numbers (use specie.Z; robust to formatting of species strings)
-    Z = np.array([site.specie.Z for site in s.sites], dtype=np.int64)
+    # Species labels as strings (keeps placeholders like 'X', and includes ox states if present)
+    # The 'split/join' canonicalizes whitespace for any disordered string forms.
+    species_labels = [" ".join(str(site.species).split()) for site in s.sites]
 
-    # Stable sorting by (Z, fx_q, fy_q, fz_q)
-    keys = list(zip(Z.tolist(), F_q[:, 0].tolist(), F_q[:, 1].tolist(), F_q[:, 2].tolist()))
+    # Stable sorting by (species_str, fx_q, fy_q, fz_q)
+    keys = list(zip(species_labels, F_q[:, 0].tolist(), F_q[:, 1].tolist(), F_q[:, 2].tolist()))
     keys.sort()
 
     return {
         "L": L_q.flatten().tolist(),   # 9 ints
-        "S": keys,                     # [(Z, fx_q, fy_q, fz_q), ...]
+        "S": keys,                     # [(species_str, fx_q, fy_q, fz_q), ...]
         "nd": int(ndigits),            # bake precision into identity
     }
+
 
 def occ_key_for_structure(pmg: Structure, *, ndigits: int = 10) -> str:
     payload = _canonical_payload_for_structure(pmg, ndigits=ndigits)
@@ -301,11 +298,7 @@ def compute_wl_key(
     seed: int,
     algo_version: str = "wl-grid-v1",
 ) -> str:
-    """
-    Idempotent identity for a canonical WL run based ONLY on the public contract:
-    CE identity, *exact counts* (canonicalized like CE), binning contract, MC schedule (sans steps), and seed.
-    Zero-count species are stripped; at least one positive count is required.
-    """
+    # (unchanged)
     payload = {
         "kind": "wl_key",
         "algo": algo_version,
