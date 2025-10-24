@@ -1,7 +1,6 @@
 from typing import Any, Mapping, Sequence, TypedDict, Literal, cast
 
 import hashlib
-import math
 import numpy as np
 from jobflow.core.job import job
 from smol.moca.ensemble import Ensemble
@@ -53,8 +52,11 @@ def _occ_for_counts(
 
 
 def _corr_from_occ(ensemble: Ensemble, occ: Sequence[int]) -> np.ndarray:
-    struct = ensemble.processor.structure_from_occupancy(np.asarray(occ, dtype=np.int32))
-    vec = ensemble.processor.cluster_subspace.corr_from_structure(struct)
+    """
+    Fast path: compute feature vector directly from encoded occupancy
+    using the ensemble's processor (reuses cached site map/supercell).
+    """
+    vec = ensemble.processor.compute_feature_vector(np.asarray(occ, dtype=np.int32))
     return np.asarray(vec, dtype=float).ravel()
 
 
@@ -71,7 +73,6 @@ def select_d_optimal_basis(
     chains: Sequence[Mapping[str, Any]],
     budget: int,
     ridge: float = 1e-10,
-    # NEW: map every WL chain to its composition counts so we can group by composition
 ) -> Mapping[str, Any]:
     """
     Round-robin greedy D-opt selection by composition group.
@@ -79,7 +80,12 @@ def select_d_optimal_basis(
     Seeds with the endpoint structures, then performs sweeps over composition
     groups; in each sweep we select at most one candidate per group, picking
     the candidate that maximizes Δ log det(XᵀX + ridge I), with deterministic
-    tie-breaking by (bin, occ_hash). Uses Sherman-Morrison updates.
+    tie-breaking by (bin, occ_hash). Uses Sherman–Morrison updates.
+
+    Optimizations:
+      - Precompute all correlation vectors X (M×p) once using the processor's
+        compute_feature_vector(occ), avoiding Structure construction entirely.
+      - Vectorized gain evaluation per group: lev = diag(X A_inv Xᵀ).
     """
     if budget <= 0:
         raise ValueError("budget must be positive.")
@@ -141,26 +147,24 @@ def select_d_optimal_basis(
         raise ValueError("No candidate configurations found (check endpoints/chains inputs).")
 
     # -------------------------
-    # Feature cache
+    # Precompute feature matrix X (M×p) in memory
     # -------------------------
-    feat_cache: dict[str, np.ndarray] = {}
+    first_vec = _corr_from_occ(ensemble, pool[0]["occ"])
+    p = int(first_vec.size)
+    M = len(pool)
+    X = np.empty((M, p), dtype=np.float64)
+    X[0, :] = first_vec
+    for i in range(1, M):
+        X[i, :] = _corr_from_occ(ensemble, pool[i]["occ"])
 
-    def feat(occ_hash: str, occ: Sequence[int]) -> np.ndarray:
-        vec = feat_cache.get(occ_hash)
-        if vec is None:
-            vec = _corr_from_occ(ensemble, occ)
-            feat_cache[occ_hash] = vec
-        return vec
-
-    some_vec = feat(pool[0]["occ_hash"], pool[0]["occ"])
-    p = int(some_vec.size)
-
+    # -------------------------
+    # Group indices by composition signature
+    # -------------------------
     groups: dict[str, list[int]] = {}
     for i, c in enumerate(pool):
         sig = composition_map_sig(c["composition_map"])
         groups.setdefault(sig, []).append(i)
-
-    group_order = sorted(groups)  # deterministic round-robin
+    group_order = sorted(groups)
 
     # -------------------------
     # Initialize inverse info matrix; seed with endpoints only
@@ -168,6 +172,7 @@ def select_d_optimal_basis(
     A_inv = np.eye(p, dtype=np.float64) / float(ridge)
 
     def sm_update(Ainv: np.ndarray, x: np.ndarray) -> np.ndarray:
+        # Sherman–Morrison: (A + xxᵀ)^{-1} = A^{-1} - A^{-1} x xᵀ A^{-1} / (1 + xᵀ A^{-1} x)
         Ax = Ainv @ x
         denom = 1.0 + float(x.T @ Ax)
         return Ainv - np.outer(Ax, Ax) / denom
@@ -177,32 +182,37 @@ def select_d_optimal_basis(
     # Seed with all endpoints (exactly as requested)
     for i, c in enumerate(pool):
         if c["source"] == "endpoint":
-            x = feat(c["occ_hash"], c["occ"])
+            x = X[i, :]
             A_inv = sm_update(A_inv, x)
             chosen_indices.append(i)
 
     if budget < len(chosen_indices):
         raise ValueError(f"budget={budget} is smaller than endpoint seed size {len(chosen_indices)}.")
 
-    # Mark remaining per-group candidate lists (exclude already chosen)
     chosen_set = set(chosen_indices)
     remaining_by_group: dict[str, list[int]] = {
         g: [i for i in idxs if i not in chosen_set] for g, idxs in groups.items()
     }
 
     # -------------------------
+    # Vectorized leverage/gain computation helpers
+    # -------------------------
+    def gains_for_indices(indices: list[int]) -> np.ndarray:
+        """
+        Compute log(1 + leverage_i) for candidates indexed by `indices`
+        in a single BLAS-backed shot: lev = diag(Xi @ A_inv @ Xiᵀ).
+        """
+        if not indices:
+            return np.empty((0,), dtype=np.float64)
+        Xi = X[indices, :]  # (k, p)
+        Zi = Xi @ A_inv     # (k, p)
+        lev = np.einsum("ij,ij->i", Xi, Zi, dtype=np.float64)  # rowwise dot
+        return np.log1p(lev)
+
+    # -------------------------
     # Round-robin greedy sweeps
     # -------------------------
-    def gain_for(i: int) -> tuple[float, tuple[str, str]]:
-        c = pool[i]
-        x = feat(c["occ_hash"], c["occ"])
-        lev = float(x.T @ (A_inv @ x))
-        gain = math.log1p(lev)
-        # tie-break: (bin asc, hash asc). Endpoints have bin=None → place last.
-        b = c["bin"]
-        tb = (str(b).zfill(12) if b is not None else "~~~~", c["occ_hash"])
-        return gain, tb
-
+    tol = 1e-15  # tie threshold for gains
     while len(chosen_indices) < budget:
         picked_this_sweep = False
         for g in group_order:
@@ -212,27 +222,37 @@ def select_d_optimal_basis(
             if not cand_idx_list:
                 continue
 
-            # Evaluate gain over this group's remaining candidates
-            best_i = -1
-            best_gain = -math.inf
-            best_tb = ("~", "~")
-            for i in cand_idx_list:
-                gain, tb = gain_for(i)
-                if gain > best_gain or (abs(gain - best_gain) < 1e-15 and tb < best_tb):
-                    best_gain = gain
-                    best_tb = tb
-                    best_i = i
-
-            if best_i < 0:
+            gains = gains_for_indices(cand_idx_list)
+            if gains.size == 0:
                 continue
 
+            # select best by gain; tie-break by (bin asc, occ_hash asc)
+            max_gain = float(gains.max())
+            mask = np.abs(gains - max_gain) <= tol
+            tied_positions = np.nonzero(mask)[0].tolist()
+            if len(tied_positions) == 1:
+                pick_pos = tied_positions[0]
+            else:
+                best_tb = ("~~~~", "~")
+                pick_pos = tied_positions[0]
+                for pos in tied_positions:
+                    idx = cand_idx_list[pos]
+                    c = pool[idx]
+                    b = c["bin"]
+                    tb = (str(b).zfill(12) if b is not None else "~~~~", c["occ_hash"])
+                    if tb < best_tb:
+                        best_tb = tb
+                        pick_pos = pos
+
+            best_i = cand_idx_list[pick_pos]
             # Commit pick
-            x = feat(pool[best_i]["occ_hash"], pool[best_i]["occ"])
+            x = X[best_i, :]
             A_inv = sm_update(A_inv, x)
             chosen_indices.append(best_i)
             picked_this_sweep = True
+
             # remove from the group's remaining list
-            cand_idx_list.remove(best_i)
+            del cand_idx_list[pick_pos]
 
             if len(chosen_indices) >= budget:
                 break
