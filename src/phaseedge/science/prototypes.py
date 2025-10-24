@@ -7,6 +7,7 @@ from ase.spacegroup import crystal
 class PrototypeStructure(str, Enum):
     ROCKSALT = "rocksalt"
     SPINEL = "spinel"
+    SPINEL16c = "spinel16c"
     DOUBLE_PEROVSKITE = "doubleperovskite"
 
 _SEGMENT_RE = re.compile(r"^(?P<prefix>[A-Z])(?P<index>\d+)(?P<element>[A-Z][a-z]{0,2})$")
@@ -102,6 +103,18 @@ def make_prototype(
         return crystal(
             symbols=["Es", "Fm", anion],
             basis=[(1/4, 3/4, 3/4), (5/8, 3/8, 3/8), (1/2 + u, u, u)],
+            spacegroup=227, # Fd-3m
+            cellpar=[a, a, a, 90, 90, 90],
+            primitive_cell=True,
+        )
+    
+    if structure is PrototypeStructure.SPINEL16c:
+        _require_exact_keys(spec, {"Q0"})
+        anion = spec["Q0"]
+        u = 0.36
+        return crystal(
+            symbols=["Es", "Fm", "Md", anion],
+            basis=[(1/4, 3/4, 3/4), (5/8, 3/8, 3/8), (1/8, 7/8, 7/8), (1/2 + u, u, u)],
             spacegroup=227, # Fd-3m
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,

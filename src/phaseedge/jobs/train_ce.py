@@ -4,7 +4,7 @@ from typing import Any, Mapping, Sequence, TypedDict, cast
 import numpy as np
 from numpy.typing import NDArray
 from jobflow.core.job import job
-from pymatgen.core import Element, Structure
+from pymatgen.core import DummySpecies, Element, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.atoms import Atoms
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
@@ -136,7 +136,11 @@ def build_disordered_primitive(
         # training composition; they just declare the site space.
         species_and_labels = tuple(allowed_species) + replace_elements
         frac = 1.0 / len(species_and_labels)
-        disordered_map[Element(replace_element)] = {Element(el): frac for el in species_and_labels}
+        replace_key = DummySpecies(replace_element) if replace_element == 'X' else Element(replace_element)
+        disordered_map[replace_key] = {}
+        for el in species_and_labels:
+            key = DummySpecies(el) if el == 'X' else Element(el)
+            disordered_map[replace_key][key] = frac
 
     # Replace the prototype cations with the disordered site space
     prim_cfg.replace_species(disordered_map)

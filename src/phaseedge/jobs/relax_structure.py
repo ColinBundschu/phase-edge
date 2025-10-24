@@ -42,6 +42,35 @@ def _parse_relax_spec(model: str) -> RelaxSpec:
     return RelaxSpec(relax_type=RelaxType(ff_name), calculator_kwargs=calc_kwargs)
 
 
+def strip_placeholder_species(
+    structure: Structure,
+    *,
+    placeholder: str = "X",
+) -> Structure:
+    """
+    Return a copy of `structure` with any sites occupied by a placeholder species removed.
+
+    Raises:
+      ValueError if no non-placeholder atoms remain or if mixed sites are present.
+    """
+    if any(not site.is_ordered for site in structure.sites):
+        raise ValueError("Disordered structures are not supported; enumerate to a concrete occupancy first.")
+
+    rm_indices: list[int] = []
+    new_struct = structure.copy()
+    for i, site in enumerate(new_struct.sites):
+        if placeholder == site.specie.symbol:
+            rm_indices.append(i)
+
+    if rm_indices:
+        new_struct.remove_sites(rm_indices)
+
+    if len(new_struct) == 0:
+        raise ValueError("All atoms were placeholders—nothing left to relax.")
+
+    return new_struct
+
+
 @job
 def _require_converged(is_force_converged: bool) -> None:
     if not is_force_converged:
@@ -66,6 +95,7 @@ def relax_structure(
         )
 
     relax_spec = _parse_relax_spec(model)
+    structure = strip_placeholder_species(structure)
 
     if relax_spec.relax_type == RelaxType.VASP_MP_GGA:
         if not relax_cell:
@@ -125,7 +155,7 @@ def relax_structure(
     j_relax.update_metadata({"_category": category})
 
     if relax_spec.relax_type == RelaxType.VASP_MP_GGA or relax_spec.relax_type == RelaxType.VASP_MP_24:
-        j_relax = cast(Job, update_user_incar_settings(j_relax, incar_updates={"NCORE": 1, "NSIM": 1, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -0.02, "SYMPREC": 1E-6}))
+        j_relax = cast(Job, update_user_incar_settings(j_relax, incar_updates={"NCORE": 1, "NSIM": 16, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -0.05, "SYMPREC": 1E-6}))
         subflow = Flow([j_relax], name=f"{relax_spec.relax_type}_relax")
     elif relax_spec.relax_type == RelaxType.MACE_MPA_0:
         j_assert = _require_converged(j_relax.output.is_force_converged)

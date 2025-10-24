@@ -46,6 +46,7 @@ class InfiniteWangLandau(MCKernel):
         step_type: str,
         bin_size: float,
         *args,
+        sublattice_indices: dict[str, tuple[np.ndarray, dict[int, str]]],
         reject_cross_sublattice_swaps: bool,
         flatness: float = 0.8,
         mod_factor: float = 1.0,
@@ -54,14 +55,8 @@ class InfiniteWangLandau(MCKernel):
         mod_update: float | Callable[[float], float] | None = None,
         seed: int | None = None,
         samples_per_bin: int = 0,
-        # -------- NEW options for statistics --------
         collect_cation_stats: bool = False,
         production_mode: bool = False,
-        # Provide optional precomputed mappings (recommended):
-        # - sublattice_indices: label -> indices in occupancy vector
-        sublattice_indices: Mapping[str, list[int] | np.ndarray] | None = None,
-        active_codes_to_elems: dict[int, str] | None = None,
-        # -------- NEW option: reject cross-sublattice swaps --------
         **kwargs,
     ):
         """Initialize an infinite-window Wang-Landau Kernel.
@@ -129,17 +124,13 @@ class InfiniteWangLandau(MCKernel):
         # ------- NEW: sublattice/species configuration -------
         self._collect_cation_stats = collect_cation_stats
         self._production_mode = production_mode
-        self._active_codes_to_elems = active_codes_to_elems
 
         # label -> np.ndarray[int] (site indices)
-        self._sl_index_map: dict[str, np.ndarray] = {}
-        if sublattice_indices:
-            for k, v in sublattice_indices.items():
-                self._sl_index_map[str(k)] = np.asarray(v, dtype=np.int32)
+        self._sublattice_indices = sublattice_indices
 
         # site-index -> sublattice label (for fast cross-sublattice checks)
         self._site_to_sl: dict[int, str] = {}
-        for sl, idx in self._sl_index_map.items():
+        for sl, (idx, _) in self._sublattice_indices.items():
             for i in np.asarray(idx, dtype=np.int32):
                 self._site_to_sl[int(i)] = sl
 
@@ -249,24 +240,22 @@ class InfiniteWangLandau(MCKernel):
             return
         if self._last_accepted_occupancy is None:
             return
-        if not self._sl_index_map or not self._active_codes_to_elems:
-            raise RuntimeError("Sublattice indices and active codes must be provided to collect cation stats.")
 
         occ = np.asarray(self._last_accepted_occupancy, dtype=np.int32)
 
         if b not in self._bin_cation_counts:
             self._bin_cation_counts[b] = {}
         bin_dict = self._bin_cation_counts[b]
-        for sl, idx in self._sl_index_map.items():
+        for sl, (idx, code_to_elem) in self._sublattice_indices.items():
             if sl not in bin_dict:
                 bin_dict[sl] = {}
             sl_dict = bin_dict[sl]
 
             # Extract codes on that sublattice and count occurrences per species code
             codes, counts = np.unique(occ[idx], return_counts=True)
-            zero_code_counts = [(code, 0) for code in self._active_codes_to_elems.keys() if code not in codes]  # ensure all active codes are present
+            zero_code_counts = [(code, 0) for code in code_to_elem if code not in codes]  # ensure all active codes are present
             for code, n_sites in zero_code_counts + list(zip(codes, counts)):
-                elem = self._active_codes_to_elems[code]
+                elem = code_to_elem[code]
                 if elem not in sl_dict:
                     sl_dict[elem] = {}
                 elem_dict = sl_dict[elem]

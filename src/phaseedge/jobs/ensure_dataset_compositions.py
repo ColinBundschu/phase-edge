@@ -31,7 +31,7 @@ def ensure_dataset_compositions(
 
     train_refs: list[CETrainRef] = []
     sub_jobs: list[Job | Flow] = []
-    for m_ix, mixture in enumerate(mixtures):
+    for mixture in mixtures:
         set_id = compute_set_id(
             prototype=prototype,
             prototype_params=prototype_params if prototype_params else None,

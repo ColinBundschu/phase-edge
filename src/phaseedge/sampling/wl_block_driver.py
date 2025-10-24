@@ -49,7 +49,7 @@ def _occ_from_initial_comp_map(
     return occ
 
 
-def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[str, int]]) -> tuple[dict[str, np.ndarray], dict[int, str]]:
+def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[str, int]]) -> dict[str, tuple[np.ndarray, dict[int, str]]]:
     """
     Build label -> site-index map from the CE prototype+supercell used by WL.
     """
@@ -70,23 +70,26 @@ def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[s
     )
     struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
-    occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=True)
-    [active_sl] = ensemble.active_sublattices
-    code_to_elem = {int(code): str(elem) for code, elem in zip(active_sl.encoding, active_sl.species)}
-    inverted_comp_map = {list(v.keys())[0]: k for k, v in sl_comp_map.items()}
+    occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=False)
+    sl_map: dict[str, tuple[np.ndarray, dict[int, str]]] = {}
+    for sublattice in ensemble.active_sublattices:
+        code_to_elem = {int(code): str(elem) for code, elem in zip(sublattice.encoding, sublattice.species)}
+        for elem in [str(s) for s in sublattice.species]:
+            if elem not in sl_comp_map:
+                continue # this element is not a placeholder label for a sublattice
+            idx = np.where([str(o.symbol) == elem for o in occ])[0]
+            idx = idx[np.isin(idx, sublattice.sites)]
+            if idx.size == 0:
+                continue # This is a placeholder for a different sublattice
+            if elem in sl_map:
+                raise ValueError(f"Placeholder lattice identification element '{elem}' appears in multiple sublattices.")
+            sl_map[elem] = (idx, code_to_elem)
 
-    sl_map: dict[str, np.ndarray] = {}
-    for sl in sl_comp_map.keys():
-        # We use get here because just because an element can appear in the sublattice, does not mean its
-        # used as part of the canonical mapping. Since each sublattice has one label, we use a single
-        # element to identify it.
-        idx = np.where([inverted_comp_map.get(code_to_elem[int(o)]) == sl for o in occ])[0]
-        # exclude sites not in active_sl.sites
-        idx = idx[np.isin(idx, active_sl.sites)]
-        if idx.size == 0:
-            raise ValueError(f"Sublattice label '{sl}' not found in prototype structure {occ}.")
-        sl_map[sl] = idx
-    return sl_map, code_to_elem
+    for placeholder in sl_comp_map.keys():
+        if placeholder not in sl_map:
+            raise ValueError(f"Could not find any sites for sublattice placeholder '{placeholder}' in the prototype structure.")
+
+    return sl_map
 
 
 # ---- Chunk runner ---------------------------------------------------------
@@ -102,7 +105,7 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
     rng = np.random.default_rng(int(spec.seed))
 
     # Precompute sublattice site-index mapping for this WL key/spec
-    sublattice_indices, active_codes_to_elems = _build_sublattice_indices(
+    sublattice_indices = _build_sublattice_indices(
         ce_key=spec.ce_key,
         initial_comp_map=spec.initial_comp_map,
     )
@@ -121,7 +124,6 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
         collect_cation_stats=spec.collect_cation_stats,
         production_mode=spec.production_mode,
         sublattice_indices=sublattice_indices,
-        active_codes_to_elems=active_codes_to_elems,
         reject_cross_sublattice_swaps=spec.reject_cross_sublattice_swaps,
     )
 
