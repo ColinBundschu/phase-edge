@@ -4,13 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.10"
 
 [project.scripts]
-pe-db-ping = "phaseedge.cli.db:main"
-pe-db-info = "phaseedge.cli.db_info:main"
-pe-db-reset = "phaseedge.cli.db_reset:main"
 pe-extend-wl = "phaseedge.cli.extend_wl:main"
-pe-refine-wl-samples = "phaseedge.cli.refine_wl_samples:main"
 pe-ensure-ce-from-mixtures = "phaseedge.cli.ensure_ce_from_mixtures:main"
-pe-ensure-ce-from-refined-wl = "phaseedge.cli.ensure_ce_from_refined_wl:main"
+pe-ensure-dopt-ce = "phaseedge.cli.ensure_dopt_ce:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

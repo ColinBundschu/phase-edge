@@ -149,12 +149,12 @@ def _canon_num(v: Any, ndigits: int = 12) -> Any:
 
 # -------------------- refined-WL INTENT normalization --------------------
 
-def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
+def _normalize_dopt_sampling_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     """
     Canonicalize a refined-WL *intent* source and REQUIRE a seed:
 
       {
-        "type": "wl_refined_intent",
+        "type": "dopt_sampling_intent",
         "base_ce_key": str,
         "endpoints": [composition_map, ...],
         "wl_policy": {bin_width, step_type, check_period, update_period, seed},  # seed REQUIRED
@@ -169,7 +169,7 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     # wl_policy: must include a seed
     raw_wl_policy = dict(src.get("wl_policy", {}))
     if "seed" not in raw_wl_policy:
-        raise ValueError("wl_refined_intent.wl_policy must include an integer 'seed'.")
+        raise ValueError("dopt_sampling_intent.wl_policy must include an integer 'seed'.")
     # Normalize/round numerics but keep exact int for seed after casting
     wl_policy = _json_canon(_canon_num(raw_wl_policy))
     wl_policy["seed"] = int(raw_wl_policy["seed"])
@@ -180,7 +180,7 @@ def _normalize_wl_refined_intent(src: Mapping[str, Any]) -> dict[str, Any]:
     versions = _json_canon(_canon_num(dict(src.get("versions", {}))))
 
     return {
-        "type": "wl_refined_intent",
+        "type": "dopt_sampling_intent",
         "base_ce_key": base_ce_key,
         "endpoints": sorted_composition_maps(src["endpoints"]),
         "wl_policy": wl_policy,
@@ -199,7 +199,7 @@ def normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, An
 
     Supported source types:
       - {"type": "composition", "mixtures": list[Mixture]}
-      - {"type": "wl_refined_intent", ...}
+      - {"type": "dopt_sampling_intent", ...}
 
     BREAKING CHANGE: 'elements' replaced by 'mixtures'.
     """
@@ -227,8 +227,8 @@ def normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, An
 
             norm.append({"type": "composition", "mixtures": mixtures_payload})
 
-        elif t == "wl_refined_intent":
-            norm.append(_normalize_wl_refined_intent(src))
+        elif t == "dopt_sampling_intent":
+            norm.append(_normalize_dopt_sampling_intent(src))
 
         else:
             raise ValueError(f"Unknown source type: {t!r}")

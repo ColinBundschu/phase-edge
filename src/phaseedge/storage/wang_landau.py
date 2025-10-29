@@ -1,5 +1,5 @@
 from typing import Any, TypedDict, cast
-from phaseedge.storage.store import build_jobstore, lookup_unique
+from phaseedge.storage.store import get_jobstore, lookup_unique
 from pymongo.collection import Collection
 
 class WLBlockDoc(TypedDict, total=True):
@@ -20,7 +20,7 @@ class WLBlockDoc(TypedDict, total=True):
     
 
 def fetch_wl_tip(wl_key: str) -> WLBlockDoc | None:
-    js = build_jobstore()
+    js = get_jobstore()
     # fetch the last block for this wl_key
     rows = list(js.query(
         criteria={"output.kind": "WLBlockDoc", "output.wl_key": wl_key},
@@ -41,7 +41,7 @@ def lookup_wl_block_by_key(wl_block_key: str) -> WLBlockDoc | None:
 
 
 def get_first_matching_wl_block(run_spec) -> WLBlockDoc | None:
-    js = build_jobstore()
+    js = get_jobstore()
     rows = list(js.docs_store.query(
             criteria={
                 "output.kind": "WLBlockDoc",
@@ -61,7 +61,7 @@ def get_first_matching_wl_block(run_spec) -> WLBlockDoc | None:
 
 
 def verify_wl_output_indexes() -> None:
-    coll = cast(Collection, build_jobstore().docs_store._collection)
+    coll = cast(Collection, get_jobstore().docs_store._collection)
     existing = {ix["name"] for ix in coll.list_indexes()}
     wl_indices = ['wl_out_uniq_ckpt_key', 'wl_out_uniq_parent_per_wl', 'wl_out_tip']
     #if any are missing, raise an exception

@@ -7,20 +7,19 @@ from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.cli.common import parse_composition_map, parse_cutoffs_arg, parse_mix_item
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
-from phaseedge.jobs.ensure_ce_from_refined_wl import ensure_ce_from_refined_wl
+from phaseedge.jobs.ensure_dopt_ce import ensure_dopt_ce
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
+from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import Mixture, composition_map_sig, sorted_composition_maps
 from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import validate_counts_for_sublattices
-from phaseedge.science.refine_wl import RefineStrategy
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="pe-ensure-ce-from-refined-wl",
+        prog="pe-ensure-dopt-ce",
         description=(
-            "Ensure a CE, run WL on non-endpoint compositions, optionally refine WL samples, "
+            "Ensure a CE, run WL on non-endpoint compositions, "
             "select a D-optimal basis to a target budget, relax, and train a final CE."
         ),
     )
@@ -63,13 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--check-period", type=int, default=5_000)
     p.add_argument("--update-period", type=int, default=1)
     p.add_argument("--wl-seed", type=int, default=0)
-
-    # Refinement policy (per WL chain). n_total == 0 means "use all".
-    p.add_argument("--refine-n-total", type=int, default=25)
-    p.add_argument("--refine-per-bin-cap", type=int, default=5)
-    p.add_argument("--refine-strategy",
-                   choices=["energy_spread", "energy_stratified", "hash_round_robin"],
-                   default="energy_spread")
 
     # Final CE training (for relaxations + final ce_key)
     p.add_argument("--train-model", required=True)
@@ -129,7 +121,7 @@ def main() -> int:
     )
 
     # Compose the master ensure job
-    spec = EnsureCEFromRefinedWLSpec(
+    spec = EnsureDoptCESpec(
         ce_spec=ce_spec,
         endpoints=endpoints,
         wl_bin_width=float(args.wl_bin_width),
@@ -140,9 +132,6 @@ def main() -> int:
         wl_update_period=int(args.update_period),
         wl_seed=int(args.wl_seed),
         reject_cross_sublattice_swaps=bool(args.reject_cross_sublattice_swaps),
-        refine_n_total=int(args.refine_n_total),
-        refine_per_bin_cap=int(args.refine_per_bin_cap),
-        refine_strategy=RefineStrategy(args.refine_strategy),
         train_model=str(args.train_model),
         train_relax_cell=bool(args.train_relax_cell),
         budget=int(args.budget),
@@ -162,8 +151,8 @@ def main() -> int:
 
     existing_ce = lookup_ce_by_key(spec.final_ce_key)
     if existing_ce is None:
-        j = ensure_ce_from_refined_wl(spec=spec)
-        j.name = f"ensure_ce_from_refined_wl::{args.prototype}::{tuple(args.supercell)}::{args.model}"
+        j = ensure_dopt_ce(spec=spec)
+        j.name = f"ensure_dopt_ce::{args.prototype}::{tuple(args.supercell)}::{args.model}"
         j.update_metadata({"_category": spec.category})
 
         wf = flow_to_workflow(j)

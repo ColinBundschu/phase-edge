@@ -1,31 +1,66 @@
 from typing import Any, Mapping
 
+import hashlib
+
 from jobflow.core.flow import Flow, JobOrder
 from jobflow.core.job import job, Job, Response
 
 from phaseedge.jobs.add_wl_block import add_wl_block
 from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
-from phaseedge.jobs.refine_wl_block_samples import RefineWLSpec, refine_wl_block_samples
 from phaseedge.jobs.select_d_optimal_basis import select_d_optimal_basis
 from phaseedge.jobs.ensure_dataset_selected import ensure_dataset_selected
 from phaseedge.jobs.train_ce import train_ce
 from phaseedge.jobs.store_ce_model import store_ce_model
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.schemas.ensure_ce_from_refined_wl_spec import EnsureCEFromRefinedWLSpec
+from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import sublattices_from_mixtures
-from phaseedge.storage.wang_landau import get_first_matching_wl_block
+from phaseedge.storage.wang_landau import get_first_matching_wl_block, lookup_wl_block_by_key
+
+
+def _occ_hash(occ: list[int]) -> str:
+    return hashlib.sha256(bytes(int(x) & 0xFF for x in occ)).hexdigest()
 
 
 @job
-def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str, Any] | Response:
-    """Ensure a CE using refined WL data, idempotently."""
+def aggregate_wl_block_samples(*, wl_block_key: str) -> Mapping[str, Any]:
+    """
+    Lightweight pass-through aggregator that returns ALL samples from a WL block,
+    deterministically sorted by (bin asc, occ_hash asc).
+    """
+    block = lookup_wl_block_by_key(wl_block_key)
+    if not block:
+        raise RuntimeError(f"WL block not found for wl_block_key={wl_block_key}")
+
+    bin_samples = block.get("bin_samples")
+    if not isinstance(bin_samples, list):
+        raise RuntimeError("WL block document lacks 'bin_samples' list.")
+
+    samples = []
+    for rec in bin_samples:
+        b = int(rec["bin"])
+        occ = [int(x) for x in rec["occ"]]
+        samples.append({"bin": b, "occ": occ})
+
+    # Deterministic ordering for reproducibility
+    samples.sort(key=lambda s: (int(s["bin"]), _occ_hash(s["occ"])))
+
+    return {
+        "wl_key": block["wl_key"],
+        "wl_block_key": wl_block_key,
+        "n_selected": len(samples),
+        "selected": samples,
+    }
+
+
+@job
+def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
+    """Ensure a CE using WL data, idempotently (aggregate all WL samples)."""
     if lookup_ce_by_key(spec.final_ce_key):
         raise RuntimeError(f"Final CE already exists for ce_key: {spec.final_ce_key}")
-    
-    # 1) Cache check: if CE exists, short-circuit
+
+    # 1) Ensure WL blocks exist (or extend); build list of wl_block_keys
     wl_jobs: list[Job | Flow] = []
-    wl_blocks = []
-    
+    wl_blocks: list[str] = []
 
     for sampler_spec in spec.wl_sampler_specs:
         tip = get_first_matching_wl_block(sampler_spec)
@@ -47,29 +82,23 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         ensure_wl_from_ce_flow = Flow([j_ce, wl_flow_inner], name="Ensure WL samples from CE", order=JobOrder.LINEAR)
 
     # -------------------------------------------------------------------------
-    # 2) Refine per WL block
-    refine_jobs: list[Job | Flow] = []
+    # 2) Aggregate all samples per WL block
+    agg_jobs: list[Flow | Job] = []
     for wl_block_key in wl_blocks:
-        r_spec = RefineWLSpec(
-            mode=spec.refine_mode,
-            n_total=spec.refine_n_total,
-            per_bin_cap=spec.refine_per_bin_cap,
-            strategy=spec.refine_strategy,
-        )
-        j_r = refine_wl_block_samples(spec=r_spec, wl_block_key=wl_block_key)
-        j_r.update_metadata({"_category": spec.category})
-        refine_jobs.append(j_r)
-    refine_flow = Flow(refine_jobs, name="stage2: refine (parallel)")
+        j_agg = aggregate_wl_block_samples(wl_block_key=wl_block_key)
+        j_agg.update_metadata({"_category": spec.category})
+        agg_jobs.append(j_agg)
+    agg_flow = Flow(agg_jobs, name="stage2: aggregate WL samples (parallel)")
 
     # -------------------------------------------------------------------------
-    # 3) Select D‑optimal basis
+    # 3) Select D-optimal basis directly from aggregated samples
     chains_payload = [
         {
-            "wl_key": r.output["wl_key"],
-            "wl_block_key": r.output["wl_block_key"],
-            "samples": r.output["selected"],
+            "wl_key": a.output["wl_key"],
+            "wl_block_key": a.output["wl_block_key"],
+            "samples": a.output["selected"],
         }
-        for r in refine_jobs
+        for a in agg_jobs
     ]
     j_select = select_d_optimal_basis(
         ce_key=spec.ce_spec.ce_key,
@@ -118,6 +147,7 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
         prototype=spec.ce_spec.prototype,
         prototype_params=spec.ce_spec.prototype_params,
         supercell_diag=spec.ce_spec.supercell_diag,
+        # Keep algo_version as-is for now; we can rename in a later cleanup step
         algo_version="refined-wl-dopt-v2",
         sources=[spec.source],
         model=spec.train_model,
@@ -136,21 +166,21 @@ def ensure_ce_from_refined_wl(*, spec: EnsureCEFromRefinedWLSpec) -> Mapping[str
     # -------------------------------------------------------------------------
     base_flow = [ensure_wl_from_ce_flow] if ensure_wl_from_ce_flow else []
     flow = Flow(
-        [*base_flow, refine_flow, j_select, j_relax, j_train, j_store],
-        name="Ensure CE from refined WL",
+        [*base_flow, agg_flow, j_select, j_relax, j_train, j_store],
+        name="Ensure CE from WL (no refine)",
     )
 
     out = {
         "initial_ce_key": spec.ce_spec.ce_key,
         "final_ce_key": spec.final_ce_key,
         "wl_blocks": wl_blocks,
+        # Preserve a similar shape to previous outputs for consumers that might read it
         "refines": [
             {
-                "wl_key": r.output["wl_key"],
-                "wl_block_key": r.output["wl_block_key"],
-                "refine_key": r.output["refine_key"],
+                "wl_key": a.output["wl_key"],
+                "wl_block_key": a.output["wl_block_key"],
             }
-            for r in refine_jobs
+            for a in agg_jobs
         ],
         "selection_seed_size": j_select.output["seed_size"],
         "selection_budget": spec.budget,

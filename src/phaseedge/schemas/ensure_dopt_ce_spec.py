@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Mapping
 
 from monty.json import MSONable
 
 from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
-from phaseedge.schemas.mixture import canonical_comp_map, sorted_composition_maps
+from phaseedge.schemas.mixture import sorted_composition_maps
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
-from phaseedge.science.refine_wl import RefineStrategy
 from phaseedge.utils.keys import compute_ce_key
 
 
@@ -48,7 +47,7 @@ def composition_maps_equal(
 
 
 @dataclass(frozen=True, slots=True)
-class EnsureCEFromRefinedWLSpec(MSONable):
+class EnsureDoptCESpec(MSONable):
     ce_spec: EnsureCEFromMixturesSpec
     endpoints: tuple[dict[str, dict[str, int]], ...]
 
@@ -62,9 +61,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
     wl_update_period: int = 1
     wl_seed: int = 0
 
-    refine_n_total: int = 25
-    refine_per_bin_cap: int = 5
-    refine_strategy: RefineStrategy = RefineStrategy.ENERGY_SPREAD
     train_model: str = "MACE-MPA-0"
     train_relax_cell: bool = False
     budget: int = 64
@@ -86,9 +82,6 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "wl_check_period": self.wl_check_period,
             "wl_update_period": self.wl_update_period,
             "wl_seed": self.wl_seed,
-            "refine_n_total": self.refine_n_total,
-            "refine_per_bin_cap": self.refine_per_bin_cap,
-            "refine_strategy": self.refine_strategy,
             "train_model": self.train_model,
             "train_relax_cell": self.train_relax_cell,
             "budget": self.budget,
@@ -96,7 +89,7 @@ class EnsureCEFromRefinedWLSpec(MSONable):
         }
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "EnsureCEFromRefinedWLSpec":
+    def from_dict(cls, d: Mapping[str, Any]) -> "EnsureDoptCESpec":
         ce_spec = d["ce_spec"]
         if not isinstance(ce_spec, EnsureCEFromMixturesSpec):
             ce_spec = EnsureCEFromMixturesSpec.from_dict(ce_spec)
@@ -111,21 +104,12 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             wl_check_period=int(d["wl_check_period"]),
             wl_update_period=int(d["wl_update_period"]),
             wl_seed=int(d["wl_seed"]),
-            refine_n_total=int(d["refine_n_total"]),
-            refine_per_bin_cap=int(d["refine_per_bin_cap"]),
-            refine_strategy=RefineStrategy(d["refine_strategy"]),
             train_model=str(d["train_model"]),
             train_relax_cell=bool(d["train_relax_cell"]),
             budget=int(d["budget"]),
             category=str(d.get("category", "gpu")),
         )
-
-
-    @property
-    def refine_mode(self) -> Literal["all", "refine"]:
-        return "all" if self.refine_n_total == 0 else "refine"
     
-
     @property
     def wl_sampler_specs(self):
         return [WLSamplerSpec(
@@ -169,27 +153,19 @@ class EnsureCEFromRefinedWLSpec(MSONable):
             "steps_to_run": self.wl_steps_to_run,
             "samples_per_bin": self.wl_samples_per_bin,
         }
-        refine_options_for_key = {
-            "mode": self.refine_mode,
-            "n_total": self.refine_n_total,
-            "per_bin_cap": self.refine_per_bin_cap,
-            "strategy": self.refine_strategy,
-        }
         dopt_options_for_key = {
             "budget": self.budget,
             "ridge": float(1e-10),
             "tie_breaker": "bin_then_hash",
         }
         source = {
-            "type": "wl_refined_intent",
+            "type": "dopt_sampling_intent",
             "base_ce_key": self.ce_spec.ce_key,
             "endpoints": self.endpoints,
             "wl_policy": wl_policy_for_key,
             "ensure": ensure_policy_for_key,
-            "refine": refine_options_for_key,
             "dopt": dopt_options_for_key,
             "versions": {
-                "refine": "refine-wl-v1",
                 "dopt": "dopt-rr-sm-v1",
                 "sampler": "wl-grid-v1",
             },
