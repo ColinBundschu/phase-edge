@@ -6,7 +6,7 @@ from jobflow.core.job import job
 from smol.moca.ensemble import Ensemble
 
 from phaseedge.science.random_configs import make_one_snapshot
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.schemas.mixture import composition_map_sig
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
@@ -30,21 +30,17 @@ def _occ_hash(occ: Sequence[int]) -> str:
 def _occ_for_counts(
     *,
     ensemble: Ensemble,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     composition_map: Mapping[str, Mapping[str, int]],
 ) -> list[int]:
-    conv = make_prototype(prototype, **dict(prototype_params))
     rng = np.random.default_rng(0)  # deterministic
-    snap = make_one_snapshot(
-        conv_cell=conv,
+    struct = make_one_snapshot(
+        primitive_cell=prototype_spec.primitive_cell,
         supercell_diag=supercell_diag,
         composition_map=composition_map,
         rng=rng,
     )
-    from pymatgen.io.ase import AseAtomsAdaptor as _Adaptor
-    struct = _Adaptor.get_structure(snap)  # type: ignore[arg-type]
 
     proc = ensemble.processor
     occ = proc.cluster_subspace.occupancy_from_structure(struct, encode=True)
@@ -64,11 +60,10 @@ def _corr_from_occ(ensemble: Ensemble, occ: Sequence[int]) -> np.ndarray:
 def select_d_optimal_basis(
     *,
     ce_key: str,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     endpoints: Sequence[Mapping[str, Mapping[str, int]]],
-    wl_compoisition_maps: Mapping[str, Mapping[str, Mapping[str, int]]],
+    wl_composition_maps: Mapping[str, Mapping[str, Mapping[str, int]]],
     # each chain: {"wl_key": str, "wl_block_key": str, "samples": [{"bin": int, "occ": [...]}, ...]}
     chains: Sequence[Mapping[str, Any]],
     budget: int,
@@ -101,8 +96,7 @@ def select_d_optimal_basis(
     for ep in endpoints:
         occ = _occ_for_counts(
             ensemble=ensemble,
-            prototype=prototype,
-            prototype_params=prototype_params,
+            prototype_spec=prototype_spec,
             supercell_diag=supercell_diag,
             composition_map=ep,
         )
@@ -134,7 +128,7 @@ def select_d_optimal_basis(
                     wl_key=wl_key,
                     wl_block_key=ck_hash,
                     bin=b,
-                    composition_map=wl_compoisition_maps[wl_key],
+                    composition_map=wl_composition_maps[wl_key],
                 )
             )
 

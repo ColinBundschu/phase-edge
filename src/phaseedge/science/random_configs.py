@@ -3,10 +3,15 @@ from typing import Mapping
 import numpy as np
 from ase.atoms import Atoms
 
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core import Structure
+
+from phaseedge.science.prototype_spec import PrototypeSpec
+
 
 def validate_counts_for_sublattices(
     *,
-    conv_cell: Atoms,
+    primitive_cell: Atoms,
     supercell_diag: tuple[int, int, int],
     composition_map: Mapping[str, Mapping[str, int]],
 ) -> None:
@@ -21,7 +26,7 @@ def validate_counts_for_sublattices(
         If any count is negative or if the counts do not sum to the number
         of sites on that sublattice.
     """
-    sc = conv_cell.repeat(supercell_diag)
+    sc = primitive_cell.repeat(supercell_diag)
     symbols = np.array(sc.get_chemical_symbols())
 
     for replace_element, counts in composition_map.items():
@@ -41,11 +46,11 @@ def validate_counts_for_sublattices(
 
 def make_one_snapshot(
     *,
-    conv_cell: Atoms,
+    primitive_cell: Atoms,
     supercell_diag: tuple[int, int, int],
     composition_map: Mapping[str, Mapping[str, int]],
     rng: np.random.Generator,
-) -> Atoms:
+) -> Structure:
     """
     Build a supercell, then for each sublattice (identified by its placeholder
     `replace_element` symbol), assign exact integer counts by permuting that
@@ -53,7 +58,7 @@ def make_one_snapshot(
 
     Determinism
     -----------
-    - Deterministic given (conv_cell, supercell_diag, composition_map, rng state).
+    - Deterministic given (primitive_cell, supercell_diag, composition_map, rng state).
     - We iterate both sublattices and element labels in sorted order.
     - Each call to `rng.permutation(...)` advances the RNG state, so two
       sublattices with the same size still receive different permutations.
@@ -67,12 +72,12 @@ def make_one_snapshot(
     need distinct placeholders in the prototype or an index-mask approach.
     """
     validate_counts_for_sublattices(
-        conv_cell=conv_cell,
+        primitive_cell=primitive_cell,
         supercell_diag=supercell_diag,
         composition_map=composition_map,
     )
 
-    sc = conv_cell.repeat(supercell_diag)
+    sc = primitive_cell.repeat(supercell_diag)
     symbols = np.array(sc.get_chemical_symbols())
 
     # Deterministic order across dicts
@@ -100,4 +105,32 @@ def make_one_snapshot(
             )
 
     sc.set_chemical_symbols(symbols.tolist())
-    return sc
+    structure = AseAtomsAdaptor.get_structure(sc)
+    return structure
+
+
+def build_sublattice_positions_for_struct(*, prototype_spec: PrototypeSpec, supercell_diag: tuple[int, int, int]) -> dict[str, list[tuple[float, float, float]]]:
+    """
+    Build label -> site-index map from the structure
+    """
+    multiplier = int(np.prod(supercell_diag))
+    sl_comp_map = {k: {k: v * multiplier} for k, v in prototype_spec.active_sublattice_counts.items()}
+
+    # Make a new rng for this operation (not part of the returned state)
+    rng = np.random.default_rng(12345)
+    struct = make_one_snapshot(
+        primitive_cell=prototype_spec.primitive_cell,
+        supercell_diag=supercell_diag,
+        composition_map=sl_comp_map,
+        rng=rng,
+    )
+    
+    sl_map: dict[str, list[tuple[float, float, float]]] = {}
+    for sublattice_label in prototype_spec.active_sublattices:
+        # Find all the sites with this label and add their xyz positions to the map
+        positions = []
+        for site in struct.sites:
+            if site.specie.symbol == sublattice_label:
+                positions.append(tuple(site.frac_coords))
+        sl_map[sublattice_label] = positions
+    return sl_map

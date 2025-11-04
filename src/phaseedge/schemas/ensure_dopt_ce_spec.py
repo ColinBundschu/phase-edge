@@ -3,6 +3,7 @@ from typing import Any, Mapping
 
 from monty.json import MSONable
 
+from phaseedge.schemas.calc_spec import CalcSpec
 from phaseedge.schemas.ensure_ce_from_mixtures_spec import EnsureCEFromMixturesSpec
 from phaseedge.schemas.mixture import sorted_composition_maps
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
@@ -56,13 +57,13 @@ class EnsureDoptCESpec(MSONable):
     wl_samples_per_bin: int
     reject_cross_sublattice_swaps: bool
 
+    calc_spec: CalcSpec
+
     wl_step_type: str = "swap"
     wl_check_period: int = 5_000
     wl_update_period: int = 1
     wl_seed: int = 0
 
-    train_model: str = "MACE-MPA-0"
-    train_relax_cell: bool = False
     budget: int = 64
 
     # Single category for *everything* (wrapper, CE subflow, WL jobs)
@@ -82,8 +83,7 @@ class EnsureDoptCESpec(MSONable):
             "wl_check_period": self.wl_check_period,
             "wl_update_period": self.wl_update_period,
             "wl_seed": self.wl_seed,
-            "train_model": self.train_model,
-            "train_relax_cell": self.train_relax_cell,
+            "calc_spec": self.calc_spec.as_dict(),
             "budget": self.budget,
             "category": self.category,
         }
@@ -104,8 +104,7 @@ class EnsureDoptCESpec(MSONable):
             wl_check_period=int(d["wl_check_period"]),
             wl_update_period=int(d["wl_update_period"]),
             wl_seed=int(d["wl_seed"]),
-            train_model=str(d["train_model"]),
-            train_relax_cell=bool(d["train_relax_cell"]),
+            calc_spec=CalcSpec.from_dict(d["calc_spec"]),
             budget=int(d["budget"]),
             category=str(d.get("category", "gpu")),
         )
@@ -128,12 +127,10 @@ class EnsureDoptCESpec(MSONable):
     @property
     def final_ce_key(self) -> str:
         return compute_ce_key(
-            prototype=self.ce_spec.prototype,
-            prototype_params=dict(self.ce_spec.prototype_params),
+            prototype_spec=self.ce_spec.prototype_spec,
             supercell_diag=self.ce_spec.supercell_diag,
             sources=[self.source],
-            model=self.train_model,
-            relax_cell=self.train_relax_cell,
+            calc_spec=self.calc_spec,
             basis_spec=self.ce_spec.basis_spec,
             regularization=self.ce_spec.regularization,
             algo_version="refined-wl-dopt-v2",

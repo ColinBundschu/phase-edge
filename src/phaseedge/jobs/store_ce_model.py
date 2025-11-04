@@ -6,6 +6,8 @@ from jobflow.core.job import job
 from smol.cofe import ClusterExpansion
 from smol.moca.ensemble import Ensemble
 
+from phaseedge.schemas.calc_spec import CalcSpec
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.storage.store import lookup_unique
 from phaseedge.utils.keys import normalize_sources
 
@@ -17,13 +19,11 @@ from phaseedge.utils.keys import normalize_sources
 class CEModelDoc(TypedDict, total=True):
     kind: str  # "CEModelDoc"
     ce_key: str
-    prototype: str
-    prototype_params: Mapping[str, Any]
+    prototype_spec: Mapping[str, Any]
     supercell_diag: tuple[int, int, int]
     algo_version: str
     sources: Sequence[Mapping[str, Any]]  # e.g., training set fetch params
-    model: str
-    relax_cell: bool
+    calc_spec: Mapping[str, Any]
     basis_spec: Mapping[str, Any]
     regularization: Mapping[str, Any]
     weighting: Mapping[str, Any]
@@ -96,15 +96,13 @@ def store_ce_model(
     *,
     ce_key: str,
 
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
 
     algo_version: str,
     sources: Sequence[Mapping[str, Any]],
 
-    model: str,
-    relax_cell: bool,
+    calc_spec: CalcSpec,
 
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any],
@@ -123,13 +121,11 @@ def store_ce_model(
     doc: CEModelDoc = {
         "kind": "CEModelDoc",
         "ce_key": ce_key,
-        "prototype": prototype,
-        "prototype_params": dict(prototype_params),
+        "prototype_spec": prototype_spec.as_dict(),
         "supercell_diag": supercell_diag,
         "algo_version": algo_version,
         "sources": normalize_sources(sources),
-        "model": model,
-        "relax_cell": relax_cell,
+        "calc_spec": calc_spec.as_dict(),
         "basis_spec": dict(basis_spec),
         "regularization": dict(regularization),
         "weighting": dict(weighting),

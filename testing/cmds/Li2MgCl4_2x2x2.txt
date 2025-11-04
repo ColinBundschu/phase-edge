@@ -20,8 +20,8 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Li:1,X:15},Fm:{Mg:16,Li:16},Md:{Li:15,X:17};K=6;seed=42" \
 --mix "composition_map=Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16};K=6;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell \
---basis sinusoid --cutoffs "2:6" \
+--calculator "MACE-MPA-0" --relax-type full --frozen-sublattices Es,Md \
+--basis sinusoid --cutoffs "2:8,3:6,4:4" \
 --reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu
@@ -49,7 +49,7 @@ pe-ensure-dopt-ce \
 --mix "composition_map=Es:{Li:1,X:15},Fm:{Mg:16,Li:16},Md:{Li:15,X:17};K=6;seed=42" \
 --mix "composition_map=Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16};K=6;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell \
+--base-calculator "MACE-MPA-0" --relax-type full --frozen-sublattices Md \
 --basis sinusoid --cutoffs "2:8,3:6,4:4" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -57,28 +57,28 @@ pe-ensure-dopt-ce \
 --wl-bin-width 0.1 --samples-per-bin 50 \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---train-model "vasp-mp-24" --train-relax-cell \
+--final-calculator "vasp-mp-gga" \
 --reject-cross-sublattice-swaps \
 --budget 250
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 0c5b7a6930102e3ee48ae6f28aec48bcba181402c2acde5ba77704c97db2b177 \
+--ce-key b5d0f390f2ee673499b37fb462f4248b8afa18643b5cd5dd4926c341fda4227e \
 --bin-width 0.1 \
---initial-comp-map 'Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16}' \
+--initial-comp-map 'Es:{Li:16},Fm:{Mg:16,Li:16},Md:{X:32}' \
 --samples-per-bin 0 \
 --category cpu \
---steps-to-run 1000000 \
---repeats 40 \
+--steps-to-run 10000000 \
+--repeats 10 \
 --json
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 0c5b7a6930102e3ee48ae6f28aec48bcba181402c2acde5ba77704c97db2b177 \
+--ce-key b5d0f390f2ee673499b37fb462f4248b8afa18643b5cd5dd4926c341fda4227e \
 --bin-width 0.1 \
---initial-comp-map 'Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16}' \
+--initial-comp-map 'Es:{Li:16},Fm:{Mg:16,Li:16},Md:{X:32}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 10000000 \

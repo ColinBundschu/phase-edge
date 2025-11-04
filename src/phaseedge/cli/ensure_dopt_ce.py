@@ -9,9 +9,10 @@ from phaseedge.cli.common import parse_composition_map, parse_cutoffs_arg, parse
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
 from phaseedge.jobs.ensure_dopt_ce import ensure_dopt_ce
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType
 from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import Mixture, composition_map_sig, sorted_composition_maps
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 
 
@@ -36,9 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0, help="Default seed for CE mixture elements missing 'seed'.")
     p.add_argument("--reject-cross-sublattice-swaps", action="store_true", help="Reject WL swap moves that cross sublattices.")
 
-    # Initial CE (engine for training energies of the initial dataset)
-    p.add_argument("--model", default="MACE-MPA-0")
-    p.add_argument("--relax-cell", action="store_true")
+    # Relax/engine for training energies
+    p.add_argument("--base-calculator", required=True, choices=[r.value for r in CalcType])
+    p.add_argument("--final-calculator", required=True, choices=[r.value for r in CalcType])
+    p.add_argument("--relax-type", required=True, choices=[r.value for r in RelaxType])
+    p.add_argument("--frozen-sublattices", default="")
 
     # CE hyperparameters
     p.add_argument("--basis", default="sinusoid")
@@ -63,10 +66,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--update-period", type=int, default=1)
     p.add_argument("--wl-seed", type=int, default=0)
 
-    # Final CE training (for relaxations + final ce_key)
-    p.add_argument("--train-model", required=True)
-    p.add_argument("--train-relax-cell", action="store_true")
-
     # D-optimal budget
     p.add_argument("--budget", required=True, type=int)
 
@@ -86,13 +85,13 @@ def main() -> int:
     endpoints = sorted_composition_maps([parse_composition_map(s) for s in args.endpoint])
     mixtures = (*proper_mixtures, *(Mixture(composition_map=ep, K=1, seed=0) for ep in endpoints))
 
-    proto_params: dict[str, Any] = {"a": float(args.a)}
     
     # Optional early validation
-    conv = make_prototype(args.prototype, **proto_params)
+    proto_params: dict[str, Any] = {"a": float(args.a)}
+    prototype_spec = PrototypeSpec(prototype=args.prototype, params=proto_params)
     for mixture in mixtures:
         validate_counts_for_sublattices(
-            conv_cell=conv,
+            primitive_cell=prototype_spec.primitive_cell,
             supercell_diag=tuple(args.supercell),
             composition_map=mixture.composition_map,
         )
@@ -105,15 +104,25 @@ def main() -> int:
     supercell_x, supercell_y, supercell_z = tuple(int(x) for x in args.supercell)
     supercell_diag = (supercell_x, supercell_y, supercell_z)
 
+    base_calc_spec = CalcSpec(
+        calculator=CalcType(args.base_calculator),
+        relax_type=RelaxType(args.relax_type),
+        frozen_sublattices=args.frozen_sublattices,
+    )
+
+    final_calc_spec = CalcSpec(
+        calculator=CalcType(args.final_calculator),
+        relax_type=RelaxType(args.relax_type),
+        frozen_sublattices=args.frozen_sublattices,
+    )
+
     # Build CE spec
     ce_spec = EnsureCEFromMixturesSpec(
-        prototype=args.prototype,
-        prototype_params=proto_params,
+        prototype_spec=prototype_spec,
         supercell_diag=supercell_diag,
         mixtures=mixtures,
         seed=int(args.seed),
-        model=args.model,
-        relax_cell=bool(args.relax_cell),
+        calc_spec=base_calc_spec,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
         category=args.category,
@@ -132,8 +141,7 @@ def main() -> int:
         wl_update_period=int(args.update_period),
         wl_seed=int(args.wl_seed),
         reject_cross_sublattice_swaps=bool(args.reject_cross_sublattice_swaps),
-        train_model=str(args.train_model),
-        train_relax_cell=bool(args.train_relax_cell),
+        calc_spec=final_calc_spec,
         budget=int(args.budget),
         category=str(args.category),
     )
@@ -152,7 +160,7 @@ def main() -> int:
     existing_ce = lookup_ce_by_key(spec.final_ce_key)
     if existing_ce is None:
         j = ensure_dopt_ce(spec=spec)
-        j.name = f"ensure_dopt_ce::{args.prototype}::{tuple(args.supercell)}::{args.model}"
+        j.name = f"ensure_dopt_ce::{args.prototype}::{tuple(args.supercell)}::{args.final_calculator}"
         j.update_metadata({"_category": spec.category})
 
         wf = flow_to_workflow(j)
@@ -176,7 +184,7 @@ def main() -> int:
             "final_ce_key": spec.final_ce_key,
             } | {
             k: payload["ce_spec"][k] for k in (
-                "prototype", "prototype_params", "supercell_diag",
+                "prototype_spec", "supercell_diag",
                 "regularization", "weighting", "category", "basis_spec",
             )
         })
@@ -184,16 +192,10 @@ def main() -> int:
         for rec in planned_wl_runs:
             print(f"  {rec['initial_comp_map']}  wl_key={rec['wl_key']}")
         print({
-            "initial_training": {
-                "model": spec.ce_spec.model,
-                "relax_cell": spec.ce_spec.relax_cell,
-            },
+            "initial_calc_spec": base_calc_spec.as_dict(),
         })
         print({
-            "final_training": {
-                "model": spec.train_model,
-                "relax_cell": spec.train_relax_cell,
-            },
+            "final_calc_spec": final_calc_spec.as_dict(),
             "budget": spec.budget,
             "seed_size_estimate": payload["seed_size_estimate"],
         })

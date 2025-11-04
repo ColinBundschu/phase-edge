@@ -27,23 +27,20 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
 
     # 2) Ensure snapshots for all mixtures (each subflow barriers via emit job)
     f_ensure_all = ensure_dataset_compositions(
-        prototype=spec.prototype,
-        prototype_params=spec.prototype_params,
+        prototype_spec=spec.prototype_spec,
         supercell_diag=spec.supercell_diag,
         mixtures=spec.mixtures,
-        model=spec.model,
-        relax_cell=spec.relax_cell,
+        calc_spec=spec.calc_spec,
         category=spec.category,
     )
-    f_ensure_all.name = f"ensure_dataset_compositions::{spec.prototype}::{tuple(spec.supercell_diag)}::{spec.model}"
+    f_ensure_all.name = f"ensure_dataset_compositions::{spec.prototype_spec.prototype}::{tuple(spec.supercell_diag)}::{spec.calc_spec.calc_type}"
     f_ensure_all.update_metadata({"_category": spec.category})
 
     # 4) Train CE (pooled); pass cv_seed for deterministic folds
     sublattices = sublattices_from_mixtures(spec.mixtures)
     j_train = train_ce(
         dataset_key=f_ensure_all.output["dataset_key"],
-        prototype=spec.prototype,
-        prototype_params=spec.prototype_params,
+        prototype_spec=spec.prototype_spec,
         supercell_diag=spec.supercell_diag,
         sublattices=sublattices,
         basis_spec=spec.basis_spec,
@@ -57,13 +54,11 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
     # 5) Store CE model (returns stored doc)
     j_store = store_ce_model(
         ce_key=spec.ce_key,
-        prototype=spec.prototype,
-        prototype_params=spec.prototype_params,
+        prototype_spec=spec.prototype_spec,
         supercell_diag=spec.supercell_diag,
         algo_version=spec.algo,
         sources=[spec.source],
-        model=spec.model,
-        relax_cell=spec.relax_cell,
+        calc_spec=spec.calc_spec,
         basis_spec=spec.basis_spec,
         regularization=spec.regularization,
         weighting=spec.weighting,

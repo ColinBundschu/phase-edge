@@ -4,11 +4,13 @@ import numpy as np
 from jobflow.core.job import job, Response, Job
 from jobflow.core.flow import Flow
 
-from phaseedge.jobs.relax_structure import relax_structure
-from phaseedge.jobs.train_ce import CETrainRef, train_refs_exist
-from phaseedge.schemas.mixture import composition_map_sig, counts_sig
+from phaseedge.jobs.evaluate_structure import evaluate_structure
+from phaseedge.schemas.calc_spec import CalcSpec
+from phaseedge.schemas.mixture import composition_map_sig
+from phaseedge.science.prototype_spec import PrototypeSpec
+from phaseedge.storage.cetrainref_dataset import CETrainRef, Dataset
 from phaseedge.storage.store import lookup_total_energy_eV
-from phaseedge.utils.keys import compute_dataset_key, occ_key_for_structure
+from phaseedge.utils.keys import occ_key_for_structure
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 
 
@@ -17,8 +19,9 @@ def ensure_dataset_selected(
     *,
     ce_key: str,
     selected: Sequence[Mapping[str, Any]],
-    model: str,
-    relax_cell: bool,
+    calc_spec: CalcSpec,
+    prototype_spec: PrototypeSpec,
+    supercell_diag: tuple[int, int, int],
     category: str = "gpu",
     set_id_prefix: str = "wlref",
 ) -> Mapping[str, Any] | Response:
@@ -37,15 +40,16 @@ def ensure_dataset_selected(
         occ_key = occ_key_for_structure(pmg_struct)
 
         # Schedule relax
-        energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, model=model, relax_cell=relax_cell)
+        energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, calc_spec=calc_spec)
         if energy is None:
-            j_relax: Job = relax_structure(
+            j_relax: Job = evaluate_structure(
                 set_id=set_id,
                 occ_key=occ_key,
                 structure=pmg_struct,
-                model=model,
-                relax_cell=relax_cell,
+                calc_spec=calc_spec,
                 category=category,
+                prototype_spec=prototype_spec,
+                supercell_diag=supercell_diag,
             )
             j_relax.name = f"relax_selected::{sig}::{occ_key[:12]}"
             j_relax.update_metadata({"_category": category})
@@ -56,18 +60,12 @@ def ensure_dataset_selected(
             CETrainRef(
                 set_id=set_id,
                 occ_key=occ_key,
-                model=model,
-                relax_cell=relax_cell,
+                calc_spec=calc_spec,
                 structure=pmg_struct,
             )
         )
 
-    train_refs_out = sorted(train_refs, key=lambda r: (r["set_id"], r["occ_key"]))
-    dataset_key = compute_dataset_key([{k:v for k,v in train_ref.items() if k != "structure"} for train_ref in train_refs_out])
-    output = {"dataset_key": dataset_key}
-    if not train_refs_exist(dataset_key):
-        output = output | {"train_refs": train_refs_out, "kind": "CETrainRef_dataset"}
-    
+    output = Dataset(train_refs).jobflow_output
     if not sub_jobs:
         # All references were already relaxed; just return the train_refs
         return output

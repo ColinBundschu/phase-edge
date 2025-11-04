@@ -14,8 +14,10 @@ from sklearn.metrics import mean_squared_error
 from smol.cofe import ClusterExpansion, ClusterSubspace, StructureWrangler
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.schemas.calc_spec import CalcSpec
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.design_metrics import compute_design_metrics, MetricOptions, DesignMetrics
+from phaseedge.storage.cetrainref_dataset import Dataset
 from phaseedge.storage.store import exists_unique, lookup_total_energy_eV, lookup_unique
 
 __all__ = ["train_ce"]
@@ -38,54 +40,10 @@ class TrainStats(TypedDict):
     by_composition: dict[str, Mapping[str, CEStats]]  # {"Fe:128,Mg:128": {"in_sample": ..., "five_fold_cv": ...}, ...}
 
 
-class _TrainOutput(TypedDict, total=False):
+class _TrainOutput(TypedDict):
     payload: Mapping[str, Any]
     stats: TrainStats
     design_metrics: DesignMetrics
-
-
-class CETrainRef(TypedDict):
-    set_id: str
-    occ_key: str
-    model: str
-    relax_cell: bool
-    structure: Structure
-
-
-def lookup_train_refs_by_key(dataset_key: str) -> list[CETrainRef]:
-    criteria = {"output.kind": "CETrainRef_dataset", "output.dataset_key": dataset_key}
-    dataset = lookup_unique(criteria=criteria)
-    if dataset is None:
-        raise KeyError(f"No CETrainRef_dataset found for dataset_key={dataset_key!r}")
-    train_refs = []
-    for r in dataset["train_refs"]:
-        train_refs.append(
-            CETrainRef(
-                set_id=r["set_id"],
-                occ_key=r["occ_key"],
-                model=r["model"],
-                relax_cell=r["relax_cell"],
-                structure=Structure.from_dict(r["structure"]),
-            )
-        )
-    return train_refs
-
-
-def train_refs_exist(dataset_key: str) -> bool:
-    criteria = {"output.kind": "CETrainRef_dataset", "output.dataset_key": dataset_key}
-    return exists_unique(criteria=criteria)
-
-
-def lookup_train_ref_energy(train_ref: CETrainRef) -> float:
-    energy = lookup_total_energy_eV(
-        set_id=train_ref["set_id"],
-        occ_key=train_ref["occ_key"],
-        model=train_ref["model"],
-        relax_cell=train_ref["relax_cell"],
-    )
-    if energy is None:
-        raise KeyError(f"Could not find total energy for train_ref: {train_ref}")
-    return energy
 
 
 @dataclass(slots=True)
@@ -118,7 +76,7 @@ class Regularization:
 
 def build_disordered_primitive(
     *,
-    conv_cell: Atoms,
+    primitive_cell: Atoms,
     sublattices: dict[str, tuple[str, ...]],
 ) -> Structure:
     """
@@ -128,7 +86,7 @@ def build_disordered_primitive(
     if not sublattices:
         raise ValueError("sublattices must be non-empty.")
 
-    prim_cfg = AseAtomsAdaptor.get_structure(conv_cell)  # type: ignore[arg-type]
+    prim_cfg = AseAtomsAdaptor.get_structure(primitive_cell)  # type: ignore[arg-type]
     replace_elements = tuple(sublattices.keys())
     disordered_map = {}
     for replace_element, allowed_species in sublattices.items():
@@ -232,19 +190,14 @@ def compute_stats(y_true: Sequence[float], y_pred: Sequence[float]) -> CEStats:
 
 def _n_replace_sites_from_prototype(
     *,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
-    sublattices: dict[str, tuple[str, ...]],
 ) -> int:
     """
     Count the number of active sites in the **supercell** built
     by replicating the prototype conventional cell by supercell_diag.
     """
-    conv_cell = make_prototype(prototype, **dict(prototype_params))
-    n_per_prim = sum(1 for at in conv_cell if at.symbol in sublattices)
-    if n_per_prim < 1:
-        raise ValueError(f"Prototype has no sites for sublattices='{sublattices}'.")
+    n_per_prim = sum(prototype_spec.active_sublattice_counts.values())
     nx, ny, nz = supercell_diag
     return int(n_per_prim) * nx * ny * nz
 
@@ -317,8 +270,7 @@ def train_ce(
     # training data
     dataset_key: str,
     # prototype-only system identity (needed to build subspace)
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     sublattices: dict[str, tuple[str, ...]],
     # CE config
@@ -339,25 +291,22 @@ def train_ce(
     common CE practice (meV/site), by scaling y vectors before computing metrics.
     """
     # -------- basic validation --------
-    train_refs = lookup_train_refs_by_key(dataset_key)
-    structures_pm = [ref["structure"] for ref in train_refs]
+    dataset = Dataset.from_key(dataset_key)
+    structures_pm = [ref.structure for ref in dataset.train_refs]
     n_prims = int(np.prod(supercell_diag))  # number of primitive/conventional cells in the supercell
 
     # -------- 1) per-primitive/conventional-cell targets (training unit) --------
-    y_cell = [float(E) / float(n_prims) for E in [lookup_train_ref_energy(ref) for ref in train_refs]]
+    y_cell = [ref.lookup_energy() / float(n_prims) for ref in dataset.train_refs]
 
     # -------- 2) figure out sites_per_prim so we can report per-site metrics --------
     n_sites_const = _n_replace_sites_from_prototype(
-        prototype=prototype,
-        prototype_params=prototype_params,
+        prototype_spec=prototype_spec,
         supercell_diag=supercell_diag,
-        sublattices=sublattices,
     )
     sites_per_prim = n_sites_const // n_prims  # e.g., 4 cation sites per conventional cell in rocksalt
 
     # -------- 3) prototype conv cell + allowed species inference --------
-    conv_cell = make_prototype(prototype, **dict(prototype_params))
-    primitive_cfg = build_disordered_primitive(conv_cell=conv_cell, sublattices=sublattices)
+    primitive_cfg = build_disordered_primitive(primitive_cell=prototype_spec.primitive_cell, sublattices=sublattices)
 
     # -------- 4) subspace --------
     basis = BasisSpec(**cast(Mapping[str, Any], basis_spec))

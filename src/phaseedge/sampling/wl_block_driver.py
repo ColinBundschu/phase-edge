@@ -3,13 +3,12 @@ from typing import Any, Mapping
 import numpy as np
 
 from smol.moca import Sampler
-from pymatgen.io.ase import AseAtomsAdaptor
 
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.storage.wang_landau import WLBlockDoc, verify_wl_output_indexes, fetch_wl_tip
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.sampling.infinite_wang_landau import InfiniteWangLandau  # ensure registered
-from phaseedge.science.prototypes import make_prototype
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.jobs.store_ce_model import rehydrate_ensemble_by_ce_key
 from phaseedge.utils.keys import compute_wl_block_key
@@ -31,15 +30,14 @@ def _occ_from_initial_comp_map(
     if not doc:
         raise RuntimeError(f"No CE found for ce_key={ce_key}")
 
-    conv = make_prototype(doc["prototype"], **doc["prototype_params"])
+    prototype_spec = PrototypeSpec.from_dict(doc["prototype_spec"])
     sx, sy, sz = (int(x) for x in doc["supercell_diag"])
-    snap = make_one_snapshot(
-        conv_cell=conv,
+    struct = make_one_snapshot(
+        primitive_cell=prototype_spec.primitive_cell,
         supercell_diag=(sx, sy, sz),
         composition_map=initial_comp_map,
         rng=rng,
     )
-    struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
     occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=True)
     occ = np.asarray(occ, dtype=np.int32)
@@ -49,7 +47,7 @@ def _occ_from_initial_comp_map(
     return occ
 
 
-def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[str, int]]) -> dict[str, tuple[np.ndarray, dict[int, str]]]:
+def _build_sublattice_indices(*, ce_key: str) -> dict[str, tuple[np.ndarray, dict[int, str]]]:
     """
     Build label -> site-index map from the CE prototype+supercell used by WL.
     """
@@ -59,16 +57,16 @@ def _build_sublattice_indices(*, ce_key: str, initial_comp_map: dict[str, dict[s
 
     # Make a new rng for this operation (not part of the returned state)
     rng = np.random.default_rng(12345)
-    conv = make_prototype(doc["prototype"], **doc["prototype_params"])
+    prototype_spec = PrototypeSpec.from_dict(doc["prototype_spec"])
     sx, sy, sz = (int(x) for x in doc["supercell_diag"])
-    sl_comp_map = {k: {k: sum(initial_comp_map[k].values())} for k in initial_comp_map.keys()}
-    snap = make_one_snapshot(
-        conv_cell=conv,
+    multiplier = sx * sy * sz
+    sl_comp_map = {k: {k: v * multiplier} for k, v in prototype_spec.active_sublattice_counts.items()}
+    struct = make_one_snapshot(
+        primitive_cell=prototype_spec.primitive_cell,
         supercell_diag=(sx, sy, sz),
         composition_map=sl_comp_map,
         rng=rng,
     )
-    struct = AseAtomsAdaptor.get_structure(snap)  # type: ignore[arg-type]
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
     occ = ensemble.processor.cluster_subspace.occupancy_from_structure(struct, encode=False)
     sl_map: dict[str, tuple[np.ndarray, dict[int, str]]] = {}
@@ -105,10 +103,7 @@ def run_wl_block(spec: WLSamplerSpec) -> WLBlockDoc:
     rng = np.random.default_rng(int(spec.seed))
 
     # Precompute sublattice site-index mapping for this WL key/spec
-    sublattice_indices = _build_sublattice_indices(
-        ce_key=spec.ce_key,
-        initial_comp_map=spec.initial_comp_map,
-    )
+    sublattice_indices = _build_sublattice_indices(ce_key=spec.ce_key)
 
     sampler = Sampler.from_ensemble(
         ensemble,

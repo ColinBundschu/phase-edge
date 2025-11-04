@@ -102,14 +102,13 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
     ]
     j_select = select_d_optimal_basis(
         ce_key=spec.ce_spec.ce_key,
-        prototype=spec.ce_spec.prototype,
-        prototype_params=spec.ce_spec.prototype_params,
+        prototype_spec=spec.ce_spec.prototype_spec,
         supercell_diag=spec.ce_spec.supercell_diag,
         endpoints=spec.endpoints,
         chains=chains_payload,
         budget=spec.budget,
         ridge=1e-10,
-        wl_compoisition_maps={sampler_spec.wl_key: sampler_spec.initial_comp_map for sampler_spec in spec.wl_sampler_specs},
+        wl_composition_maps={sampler_spec.wl_key: sampler_spec.initial_comp_map for sampler_spec in spec.wl_sampler_specs},
     )
     j_select.name = "select_d_optimal_basis"
     j_select.update_metadata({"_category": spec.category})
@@ -119,9 +118,10 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
     j_relax = ensure_dataset_selected(
         ce_key=spec.ce_spec.ce_key,
         selected=j_select.output["chosen"],
-        model=spec.train_model,
-        relax_cell=spec.train_relax_cell,
+        calc_spec=spec.calc_spec,
         category=spec.category,
+        prototype_spec=spec.ce_spec.prototype_spec,
+        supercell_diag=spec.ce_spec.supercell_diag,
     )
     j_relax.name = "ensure_dataset_selected"
     j_relax.update_metadata({"_category": spec.category})
@@ -130,8 +130,7 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
     # 5) Fetch → Train → Store
     j_train: Job = train_ce(
         dataset_key=j_relax.output["dataset_key"],
-        prototype=spec.ce_spec.prototype,
-        prototype_params=spec.ce_spec.prototype_params,
+        prototype_spec=spec.ce_spec.prototype_spec,
         supercell_diag=spec.ce_spec.supercell_diag,
         sublattices=sublattices_from_mixtures(spec.ce_spec.mixtures),
         basis_spec=spec.ce_spec.basis_spec,
@@ -144,14 +143,12 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
 
     j_store: Job = store_ce_model(
         ce_key=spec.final_ce_key,
-        prototype=spec.ce_spec.prototype,
-        prototype_params=spec.ce_spec.prototype_params,
+        prototype_spec=spec.ce_spec.prototype_spec,
         supercell_diag=spec.ce_spec.supercell_diag,
         # Keep algo_version as-is for now; we can rename in a later cleanup step
         algo_version="refined-wl-dopt-v2",
         sources=[spec.source],
-        model=spec.train_model,
-        relax_cell=spec.train_relax_cell,
+        calc_spec=spec.calc_spec,
         basis_spec=spec.ce_spec.basis_spec,
         regularization=spec.ce_spec.regularization,
         weighting=spec.ce_spec.weighting,

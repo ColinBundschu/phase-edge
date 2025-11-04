@@ -4,21 +4,21 @@ from typing import Any, Mapping
 
 from monty.json import MSONable
 
+from phaseedge.schemas.calc_spec import CalcSpec
 from phaseedge.schemas.mixture import Mixture
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.utils.keys import compute_ce_key
 
 
 @dataclass(frozen=True, slots=True)
 class EnsureCEFromMixturesSpec(MSONable):
     _: dataclasses.KW_ONLY
-    prototype: str
-    prototype_params: Mapping[str, Any]
+    prototype_spec: PrototypeSpec
     supercell_diag: tuple[int, int, int]
     mixtures: tuple[Mixture, ...]
     seed: int
 
-    model: str
-    relax_cell: bool
+    calc_spec: CalcSpec
     category: str
 
     basis_spec: Mapping[str, Any]
@@ -35,20 +35,17 @@ class EnsureCEFromMixturesSpec(MSONable):
 
         object.__setattr__(self, "supercell_diag", sc)
         object.__setattr__(self, "mixtures", mix_tuple)
-        object.__setattr__(self, "relax_cell", bool(self.relax_cell))
 
     # Monty expects plain "dict" here; using it avoids override warnings.
     def as_dict(self) -> dict:
         d: dict[str, Any] = {
             "@module": type(self).__module__,
             "@class": type(self).__name__,
-            "prototype": self.prototype,
-            "prototype_params": dict(self.prototype_params),
+            "prototype_spec": self.prototype_spec.as_dict(),
             "supercell_diag": list(self.supercell_diag),
             "mixtures": [m.as_dict() for m in self.mixtures],
             "seed": int(self.seed),
-            "model": self.model,
-            "relax_cell": self.relax_cell,
+            "calc_spec": self.calc_spec.as_dict(),
             "basis_spec": dict(self.basis_spec),
             "category": self.category,
         }
@@ -62,13 +59,11 @@ class EnsureCEFromMixturesSpec(MSONable):
     def from_dict(cls, d: dict) -> "EnsureCEFromMixturesSpec":
         sx, sy, sz = (int(x) for x in d["supercell_diag"])
         return cls(
-            prototype=d["prototype"],
-            prototype_params=d["prototype_params"],
+            prototype_spec=PrototypeSpec.from_dict(d["prototype_spec"]),
             supercell_diag=(sx, sy, sz),
             mixtures=tuple(Mixture.from_dict(m) for m in d["mixtures"]),
             seed=int(d["seed"]),
-            model=d["model"],
-            relax_cell=bool(d["relax_cell"]),
+            calc_spec=CalcSpec.from_dict(d["calc_spec"]),
             basis_spec=d["basis_spec"],
             regularization=d.get("regularization"),
             weighting=d.get("weighting"),
@@ -86,12 +81,10 @@ class EnsureCEFromMixturesSpec(MSONable):
     @property
     def ce_key(self) -> str:
         return compute_ce_key(
-            prototype=self.prototype,
-            prototype_params=self.prototype_params,
+            prototype_spec=self.prototype_spec,
             supercell_diag=self.supercell_diag,
             sources=[self.source],
-            model=self.model,
-            relax_cell=self.relax_cell,
+            calc_spec=self.calc_spec,
             basis_spec=self.basis_spec,
             regularization=self.regularization,
             algo_version=self.algo,

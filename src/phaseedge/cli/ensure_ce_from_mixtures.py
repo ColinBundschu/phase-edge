@@ -6,7 +6,8 @@ from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.science.prototypes import make_prototype
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType
+from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.cli.common import parse_cutoffs_arg, parse_mix_item
 from phaseedge.jobs.ensure_ce_from_mixtures import ensure_ce_from_mixtures
@@ -30,8 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0, help="Global/default seed")
 
     # Relax/engine for training energies
-    p.add_argument("--model", default="MACE-MPA-0")
-    p.add_argument("--relax-cell", action="store_true")
+    p.add_argument("--calculator", required=True, choices=[r.value for r in CalcType])
+    p.add_argument("--relax-type", required=True, choices=[r.value for r in RelaxType])
+    p.add_argument("--frozen-sublattices", default="")
 
     # CE hyperparameters
     p.add_argument("--basis", default="sinusoid", help="Basis family understood by smol (default: sinusoid)")
@@ -64,10 +66,10 @@ def main() -> None:
     proto_params: dict[str, Any] = {"a": float(args.a)}
     
     # Optional early validation
-    conv = make_prototype(args.prototype, **proto_params)
+    prototype_spec = PrototypeSpec(prototype=args.prototype, params=proto_params)
     for mixture in mixtures:
         validate_counts_for_sublattices(
-            conv_cell=conv,
+            primitive_cell=prototype_spec.primitive_cell,
             supercell_diag=tuple(args.supercell),
             composition_map=mixture.composition_map,
         )
@@ -77,15 +79,19 @@ def main() -> None:
         {"scheme": "balance_by_comp", "alpha": float(args.weight_alpha)} if args.balance_by_comp else None
     )
 
+    calc_spec = CalcSpec(
+        calculator=CalcType(args.calculator),
+        relax_type=RelaxType(args.relax_type),
+        frozen_sublattices=args.frozen_sublattices,
+    )
+
     # Build the idempotent ensure job (mixture spec retained) and submit
     spec = EnsureCEFromMixturesSpec(
-        prototype=args.prototype,
-        prototype_params=proto_params,
+        prototype_spec=prototype_spec,
         supercell_diag=tuple(args.supercell),
         mixtures=mixtures,
         seed=int(args.seed),
-        model=args.model,
-        relax_cell=bool(args.relax_cell),
+        calc_spec=calc_spec,
         basis_spec={"basis": args.basis, "cutoffs": cutoffs},
         regularization={"type": args.reg_type, "alpha": args.alpha, "l1_ratio": args.l1_ratio},
         category=args.category,
@@ -97,7 +103,7 @@ def main() -> None:
         print("CE already exists for ce_key:", spec.ce_key)
     else:
         j = ensure_ce_from_mixtures(spec)
-        j.name = f"ensure_ce::{args.prototype}::{tuple(args.supercell)}::{args.model}"
+        j.name = f"ensure_ce::{args.prototype}::{tuple(args.supercell)}::{args.calculator}"
         j.metadata = {**(j.metadata or {}), "_category": args.category}
 
         flow = Flow([j], name="Ensure CE (compositions)")
@@ -116,7 +122,7 @@ def main() -> None:
             "a": args.a,
             "supercell": tuple(args.supercell),
             "source": spec.source,
-            "model": args.model,
+            "calc_spec": calc_spec,
             "relax_cell": bool(args.relax_cell),
             "basis": args.basis,
             "cutoffs": cutoffs,

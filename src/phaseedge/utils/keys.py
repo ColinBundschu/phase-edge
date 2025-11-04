@@ -7,13 +7,14 @@ from numpy.random import default_rng, Generator
 from pymatgen.core import Structure
 from numpy.typing import NDArray
 
+from phaseedge.schemas.calc_spec import CalcSpec
 from phaseedge.schemas.mixture import Mixture, canonical_comp_map, sorted_composition_maps
+from phaseedge.science.prototype_spec import PrototypeSpec
 
 
 def compute_set_id(
     *,
-    prototype: str,
-    prototype_params: Mapping[str, Any] | None,
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     composition_map: dict[str, dict[str, int]],
     seed: int,
@@ -25,10 +26,8 @@ def compute_set_id(
 
     Parameters
     ----------
-    prototype
-        Prototype (e.g., "rocksalt_Q0O").
-    prototype_params
-        Prototype parameters (e.g., {"a": 4.3}).
+    prototype_spec
+        PrototypeSpec defining the underlying crystal structure.
     supercell_diag
         Diagonal replication of the conventional/primitive cell (e.g., (3,3,3)).
     composition_map
@@ -52,8 +51,7 @@ def compute_set_id(
         comp_norm[sublat] = {el: int(counts[el]) for el in sorted(counts)}
 
     payload = {
-        "prototype": prototype,
-        "proto_params": dict(prototype_params) if prototype_params else {},
+        "prototype_spec": prototype_spec.as_dict(),
         "diag": list(map(int, supercell_diag)),
         "composition_map": comp_norm,
         "seed": int(seed),
@@ -244,13 +242,11 @@ def normalize_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, An
 
 def compute_ce_key(
     *,
-    prototype: str,
-    prototype_params: Mapping[str, Any],
+    prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     sources: Sequence[Mapping[str, Any]],
     algo_version: str,
-    model: str,
-    relax_cell: bool,
+    calc_spec: CalcSpec,
     basis_spec: Mapping[str, Any],
     regularization: Mapping[str, Any] | None = None,
     weighting: Mapping[str, Any] | None = None,
@@ -264,15 +260,14 @@ def compute_ce_key(
     payload = {
         "kind": "ce_key@sources",
         "system": {
-            "prototype": prototype,
-            "proto_params": _json_canon(prototype_params),
+            "prototype_spec": _json_canon(prototype_spec.as_dict()),
             "supercell": list(supercell_diag),
         },
         "sampling": {
             "algo": algo_version,
             "sources": norm_sources,
         },
-        "engine": {"model": model, "relax_cell": bool(relax_cell)},
+        "calc_spec": _json_canon(calc_spec.as_dict()),
         "hyperparams": {
             "basis": _json_canon(basis_spec),
             "regularization": _json_canon(regularization or {}),
@@ -320,54 +315,6 @@ def compute_wl_key(
     }
     blob = json.dumps(_json_canon(_canon_num(payload)), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-def compute_dataset_key(
-    refs: Sequence[Mapping[str, Any]],
-    *,
-    version: str = "ds1",
-) -> str:
-    """
-    Compute a stable, order-independent key for a list of CETrainRef-like dicts.
-
-    Uses only lightweight identity fields:
-      set_id, occ_key, model, relax_cell, dtype, energy (rounded)
-
-    Excludes 'structure' entirely.
-
-    Parameters
-    ----------
-    refs
-        Sequence of CETrainRef-like mappings.
-    energy_decimals
-        Decimal places to round energy to before hashing (default: 8).
-    version
-        Version tag for the key format (default: "ds1").
-
-    Returns
-    -------
-    str
-        A versioned SHA-256 hex digest like "ds1:<hex>".
-    """
-    # normalize each item to a minimal tuple that survives sorting
-    norm: list[tuple[str, str, str, bool]] = []
-    for i, r in enumerate(refs):
-        try:
-            set_id = str(r["set_id"])
-            occ_key = str(r["occ_key"])
-            model = str(r["model"])
-            relax_cell = bool(r["relax_cell"])
-        except Exception as exc:
-            raise ValueError(f"Bad CETrainRef at index {i}: {exc}") from exc
-        norm.append((set_id, occ_key, model, relax_cell))
-
-    # sort for order independence
-    norm.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
-
-    # canonical JSON: compact separators, sorted keys not needed for lists, but stable anyway
-    payload = json.dumps(norm, separators=(",", ":"), sort_keys=False)
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"{version}:{digest}"
 
 
 def compute_wl_block_key(

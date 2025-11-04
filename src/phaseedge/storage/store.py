@@ -9,6 +9,8 @@ from monty.serialization import loadfn
 from jobflow.core.store import JobStore
 from maggma.stores import MongoStore, GridFSStore
 
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType
+
 
 # -------------------------
 # Environment → connection
@@ -109,8 +111,7 @@ def lookup_total_energy_eV(
     *,
     set_id: str,
     occ_key: str,
-    model: str,
-    relax_cell: bool,
+    calc_spec: CalcSpec,
 ) -> float | None:
     """
     Efficiently fetch just the total energy (eV) for a ForceFieldTaskDocument
@@ -122,12 +123,12 @@ def lookup_total_energy_eV(
     criteria: dict[str, Any] = {
         "metadata.set_id": set_id,
         "metadata.occ_key": occ_key,
-        "metadata.model": model,
-        "metadata.relax_cell": relax_cell,
+        "metadata.calculator": calc_spec.calculator,
+        "metadata.relax_type": calc_spec.relax_type,
+        "metadata.frozen_sublattices": calc_spec.frozen_sublattices,
         "output.output.energy": {"$exists": True},
     }
-    from phaseedge.jobs.relax_structure import RelaxType
-    if model == RelaxType.MACE_MPA_0:
+    if calc_spec.calculator_info["calc_type"] == CalcType.MACE_MPA_0:
         criteria["output.is_force_converged"] = True
 
     projection = {"output.output.energy": 1}
@@ -138,7 +139,7 @@ def lookup_total_energy_eV(
     if len(docs) > 1:
         raise RuntimeError(
             f"Expected exactly one FF task, found {len(docs)} for set_id={set_id} "
-            f"occ_key={occ_key} model={model} relax_cell={relax_cell}"
+            f"occ_key={occ_key} calculator={calc_spec.calculator} relax_type={calc_spec.relax_type}"
         )
 
     energy = docs[0]["output"]["output"]["energy"]
