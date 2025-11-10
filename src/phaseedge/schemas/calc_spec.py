@@ -16,11 +16,17 @@ class CalcType(str, Enum):
     MACE_MPA_0 = "MACE-MPA-0"
 
 
+class SpinType(str, Enum):
+    NONMAGNETIC = "nonmagnetic"
+    FERROMAGNETIC = "ferromagnetic"
+
 @dataclass(frozen=True, slots=True)
 class CalcSpec(MSONable):
     _: dataclasses.KW_ONLY
     calculator: str
     relax_type: RelaxType
+    spin_type: SpinType
+    max_force_eV_per_A: float
     frozen_sublattices: str = ""
 
     def __post_init__(self) -> None:
@@ -35,6 +41,8 @@ class CalcSpec(MSONable):
             "@class": type(self).__name__,
             "calculator": self.calculator,
             "relax_type": self.relax_type.value,
+            "spin_type": self.spin_type.value,
+            "max_force_eV_per_A": self.max_force_eV_per_A,
             "frozen_sublattices": self.frozen_sublattices,
         }
     
@@ -43,6 +51,8 @@ class CalcSpec(MSONable):
         return cls(
             calculator=str(d["calculator"]),
             relax_type=RelaxType(d["relax_type"]),
+            spin_type=SpinType(d["spin_type"]),
+            max_force_eV_per_A=float(d["max_force_eV_per_A"]),
             frozen_sublattices=str(d["frozen_sublattices"]),
         )
     

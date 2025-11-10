@@ -14,6 +14,7 @@ class PrototypeStructure(str, Enum):
     SPINEL = "spinel"
     SPINEL16c = "spinel16c"
     DOUBLE_PEROVSKITE = "doubleperovskite"
+    PYROCHLORE = "pyrochlore"
 
 
 # Matches tags like J0Sr, Q0O, etc.
@@ -173,7 +174,7 @@ def _build_primitive_cell(
             basis=[(0, 0, 0), (0, 0, 1 / 2)],
             spacegroup=225,  # Fm-3m
             cellpar=[a, a, a, 90, 90, 90],
-            primitive_cell=True,
+            primitive_cell=False,
         )
         active_sublattices = {"Es"}
 
@@ -259,6 +260,36 @@ def _build_primitive_cell(
                 (u, 0, 0),              # anion
             ],
             spacegroup=225,  # Fm-3m
+            cellpar=[a, a, a, 90, 90, 90],
+            primitive_cell=True,
+        )
+        active_sublattices = {"Es", "Fm"}
+
+    elif structure is PrototypeStructure.PYROCHLORE:
+        # https://next-gen.materialsproject.org/materials/mp-757233
+        # In pyrochlores the 8a site is vacant, creating a 1/8 oxygen deficiency.
+        # Needs:
+        #   a : cubic lattice parameter
+        # Optional:
+        #   x : oxygen parameter (~0.713 default)
+        _require_exact_keys(spec, {"Q0"})
+        anion = spec["Q0"]
+
+        a = _pop_float(local_params, "a")
+        if a <= 0:
+            raise ValueError(f"Param 'a' must be > 0, got {a}.")
+
+        x = float(local_params.pop("x", 0.713))
+
+        primitive_cell = crystal(
+            symbols=["Es", "Fm", anion, anion],
+            basis=[
+                (1/8, 5/8, 1/8), # Es 16d
+                (3/8, 7/8, 5/8), # Fm 16c
+                (1/4, 3/4, 1/4), # anion 8b
+                (1/2, 0, x),   # anion 48f
+            ],
+            spacegroup=227,  # Fd-3m
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,
         )

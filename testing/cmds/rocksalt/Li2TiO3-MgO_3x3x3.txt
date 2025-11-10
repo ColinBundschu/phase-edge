@@ -1,0 +1,117 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 3 3 3 \
+--mix "composition_map=Es:{Mg:108};K=1;seed=0" \
+--mix "composition_map=Es:{Li:2,Ti:1,Mg:105};K=5;seed=42" \
+--mix "composition_map=Es:{Li:4,Ti:2,Mg:102};K=5;seed=42" \
+--mix "composition_map=Es:{Li:6,Ti:3,Mg:99};K=5;seed=42" \
+--mix "composition_map=Es:{Li:8,Ti:4,Mg:96};K=5;seed=42" \
+--mix "composition_map=Es:{Li:10,Ti:5,Mg:93};K=5;seed=42" \
+--mix "composition_map=Es:{Li:12,Ti:6,Mg:90};K=5;seed=42" \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:87};K=5;seed=42" \
+--mix "composition_map=Es:{Li:16,Ti:8,Mg:84};K=5;seed=42" \
+--mix "composition_map=Es:{Li:18,Ti:9,Mg:81};K=5;seed=42" \
+--mix "composition_map=Es:{Li:20,Ti:10,Mg:78};K=5;seed=42" \
+--mix "composition_map=Es:{Li:22,Ti:11,Mg:75};K=5;seed=42" \
+--mix "composition_map=Es:{Li:24,Ti:12,Mg:72};K=5;seed=42" \
+--mix "composition_map=Es:{Li:26,Ti:13,Mg:69};K=5;seed=42" \
+--mix "composition_map=Es:{Li:28,Ti:14,Mg:66};K=5;seed=42" \
+--mix "composition_map=Es:{Li:30,Ti:15,Mg:63};K=5;seed=42" \
+--mix "composition_map=Es:{Li:32,Ti:16,Mg:60};K=5;seed=42" \
+--mix "composition_map=Es:{Li:34,Ti:17,Mg:57};K=5;seed=42" \
+--mix "composition_map=Es:{Li:36,Ti:18,Mg:54};K=5;seed=42" \
+--mix "composition_map=Es:{Li:38,Ti:19,Mg:51};K=5;seed=42" \
+--mix "composition_map=Es:{Li:40,Ti:20,Mg:48};K=5;seed=42" \
+--mix "composition_map=Es:{Li:42,Ti:21,Mg:45};K=5;seed=42" \
+--mix "composition_map=Es:{Li:44,Ti:22,Mg:42};K=5;seed=42" \
+--mix "composition_map=Es:{Li:46,Ti:23,Mg:39};K=5;seed=42" \
+--mix "composition_map=Es:{Li:48,Ti:24,Mg:36};K=5;seed=42" \
+--mix "composition_map=Es:{Li:50,Ti:25,Mg:33};K=5;seed=42" \
+--mix "composition_map=Es:{Li:52,Ti:26,Mg:30};K=5;seed=42" \
+--mix "composition_map=Es:{Li:54,Ti:27,Mg:27};K=5;seed=42" \
+--mix "composition_map=Es:{Li:56,Ti:28,Mg:24};K=5;seed=42" \
+--mix "composition_map=Es:{Li:58,Ti:29,Mg:21};K=5;seed=42" \
+--mix "composition_map=Es:{Li:60,Ti:30,Mg:18};K=5;seed=42" \
+--mix "composition_map=Es:{Li:62,Ti:31,Mg:15};K=5;seed=42" \
+--mix "composition_map=Es:{Li:64,Ti:32,Mg:12};K=5;seed=42" \
+--mix "composition_map=Es:{Li:66,Ti:33,Mg:9};K=5;seed=42" \
+--mix "composition_map=Es:{Li:68,Ti:34,Mg:6};K=5;seed=42" \
+--mix "composition_map=Es:{Li:70,Ti:35,Mg:3};K=5;seed=42" \
+--mix "composition_map=Es:{Li:72,Ti:36};K=5;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:7,3:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 3 3 3 \
+--endpoint "Es:{Mg:108}" \
+--mix "composition_map=Es:{Li:2,Ti:1,Mg:105};K=5;seed=42" \
+--mix "composition_map=Es:{Li:4,Ti:2,Mg:102};K=5;seed=42" \
+--mix "composition_map=Es:{Li:6,Ti:3,Mg:99};K=5;seed=42" \
+--mix "composition_map=Es:{Li:8,Ti:4,Mg:96};K=5;seed=42" \
+--mix "composition_map=Es:{Li:10,Ti:5,Mg:93};K=5;seed=42" \
+--mix "composition_map=Es:{Li:12,Ti:6,Mg:90};K=5;seed=42" \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:87};K=5;seed=42" \
+--mix "composition_map=Es:{Li:16,Ti:8,Mg:84};K=5;seed=42" \
+--mix "composition_map=Es:{Li:18,Ti:9,Mg:81};K=5;seed=42" \
+--mix "composition_map=Es:{Li:20,Ti:10,Mg:78};K=5;seed=42" \
+--mix "composition_map=Es:{Li:22,Ti:11,Mg:75};K=5;seed=42" \
+--mix "composition_map=Es:{Li:24,Ti:12,Mg:72};K=5;seed=42" \
+--mix "composition_map=Es:{Li:26,Ti:13,Mg:69};K=5;seed=42" \
+--mix "composition_map=Es:{Li:28,Ti:14,Mg:66};K=5;seed=42" \
+--mix "composition_map=Es:{Li:30,Ti:15,Mg:63};K=5;seed=42" \
+--mix "composition_map=Es:{Li:32,Ti:16,Mg:60};K=5;seed=42" \
+--mix "composition_map=Es:{Li:34,Ti:17,Mg:57};K=5;seed=42" \
+--mix "composition_map=Es:{Li:36,Ti:18,Mg:54};K=5;seed=42" \
+--mix "composition_map=Es:{Li:38,Ti:19,Mg:51};K=5;seed=42" \
+--mix "composition_map=Es:{Li:40,Ti:20,Mg:48};K=5;seed=42" \
+--mix "composition_map=Es:{Li:42,Ti:21,Mg:45};K=5;seed=42" \
+--mix "composition_map=Es:{Li:44,Ti:22,Mg:42};K=5;seed=42" \
+--mix "composition_map=Es:{Li:46,Ti:23,Mg:39};K=5;seed=42" \
+--mix "composition_map=Es:{Li:48,Ti:24,Mg:36};K=5;seed=42" \
+--mix "composition_map=Es:{Li:50,Ti:25,Mg:33};K=5;seed=42" \
+--mix "composition_map=Es:{Li:52,Ti:26,Mg:30};K=5;seed=42" \
+--mix "composition_map=Es:{Li:54,Ti:27,Mg:27};K=5;seed=42" \
+--mix "composition_map=Es:{Li:56,Ti:28,Mg:24};K=5;seed=42" \
+--mix "composition_map=Es:{Li:58,Ti:29,Mg:21};K=5;seed=42" \
+--mix "composition_map=Es:{Li:60,Ti:30,Mg:18};K=5;seed=42" \
+--mix "composition_map=Es:{Li:62,Ti:31,Mg:15};K=5;seed=42" \
+--mix "composition_map=Es:{Li:64,Ti:32,Mg:12};K=5;seed=42" \
+--mix "composition_map=Es:{Li:66,Ti:33,Mg:9};K=5;seed=42" \
+--mix "composition_map=Es:{Li:68,Ti:34,Mg:6};K=5;seed=42" \
+--mix "composition_map=Es:{Li:70,Ti:35,Mg:3};K=5;seed=42" \
+--mix "composition_map=Es:{Li:72,Ti:36};K=5;seed=42" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:7,3:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.2 --samples-per-bin 10 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" \
+--budget 150
+
+
+pe-extend-wl \
+--launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
+--ce-key 2eb70b34e7d7cc7e2ac8f751ba70a77e3cddaa9b01f1957e6cfb8d9707cea9ed \
+--bin-width 0.05 \
+--composition-counts 'Fe:54,Mg:54' \
+--sl-comp-map 'Es:{Fe:108}' \
+--samples-per-bin 5 \
+--category cpu \
+--steps-to-run 1000000 \
+--repeats 5 \
+--json
+
+781041790a68cc664c64278fed25132d984b3bfbc802d207e41d8626818ff737
+2eb70b34e7d7cc7e2ac8f751ba70a77e3cddaa9b01f1957e6cfb8d9707cea9ed

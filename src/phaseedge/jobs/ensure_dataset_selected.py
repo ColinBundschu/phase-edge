@@ -23,15 +23,14 @@ def ensure_dataset_selected(
     prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     category: str = "gpu",
-    set_id_prefix: str = "wlref",
 ) -> Mapping[str, Any] | Response:
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
     sub_jobs: list[Job | Flow] = []
     train_refs: list[CETrainRef] = []
     for rec in selected:
-        sig = composition_map_sig(rec["composition_map"])
-        set_id = f"{set_id_prefix}::{ce_key}::{sig}"
+        composition_map = rec["composition_map"]
+        sig = composition_map_sig(composition_map)
 
         # Build structure from occupancy via CE processor
         occ_seq = cast(Sequence[int], rec["occ"])
@@ -40,10 +39,9 @@ def ensure_dataset_selected(
         occ_key = occ_key_for_structure(pmg_struct)
 
         # Schedule relax
-        energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, calc_spec=calc_spec)
+        energy = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
         if energy is None:
             j_relax: Job = evaluate_structure(
-                set_id=set_id,
                 occ_key=occ_key,
                 structure=pmg_struct,
                 calc_spec=calc_spec,
@@ -58,7 +56,7 @@ def ensure_dataset_selected(
 
         train_refs.append(
             CETrainRef(
-                set_id=set_id,
+                composition_map=composition_map,
                 occ_key=occ_key,
                 calc_spec=calc_spec,
                 structure=pmg_struct,

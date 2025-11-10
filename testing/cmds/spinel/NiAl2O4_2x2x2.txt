@@ -1,0 +1,87 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Ni:16},Fm:{Al:32};K=1;seed=0" \
+--mix "composition_map=Es:{Ni:15,Al:1},Fm:{Ni:1,Al:31};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:14,Al:2},Fm:{Ni:2,Al:30};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:13,Al:3},Fm:{Ni:3,Al:29};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:12,Al:4},Fm:{Ni:4,Al:28};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:11,Al:5},Fm:{Ni:5,Al:27};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:10,Al:6},Fm:{Ni:6,Al:26};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:9,Al:7},Fm:{Ni:7,Al:25};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:8,Al:8},Fm:{Ni:8,Al:24};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:7,Al:9},Fm:{Ni:9,Al:23};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:6,Al:10},Fm:{Ni:10,Al:22};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:5,Al:11},Fm:{Ni:11,Al:21};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:4,Al:12},Fm:{Ni:12,Al:20};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:3,Al:13},Fm:{Ni:13,Al:19};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:2,Al:14},Fm:{Ni:14,Al:18};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:1,Al:15},Fm:{Ni:15,Al:17};K=5;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Ni:16,Al:16};K=5;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 \
+--supercell 2 2 2 \
+--endpoint "Es:{Ni:16},Fm:{Al:32}" \
+--mix "composition_map=Es:{Ni:15,Al:1},Fm:{Ni:1,Al:31};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:14,Al:2},Fm:{Ni:2,Al:30};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:13,Al:3},Fm:{Ni:3,Al:29};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:12,Al:4},Fm:{Ni:4,Al:28};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:11,Al:5},Fm:{Ni:5,Al:27};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:10,Al:6},Fm:{Ni:6,Al:26};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:9,Al:7},Fm:{Ni:7,Al:25};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:8,Al:8},Fm:{Ni:8,Al:24};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:7,Al:9},Fm:{Ni:9,Al:23};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:6,Al:10},Fm:{Ni:10,Al:22};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:5,Al:11},Fm:{Ni:11,Al:21};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:4,Al:12},Fm:{Ni:12,Al:20};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:3,Al:13},Fm:{Ni:13,Al:19};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:2,Al:14},Fm:{Ni:14,Al:18};K=5;seed=42" \
+--mix "composition_map=Es:{Ni:1,Al:15},Fm:{Ni:15,Al:17};K=5;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Ni:16,Al:16};K=5;seed=42" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 50 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-gga" \
+--reject-cross-sublattice-swaps \
+--budget 150
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key b5d0f390f2ee673499b37fb462f4248b8afa18643b5cd5dd4926c341fda4227e \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Ni:16},Fm:{Al:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 10 \
+--json
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key b5d0f390f2ee673499b37fb462f4248b8afa18643b5cd5dd4926c341fda4227e \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Ni:16},Fm:{Al:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--collect-cation-stats \
+--production-mode \
+--json

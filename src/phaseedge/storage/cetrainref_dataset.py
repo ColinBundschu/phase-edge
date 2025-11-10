@@ -7,19 +7,19 @@ from typing import Any, Mapping
 from pymatgen.core import Structure
 
 from phaseedge.schemas.calc_spec import CalcSpec
+from phaseedge.schemas.mixture import composition_map_sig
 from phaseedge.storage.store import exists_unique, lookup_total_energy_eV, lookup_unique
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CETrainRef:
-    set_id: str
+    composition_map: dict[str, dict[str, int]]
     occ_key: str
     calc_spec: CalcSpec
     structure: Structure
 
     def lookup_energy(self) -> float:
         energy = lookup_total_energy_eV(
-            set_id=self.set_id,
             occ_key=self.occ_key,
             calc_spec=self.calc_spec,
         )
@@ -29,7 +29,9 @@ class CETrainRef:
     
     def as_dict(self) -> dict[str, Any]:
         return {
-            "set_id": self.set_id,
+            "composition_map": {
+                sub: dict(counts) for sub, counts in self.composition_map.items()
+            },
             "occ_key": self.occ_key,
             "calc_spec": self.calc_spec.as_dict(),
             "structure": self.structure.as_dict(),
@@ -37,15 +39,19 @@ class CETrainRef:
     
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "CETrainRef":
+        composition_map: dict[str, dict[str, int]] = {
+            str(sub): {str(el): int(count) for el, count in counts.items()}
+            for sub, counts in d["composition_map"].items()
+        }
         return cls(
-            set_id=d["set_id"],
+            composition_map=composition_map,
             occ_key=d["occ_key"],
             calc_spec=CalcSpec.from_dict(d["calc_spec"]),
             structure=Structure.from_dict(d["structure"]),
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Dataset:
     train_refs: list[CETrainRef]
 
@@ -53,13 +59,20 @@ class Dataset:
     def key(self) -> str:
         sorted_refs = sorted(
             self.train_refs,
-            key=lambda r: (r.set_id, r.occ_key, r.calc_spec.calculator,
-                           r.calc_spec.relax_type.value, r.calc_spec.frozen_sublattices),
+            key=lambda r: (
+                composition_map_sig(r.composition_map),
+                r.occ_key,
+                r.calc_spec.calculator,
+                r.calc_spec.relax_type.value,
+                r.calc_spec.spin_type.value,
+                r.calc_spec.max_force_eV_per_A,
+                r.calc_spec.frozen_sublattices,
+            ),
         )
         payload = {
             "train_refs": [
                 {
-                    "set_id": r.set_id,
+                    "composition_map": r.composition_map,
                     "occ_key": r.occ_key,
                     "calc_spec": r.calc_spec.as_dict(),
                 }

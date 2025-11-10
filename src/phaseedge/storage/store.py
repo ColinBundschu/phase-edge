@@ -9,7 +9,7 @@ from monty.serialization import loadfn
 from jobflow.core.store import JobStore
 from maggma.stores import MongoStore, GridFSStore
 
-from phaseedge.schemas.calc_spec import CalcSpec, CalcType
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, SpinType
 
 
 # -------------------------
@@ -109,7 +109,6 @@ def get_jobstore() -> JobStore:
 
 def lookup_total_energy_eV(
     *,
-    set_id: str,
     occ_key: str,
     calc_spec: CalcSpec,
 ) -> float | None:
@@ -121,10 +120,11 @@ def lookup_total_energy_eV(
     js: JobStore = get_jobstore()
 
     criteria: dict[str, Any] = {
-        "metadata.set_id": set_id,
         "metadata.occ_key": occ_key,
         "metadata.calculator": calc_spec.calculator,
         "metadata.relax_type": calc_spec.relax_type,
+        "metadata.spin_type": SpinType.NONMAGNETIC.value if calc_spec.calc_type == CalcType.MACE_MPA_0 else calc_spec.spin_type,
+        "metadata.max_force_eV_per_A": calc_spec.max_force_eV_per_A,
         "metadata.frozen_sublattices": calc_spec.frozen_sublattices,
         "output.output.energy": {"$exists": True},
     }
@@ -138,8 +138,10 @@ def lookup_total_energy_eV(
         return None
     if len(docs) > 1:
         raise RuntimeError(
-            f"Expected exactly one FF task, found {len(docs)} for set_id={set_id} "
-            f"occ_key={occ_key} calculator={calc_spec.calculator} relax_type={calc_spec.relax_type}"
+            f"Expected exactly one FF task, found {len(docs)} for "
+            f"occ_key={occ_key} calculator={calc_spec.calculator} relax_type={calc_spec.relax_type} "
+            f"spin_type={calc_spec.spin_type} "
+            f"max_force_eV_per_A={calc_spec.max_force_eV_per_A} frozen_sublattices={calc_spec.frozen_sublattices}"
         )
 
     energy = docs[0]["output"]["output"]["energy"]

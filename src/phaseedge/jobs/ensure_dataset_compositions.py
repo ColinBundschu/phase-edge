@@ -9,8 +9,7 @@ from phaseedge.jobs.evaluate_structure import evaluate_structure
 from phaseedge.science.random_configs import make_one_snapshot
 from phaseedge.storage.cetrainref_dataset import CETrainRef, Dataset
 from phaseedge.storage.store import lookup_total_energy_eV
-from phaseedge.utils.keys import compute_set_id, occ_key_for_structure, rng_for_index
-from pymatgen.io.ase import AseAtomsAdaptor
+from phaseedge.utils.keys import occ_key_for_structure, rng_for_index
 
 
 @job(data="train_refs")
@@ -28,15 +27,10 @@ def ensure_dataset_compositions(
     train_refs: list[CETrainRef] = []
     sub_jobs: list[Job | Flow] = []
     for mixture in mixtures:
-        set_id = compute_set_id(
-            prototype_spec=prototype_spec,
-            supercell_diag=supercell_diag,
-            composition_map=mixture.composition_map,
-            seed=mixture.seed,
-        )
+        comp_map_sig = composition_map_sig(mixture.composition_map)
         duplicate_map = set()
         for idx in range(mixture.K):
-            rng = rng_for_index(set_id, idx)
+            rng = rng_for_index(comp_map_sig, idx)
             structure = make_one_snapshot(
                 primitive_cell=prototype_spec.primitive_cell,
                 supercell_diag=supercell_diag,
@@ -44,10 +38,9 @@ def ensure_dataset_compositions(
                 rng=rng,
             )
             occ_key = occ_key_for_structure(structure)
-            energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, calc_spec=calc_spec)
+            energy = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
             if energy is None and occ_key not in duplicate_map:
                 j_relax = evaluate_structure(
-                    set_id=set_id,
                     occ_key=occ_key,
                     structure=structure,
                     calc_spec=calc_spec,
@@ -62,7 +55,7 @@ def ensure_dataset_compositions(
 
             train_refs.append(
                 CETrainRef(
-                    set_id=set_id,
+                    composition_map=mixture.composition_map,
                     occ_key=occ_key,
                     calc_spec=calc_spec,
                     structure=structure,

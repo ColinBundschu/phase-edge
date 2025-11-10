@@ -20,9 +20,9 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Li:1,X:15},Fm:{Mg:16,Li:16},Md:{Li:15,X:17};K=6;seed=42" \
 --mix "composition_map=Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16};K=6;seed=42" \
 --seed 42 \
---calculator "MACE-MPA-0" --relax-type full --frozen-sublattices Es,Md \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --frozen-sublattices Es,Md \
 --basis sinusoid --cutoffs "2:8,3:6,4:4" \
---reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu
 
@@ -49,7 +49,7 @@ pe-ensure-dopt-ce \
 --mix "composition_map=Es:{Li:1,X:15},Fm:{Mg:16,Li:16},Md:{Li:15,X:17};K=6;seed=42" \
 --mix "composition_map=Es:{X:16},Fm:{Mg:16,Li:16},Md:{Li:16,X:16};K=6;seed=42" \
 --seed 42 \
---base-calculator "MACE-MPA-0" --relax-type full --frozen-sublattices Md \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --frozen-sublattices Md \
 --basis sinusoid --cutoffs "2:8,3:6,4:4" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \

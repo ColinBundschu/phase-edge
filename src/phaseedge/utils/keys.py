@@ -12,62 +12,9 @@ from phaseedge.schemas.mixture import Mixture, canonical_comp_map, sorted_compos
 from phaseedge.science.prototype_spec import PrototypeSpec
 
 
-def compute_set_id(
-    *,
-    prototype_spec: PrototypeSpec,
-    supercell_diag: tuple[int, int, int],
-    composition_map: dict[str, dict[str, int]],
-    seed: int,
-    algo_version: str = "randgen-3-compmap-1",
-) -> str:
-    """
-    Deterministic identity for a logical (expandable) snapshot sequence using a
-    multi-sublattice composition map.
-
-    Parameters
-    ----------
-    prototype_spec
-        PrototypeSpec defining the underlying crystal structure.
-    supercell_diag
-        Diagonal replication of the conventional/primitive cell (e.g., (3,3,3)).
-    composition_map
-        Map of each replaceable sublattice label (e.g., "Mg") to its integer
-        counts mapping, e.g. {"Mg": {"Fe": 10, "Mg": 98}, "Al": {...}, ...}.
-        Keys and nested keys are canonically sorted before hashing.
-    seed
-        RNG seed for the sequence of K snapshots under this logical set.
-    algo_version
-        Version tag for the identity algorithm.
-
-    Returns
-    -------
-    str
-        Stable SHA-256 hex digest identifying this logical snapshot set.
-    """
-    # Canonicalize: sort sublattice labels and, within each, sort element labels
-    comp_norm: dict[str, dict[str, int]] = {}
-    for sublat in sorted(composition_map):
-        counts = composition_map[sublat] or {}
-        comp_norm[sublat] = {el: int(counts[el]) for el in sorted(counts)}
-
-    payload = {
-        "prototype_spec": prototype_spec.as_dict(),
-        "diag": list(map(int, supercell_diag)),
-        "composition_map": comp_norm,
-        "seed": int(seed),
-        "algo": str(algo_version),
-    }
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-def seed_for(set_id: str, index: int) -> int:
-    h = hashlib.sha256(f"{set_id}:{index}".encode()).digest()
-    return int.from_bytes(h[:8], "big", signed=False)
-
-
 def rng_for_index(set_id: str, index: int) -> Generator:
-    return default_rng(seed_for(set_id, index))
+    h = hashlib.sha256(f"{set_id}:{index}".encode()).digest()
+    return default_rng(int.from_bytes(h[:8], "big", signed=False))
 
 
 def _quantize(a: NDArray[np.floating], scale: int) -> NDArray[np.int64]:

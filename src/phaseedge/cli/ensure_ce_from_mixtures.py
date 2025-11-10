@@ -6,7 +6,7 @@ from jobflow.managers.fireworks import flow_to_workflow
 from fireworks import LaunchPad
 
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
 from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.random_configs import validate_counts_for_sublattices
 from phaseedge.cli.common import parse_cutoffs_arg, parse_mix_item
@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     # Relax/engine for training energies
     p.add_argument("--calculator", required=True, choices=[r.value for r in CalcType])
     p.add_argument("--relax-type", required=True, choices=[r.value for r in RelaxType])
+    p.add_argument("--spin-type", required=True, choices=[r.value for r in SpinType])
+    p.add_argument("--max-force-eV-per-A", type=float, required=True, help="Maximum force convergence criterion in eV/Å.")
     p.add_argument("--frozen-sublattices", default="")
 
     # CE hyperparameters
@@ -82,6 +84,8 @@ def main() -> None:
     calc_spec = CalcSpec(
         calculator=CalcType(args.calculator),
         relax_type=RelaxType(args.relax_type),
+        spin_type=SpinType(args.spin_type),
+        max_force_eV_per_A=args.max_force_eV_per_A,
         frozen_sublattices=args.frozen_sublattices,
     )
 
@@ -123,7 +127,6 @@ def main() -> None:
             "supercell": tuple(args.supercell),
             "source": spec.source,
             "calc_spec": calc_spec,
-            "relax_cell": bool(args.relax_cell),
             "basis": args.basis,
             "cutoffs": cutoffs,
             "reg_type": args.reg_type,

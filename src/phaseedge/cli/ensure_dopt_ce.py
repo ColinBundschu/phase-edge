@@ -9,7 +9,7 @@ from phaseedge.cli.common import parse_composition_map, parse_cutoffs_arg, parse
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
 from phaseedge.jobs.ensure_dopt_ce import ensure_dopt_ce
 from phaseedge.jobs.store_ce_model import lookup_ce_by_key
-from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
 from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import Mixture, composition_map_sig, sorted_composition_maps
 from phaseedge.science.prototype_spec import PrototypeSpec
@@ -41,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-calculator", required=True, choices=[r.value for r in CalcType])
     p.add_argument("--final-calculator", required=True, choices=[r.value for r in CalcType])
     p.add_argument("--relax-type", required=True, choices=[r.value for r in RelaxType])
+    p.add_argument("--spin-type", required=True, choices=[r.value for r in SpinType])
+    p.add_argument("--max-force-eV-per-A", type=float, required=True, help="Maximum force convergence criterion in eV/Å.")
     p.add_argument("--frozen-sublattices", default="")
 
     # CE hyperparameters
@@ -107,12 +109,16 @@ def main() -> int:
     base_calc_spec = CalcSpec(
         calculator=CalcType(args.base_calculator),
         relax_type=RelaxType(args.relax_type),
+        spin_type=SpinType(args.spin_type),
+        max_force_eV_per_A=args.max_force_eV_per_A,
         frozen_sublattices=args.frozen_sublattices,
     )
 
     final_calc_spec = CalcSpec(
         calculator=CalcType(args.final_calculator),
         relax_type=RelaxType(args.relax_type),
+        spin_type=SpinType(args.spin_type),
+        max_force_eV_per_A=args.max_force_eV_per_A,
         frozen_sublattices=args.frozen_sublattices,
     )
 

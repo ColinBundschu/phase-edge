@@ -8,7 +8,7 @@ from pymatgen.core import Structure
 from atomate2.vasp.jobs.mp import MPGGARelaxMaker, MP24RelaxMaker
 from atomate2.vasp.powerups import update_user_incar_settings
 
-from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType
+from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
 from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.random_configs import build_sublattice_positions_for_struct
 from phaseedge.storage.store import lookup_total_energy_eV
@@ -48,6 +48,9 @@ def freeze_sublattices_on_structure(
     frozen_sublattices: set[str],
     sublattice_positions: Mapping[str, Iterable[tuple[float, float, float]]],
 ) -> Structure:
+    if not frozen_sublattices:
+        return structure
+    
     frozen_indices = []
     for label in frozen_sublattices:
         frozen_indices.extend(sublattice_positions[label])
@@ -73,7 +76,6 @@ def _require_converged(is_force_converged: bool) -> None:
 @job
 def evaluate_structure(
     *,
-    set_id: str,
     occ_key: str,
     structure: Structure,
     calc_spec: CalcSpec,
@@ -81,10 +83,10 @@ def evaluate_structure(
     prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
 ) -> float | Response:
-    existing_energy = lookup_total_energy_eV(set_id=set_id, occ_key=occ_key, calc_spec=calc_spec)
+    existing_energy = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
     if existing_energy is not None:
         raise RuntimeError(
-            "A converged relaxation already exists for this set_id/occ_key/calculator/relax_type. "
+            "A converged relaxation already exists for this occ_key/calculator/relax_type/spin_type. "
             "No new relaxation scheduled."
         )
 
@@ -96,70 +98,56 @@ def evaluate_structure(
         sublattice_positions=sublattice_positions,
     )
 
+    metadata = {
+        "occ_key": occ_key,
+        "calculator": calc_spec.calculator,
+        "relax_type": calc_spec.relax_type,
+        "spin_type": SpinType.NONMAGNETIC.value if calc_spec.calc_type == CalcType.MACE_MPA_0 else calc_spec.spin_type,
+        "max_force_eV_per_A": calc_spec.max_force_eV_per_A,
+        "frozen_sublattices": calc_spec.frozen_sublattices,
+    }
+
+    if calc_spec.spin_type not in [SpinType.NONMAGNETIC, SpinType.FERROMAGNETIC]:
+        raise NotImplementedError("Only nonmagnetic and ferromagnetic spin types are supported.")
+
     if calc_spec.calc_type == CalcType.VASP_MP_GGA:
         if calc_spec.relax_type != RelaxType.FULL:
             raise NotImplementedError("TODO: Implement fixed-cell VASP calculation.")
         maker = MPGGARelaxMaker()
         j_evaluate = cast(Job, maker.make(structure))
-        j_evaluate.update_metadata(
-            {
-                "set_id": set_id,
-                "occ_key": occ_key,
-                "calculator": calc_spec.calculator,
-                "relax_type": calc_spec.relax_type,
-                "frozen_sublattices": calc_spec.frozen_sublattices,
-            }
-        )
+        j_evaluate.update_metadata(metadata)
+
     elif calc_spec.calc_type == CalcType.VASP_MP_24:
         if calc_spec.relax_type != RelaxType.FULL:
             raise NotImplementedError("TODO: Implement fixed-cell VASP calculation.")
-        # maker1 = ForceFieldRelaxMaker(
-        #     force_field_name="MATPES_R2SCAN",
-        #     relax_cell=True,
-        #     fix_symmetry=True,
-        #     symprec=1e-2,
-        # )
-        # relax1 = cast(Job, maker1.make(structure))
-        # maker2 = MP24RelaxMaker()
-        # relax2 = cast(Job, maker2.make(cast(Structure, relax1.output.structure)))
-        # relax2.update_metadata(
-        #     {
-        #         "set_id": set_id,
-        #         "occ_key": occ_key,
-        #         "calculator": calc_spec.calculator,
-        #         "relax_type": calc_spec.relax_type,
-        #         "frozen_sublattices": calc_spec.frozen_sublattices,
-        #     }
-        # )
-        # j_evaluate = Flow([relax1, relax2], output=relax2.output, name="DoubleRelax")
-        maker = MP24RelaxMaker()
-        j_evaluate = cast(Job, maker.make(structure))
-        j_evaluate.update_metadata(
-            {
-                "set_id": set_id,
-                "occ_key": occ_key,
-                "calculator": calc_spec.calculator,
-                "relax_type": calc_spec.relax_type,
-                "frozen_sublattices": calc_spec.frozen_sublattices,
-            }
-        )
+        if calc_spec.frozen_sublattices_set:
+            maker = MP24RelaxMaker()
+            j_evaluate = cast(Job, maker.make(structure))
+            j_evaluate.update_metadata(metadata)
+        else:
+            maker1 = ForceFieldRelaxMaker(
+                force_field_name="MATPES_R2SCAN",
+                relax_cell=True,
+                # fix_symmetry=True,
+                # symprec=1e-2,
+                relax_kwargs={'fmax': calc_spec.max_force_eV_per_A},
+            )
+            relax1 = cast(Job, maker1.make(structure))
+            maker2 = MP24RelaxMaker()
+            relax2 = cast(Job, maker2.make(cast(Structure, relax1.output.structure)))
+            relax2.update_metadata(metadata)
+            j_evaluate = Flow([relax1, relax2], output=relax2.output, name="DoubleRelax")
+
     elif calc_spec.calc_type == CalcType.MACE_MPA_0:
         maker = ForceFieldRelaxMaker(
             force_field_name=calc_spec.calc_type,
             relax_cell=(calc_spec.relax_type == RelaxType.FULL),
             steps=5000,
             calculator_kwargs=calc_spec.calc_kwargs | {"default_dtype": "float64"},
+            relax_kwargs={'fmax': calc_spec.max_force_eV_per_A},
         )
         j_evaluate = cast(Job, maker.make(structure))
-        j_evaluate.update_metadata(
-            {
-                "set_id": set_id,
-                "occ_key": occ_key,
-                "calculator": calc_spec.calculator,
-                "relax_type": calc_spec.relax_type,
-                "frozen_sublattices": calc_spec.frozen_sublattices,
-            }
-        )
+        j_evaluate.update_metadata(metadata)
     else:
         raise ValueError(f"Unrecognized calc_type: {calc_spec.calc_type}")
 
@@ -167,8 +155,9 @@ def evaluate_structure(
     j_evaluate.update_metadata({"_category": category})
 
     if calc_spec.calc_type == CalcType.VASP_MP_GGA or calc_spec.calc_type == CalcType.VASP_MP_24:
+        ispin = 1 if calc_spec.spin_type == SpinType.NONMAGNETIC else 2
         j_evaluate = cast(Job, update_user_incar_settings(j_evaluate, incar_updates={
-            "NCORE": 1, "NSIM": 16, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -0.05, "SYMPREC": 1E-6, "ISPIN": 1, "NSW": 500,
+            "NCORE": 1, "NSIM": 16, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -calc_spec.max_force_eV_per_A, "SYMPREC": 1E-6, "ISPIN": ispin, "NSW": 500,
             }))
         subflow = Flow([j_evaluate], name=f"evaluate_{calc_spec.calc_type}")
     elif calc_spec.calc_type == CalcType.MACE_MPA_0:

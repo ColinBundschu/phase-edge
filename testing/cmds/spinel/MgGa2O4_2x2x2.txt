@@ -1,8 +1,8 @@
 pe-ensure-ce-from-mixtures \
---launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---prototype spinel --a 8.08 \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
---endpoint "Es:{Mg:16},Fm:{Ga:32}" \
+--mix "composition_map=Es:{Mg:16},Fm:{Ga:32};K=1;seed=0" \
 --mix "composition_map=Es:{Mg:15,Ga:1},Fm:{Mg:1,Ga:31};K=5;seed=42" \
 --mix "composition_map=Es:{Mg:14,Ga:2},Fm:{Mg:2,Ga:30};K=5;seed=42" \
 --mix "composition_map=Es:{Mg:13,Ga:3},Fm:{Mg:3,Ga:29};K=5;seed=42" \
@@ -20,17 +20,16 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Mg:1,Ga:15},Fm:{Mg:15,Ga:17};K=5;seed=42" \
 --mix "composition_map=Es:{Ga:16},Fm:{Mg:16,Ga:16};K=5;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell \
---basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
---reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
---sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
 --category gpu
 
 
-pe-ensure-ce-from-refined-wl \
---launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---prototype spinel --a 8.08 \
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
 --endpoint "Es:{Mg:16},Fm:{Ga:32}" \
 --mix "composition_map=Es:{Mg:15,Ga:1},Fm:{Mg:1,Ga:31};K=5;seed=42" \
@@ -50,47 +49,43 @@ pe-ensure-ce-from-refined-wl \
 --mix "composition_map=Es:{Mg:1,Ga:15},Fm:{Mg:15,Ga:17};K=5;seed=42" \
 --mix "composition_map=Es:{Ga:16},Fm:{Mg:16,Ga:16};K=5;seed=42" \
 --seed 42 \
---model "MACE-MPA-0" --relax-cell \
---basis sinusoid --cutoffs "1:100,2:8,3:6,4:4" \
---reg-type ols --alpha 1e-6 --l1-ratio 0.5 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu \
---wl-bin-width 0.1 --samples-per-bin 5 \
+--wl-bin-width 0.1 --samples-per-bin 50 \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---refine-n-total 40 --refine-per-bin-cap 5 --refine-strategy energy_spread \
---train-model MACE-MPA-0 --train-relax-cell \
---sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
+--final-calculator "vasp-mp-24" \
 --reject-cross-sublattice-swaps \
 --budget 150
 
 
 pe-extend-wl \
---launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key b44b07bb0df364ea641ba588b02cbdf759961a49105d9bd9eb8595f65332dac0 \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key f537f66fd87af388c2e040b59fcbb60f8026b6ff3219f75be3ff23d3be242ad0 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
---sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
 --samples-per-bin 0 \
 --category cpu \
---steps-to-run 1000000 \
---repeats 100 \
+--steps-to-run 10000000 \
+--repeats 3 \
 --json
 
-4f43349d82a2462e1af28a44f11430df3cf0bfcb01509eadba060c5dfc69edf2
 
 pe-extend-wl \
---launchpad /global/homes/c/cbu/fw_config/my_launchpad.yaml \
---ce-key b44b07bb0df364ea641ba588b02cbdf759961a49105d9bd9eb8595f65332dac0 \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key f537f66fd87af388c2e040b59fcbb60f8026b6ff3219f75be3ff23d3be242ad0 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
---sl-comp-map 'Es:{Mg:16},Fm:{Ga:32}' \
 --samples-per-bin 0 \
 --category cpu \
---steps-to-run 1000000 \
+--steps-to-run 10000000 \
 --collect-cation-stats \
---production-mode
+--production-mode \
 --json
 
-5fd1484dee8630ff9b5501078e9cbf1e1b60e4b2e3d63b7dec7a39cd9b508a67
-b44b07bb0df364ea641ba588b02cbdf759961a49105d9bd9eb8595f65332dac0
+
+GGA 55b799622dcb9ec21b77c243fa8ff905f6a4ec45b075670c9a87d8f314ae08dc
+r2SCAN f537f66fd87af388c2e040b59fcbb60f8026b6ff3219f75be3ff23d3be242ad0
