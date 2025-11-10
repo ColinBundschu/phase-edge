@@ -116,6 +116,14 @@ def lookup_total_energy_eV(
     Efficiently fetch just the total energy (eV) for a ForceFieldTaskDocument
     from Jobflow's docs store (outputs), using a projected query. This does not
     load any blobs or full documents.
+
+    The document is selected as follows:
+    - Consider all documents matching the metadata filters where
+      metadata.max_force_eV_per_A is strictly less than calc_spec.max_force_eV_per_A.
+    - If no such documents exist, return None.
+    - Otherwise, among those documents pick the one with the smallest
+      metadata.max_force_eV_per_A. That minimum-max-force document must be unique.
+      If more than one document shares that minimal max force, raise RuntimeError.
     """
     js: JobStore = get_jobstore()
 
@@ -123,28 +131,51 @@ def lookup_total_energy_eV(
         "metadata.occ_key": occ_key,
         "metadata.calculator": calc_spec.calculator,
         "metadata.relax_type": calc_spec.relax_type,
-        "metadata.spin_type": SpinType.NONMAGNETIC.value if calc_spec.calc_type == CalcType.MACE_MPA_0 else calc_spec.spin_type,
-        "metadata.max_force_eV_per_A": calc_spec.max_force_eV_per_A,
+        "metadata.spin_type": (
+            SpinType.NONMAGNETIC.value
+            if calc_spec.calc_type == CalcType.MACE_MPA_0
+            else calc_spec.spin_type
+        ),
+        "metadata.max_force_eV_per_A": {"$lte": calc_spec.max_force_eV_per_A},
         "metadata.frozen_sublattices": calc_spec.frozen_sublattices,
         "output.output.energy": {"$exists": True},
     }
     if calc_spec.calculator_info["calc_type"] == CalcType.MACE_MPA_0:
         criteria["output.is_force_converged"] = True
 
-    projection = {"output.output.energy": 1}
+    projection = {
+        "output.output.energy": 1,
+        "metadata.max_force_eV_per_A": 1,
+    }
     docs = list(js.docs_store.query(criteria=criteria, properties=projection))
 
     if not docs:
         return None
-    if len(docs) > 1:
+
+    # Find the document with the smallest max_force_eV_per_A
+    def _max_force(doc: dict[str, Any]) -> float:
+        return float(doc["metadata"]["max_force_eV_per_A"])
+
+    best_doc = min(docs, key=_max_force)
+    best_force = _max_force(best_doc)
+
+    # Ensure uniqueness of the minimum max_force_eV_per_A document
+    num_with_best_force = sum(
+        1 for doc in docs if _max_force(doc) == best_force
+    )
+    if num_with_best_force > 1:
         raise RuntimeError(
-            f"Expected exactly one FF task, found {len(docs)} for "
-            f"occ_key={occ_key} calculator={calc_spec.calculator} relax_type={calc_spec.relax_type} "
+            "Expected a unique FF task with minimal max_force_eV_per_A, found "
+            f"{num_with_best_force} for "
+            f"occ_key={occ_key} calculator={calc_spec.calculator} "
+            f"relax_type={calc_spec.relax_type} "
             f"spin_type={calc_spec.spin_type} "
-            f"max_force_eV_per_A={calc_spec.max_force_eV_per_A} frozen_sublattices={calc_spec.frozen_sublattices}"
+            f"threshold_max_force_eV_per_A={calc_spec.max_force_eV_per_A} "
+            f"frozen_sublattices={calc_spec.frozen_sublattices} "
+            f"(minimal_max_force_eV_per_A={best_force})"
         )
 
-    energy = docs[0]["output"]["output"]["energy"]
+    energy = best_doc["output"]["output"]["energy"]
     return float(energy)
 
 
