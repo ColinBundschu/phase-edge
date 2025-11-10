@@ -89,7 +89,7 @@ pe-ensure-dopt-ce \
 --mix "composition_map=Es:{Li:70,Ti:35,Mg:3};K=5;seed=42" \
 --mix "composition_map=Es:{Li:72,Ti:36};K=5;seed=42" \
 --seed 42 \
---base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.05 \
 --basis sinusoid --cutoffs "2:7,3:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
