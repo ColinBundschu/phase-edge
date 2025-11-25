@@ -234,6 +234,7 @@ def _build_primitive_cell(
         active_sublattices = {"Es", "Fm", "Md"}
 
     elif structure is PrototypeStructure.DOUBLE_PEROVSKITE:
+        # https://next-gen.materialsproject.org/materials/mp-1205594
         # Needs:
         #   a : cubic lattice parameter
         # Optional:

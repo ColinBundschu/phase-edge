@@ -1,0 +1,102 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Mg:32};K=1;seed=0" \
+--mix "composition_map=Es:{Li:2,Ti:1,Mg:29};K=10;seed=42" \
+--mix "composition_map=Es:{Li:4,Ti:2,Mg:26};K=10;seed=42" \
+--mix "composition_map=Es:{Li:6,Ti:3,Mg:23};K=10;seed=42" \
+--mix "composition_map=Es:{Li:8,Ti:4,Mg:20};K=10;seed=42" \
+--mix "composition_map=Es:{Li:10,Ti:5,Mg:17};K=10;seed=42" \
+--mix "composition_map=Es:{Li:12,Ti:6,Mg:14};K=10;seed=42" \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:11};K=10;seed=42" \
+--mix "composition_map=Es:{Li:16,Ti:8,Mg:8};K=10;seed=42" \
+--mix "composition_map=Es:{Li:18,Ti:9,Mg:5};K=10;seed=42" \
+--mix "composition_map=Es:{Li:20,Ti:10,Mg:2};K=10;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:7,3:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Li:12,Ti:6,Mg:14};K=400;seed=42" \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:11};K=400;seed=42" \
+--mix "composition_map=Es:{Li:16,Ti:8,Mg:8};K=400;seed=42" \
+--mix "composition_map=Es:{Li:18,Ti:9,Mg:5};K=400;seed=42" \
+--mix "composition_map=Es:{Li:20,Ti:10,Mg:2};K=400;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:6,3:6,4:6" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Li:12,Ti:6,Mg:14};K=400;seed=42" \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:11};K=400;seed=42" \
+--mix "composition_map=Es:{Li:16,Ti:8,Mg:8};K=400;seed=42" \
+--mix "composition_map=Es:{Li:18,Ti:9,Mg:5};K=400;seed=42" \
+--mix "composition_map=Es:{Li:20,Ti:10,Mg:2};K=400;seed=42" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.05 \
+--basis sinusoid --cutoffs "2:6,3:6,4:6,5:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 25 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" \
+--budget 2000
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key d756ed14301afbc22eecd5e6ed62a2645b79b2ff622336257411acd13c2bb3e2 \
+--bin-width 0.2 \
+--initial-comp-map 'Es:{Li:14,Ti:7,Mg:11}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 3 \
+--json
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype rocksalt_Q0O --a 4.2 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Li:14,Ti:7,Mg:11};K=100;seed=42" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.1 \
+--basis sinusoid --cutoffs "2:7,3:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.15 --samples-per-bin 100 \
+--steps-to-run 1000000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" \
+--budget 100
+
+.1:
+5612ad0beab3a0059844b058b27313ccb75b1dd647c9f5c5fd39bc2c4d0acf08 8
+12143b10e430a0085ac44e537127fa3fe861e50c448a439cd65a47d2d5a94790 5
+814d102f19743dd7c763574314130a5390cc6849f16ba7366869e0b55d4baf77 2
+
+.2:
+f4a46c87affbb2c4ee49b412c3e0db51e7c2d1b905710c903c1bd94587155802 11
+2e02d3ad44c1131027a3a7700798b425d5cff1139cbf1f66e658c5388085f807 8
+623d6d1af4dc2fd6fe640b2758266fc0ab725684ab4ef61f6b1a8bda260fc28a 5
+f568d3759edc79c4e250c7d7b459755f233a0d57b1d3ba86d0b1670ae981397f 2

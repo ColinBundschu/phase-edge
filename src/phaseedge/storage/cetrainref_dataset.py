@@ -19,13 +19,13 @@ class CETrainRef:
     structure: Structure
 
     def lookup_energy(self) -> float:
-        energy = lookup_total_energy_eV(
+        energy_result = lookup_total_energy_eV(
             occ_key=self.occ_key,
             calc_spec=self.calc_spec,
         )
-        if energy is None:
-            raise KeyError(f"Could not find total energy for train_ref: {self}")
-        return energy
+        if energy_result is None or energy_result.max_force_eV_per_A > self.calc_spec.max_force_eV_per_A:
+            raise KeyError(f"Could not find total energy for train_ref with calc_spec.max_force_eV_per_A <= {self.calc_spec.max_force_eV_per_A}: {self}")
+        return energy_result.total_energy_eV
     
     def as_dict(self) -> dict[str, Any]:
         return {

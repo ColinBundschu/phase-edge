@@ -2,12 +2,14 @@ import os
 from threading import Lock
 from urllib.parse import quote_plus
 from typing import Any, Mapping, cast
+from dataclasses import dataclass
 
 from pymongo import MongoClient
 from pymongo.database import Database
 from monty.serialization import loadfn
 from jobflow.core.store import JobStore
 from maggma.stores import MongoStore, GridFSStore
+from pymatgen.core import Structure
 
 from phaseedge.schemas.calc_spec import CalcSpec, CalcType, SpinType
 
@@ -103,6 +105,13 @@ def get_jobstore() -> JobStore:
     return _shared_jobstore
 
 
+@dataclass(frozen=True, slots=True)
+class EnergyResult:
+    structure: Structure
+    total_energy_eV: float
+    max_force_eV_per_A: float
+
+
 # -------------------------
 # Query helpers
 # -------------------------
@@ -111,7 +120,7 @@ def lookup_total_energy_eV(
     *,
     occ_key: str,
     calc_spec: CalcSpec,
-) -> float | None:
+) -> EnergyResult | None:
     """
     Efficiently fetch just the total energy (eV) for a ForceFieldTaskDocument
     from Jobflow's docs store (outputs), using a projected query. This does not
@@ -136,7 +145,7 @@ def lookup_total_energy_eV(
             if calc_spec.calc_type == CalcType.MACE_MPA_0
             else calc_spec.spin_type
         ),
-        "metadata.max_force_eV_per_A": {"$lte": calc_spec.max_force_eV_per_A},
+        "metadata.max_force_eV_per_A": {"$exists": True},
         "metadata.frozen_sublattices": calc_spec.frozen_sublattices,
         "output.output.energy": {"$exists": True},
     }
@@ -145,6 +154,7 @@ def lookup_total_energy_eV(
 
     projection = {
         "output.output.energy": 1,
+        "output.output.structure": 1,
         "metadata.max_force_eV_per_A": 1,
     }
     docs = list(js.docs_store.query(criteria=criteria, properties=projection))
@@ -176,7 +186,12 @@ def lookup_total_energy_eV(
         )
 
     energy = best_doc["output"]["output"]["energy"]
-    return float(energy)
+    structure = Structure.from_dict(best_doc["output"]["output"]["structure"])
+    return EnergyResult(
+        structure=structure,
+        total_energy_eV=float(energy),
+        max_force_eV_per_A=best_force,
+    )
 
 
 def lookup_unique(criteria: dict[str, Any]) -> dict[str, Any] | None:

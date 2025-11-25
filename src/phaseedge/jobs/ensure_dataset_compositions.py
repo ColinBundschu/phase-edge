@@ -38,8 +38,8 @@ def ensure_dataset_compositions(
                 rng=rng,
             )
             occ_key = occ_key_for_structure(structure)
-            energy = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
-            if energy is None and occ_key not in duplicate_map:
+            energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
+            if (energy_result is None or energy_result.max_force_eV_per_A > calc_spec.max_force_eV_per_A) and (occ_key not in duplicate_map):
                 j_relax = evaluate_structure(
                     occ_key=occ_key,
                     structure=structure,
@@ -47,6 +47,7 @@ def ensure_dataset_compositions(
                     category=category,
                     prototype_spec=prototype_spec,
                     supercell_diag=supercell_diag,
+                    comp_map_sig=comp_map_sig,
                 )
                 j_relax.name = f"relax_composition::{composition_map_sig(mixture.composition_map)}"
                 j_relax.update_metadata({"_category": category})

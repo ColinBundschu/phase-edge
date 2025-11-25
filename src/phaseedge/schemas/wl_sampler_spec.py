@@ -155,6 +155,10 @@ class WLSamplerSpec(MSONable):
         )
 
     @property
+    def algo_version(self) -> str:
+        return "wl-v1"
+
+    @property
     def wl_key(self) -> str:
         """The identity key for this WL sampling setup (no steps, no runtime flags)."""
         return compute_wl_key(
@@ -166,4 +170,5 @@ class WLSamplerSpec(MSONable):
             check_period=self.check_period,
             update_period=self.update_period,
             seed=self.seed,
+            algo_version=self.algo_version,
         )

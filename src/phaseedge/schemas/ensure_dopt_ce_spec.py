@@ -110,6 +110,10 @@ class EnsureDoptCESpec(MSONable):
         )
     
     @property
+    def algo_version(self) -> str:
+        return "refined-wl-dopt-v1"
+
+    @property
     def wl_sampler_specs(self):
         return [WLSamplerSpec(
             ce_key=self.ce_spec.ce_key,
@@ -133,7 +137,7 @@ class EnsureDoptCESpec(MSONable):
             calc_spec=self.calc_spec,
             basis_spec=self.ce_spec.basis_spec,
             regularization=self.ce_spec.regularization,
-            algo_version="refined-wl-dopt-v2",
+            algo_version=self.algo_version,
             weighting=self.ce_spec.weighting,
         )
 
@@ -162,10 +166,7 @@ class EnsureDoptCESpec(MSONable):
             "wl_policy": wl_policy_for_key,
             "ensure": ensure_policy_for_key,
             "dopt": dopt_options_for_key,
-            "versions": {
-                "dopt": "dopt-rr-sm-v1",
-                "sampler": "wl-grid-v1",
-            },
+            "algo_version": self.algo_version,
         }
         
         return source

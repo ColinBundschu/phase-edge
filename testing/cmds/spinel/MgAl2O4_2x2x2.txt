@@ -3,25 +3,25 @@ pe-ensure-ce-from-mixtures \
 --prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
 --mix "composition_map=Es:{Mg:16},Fm:{Al:32};K=1;seed=0" \
---mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=5;seed=42" \
---mix "composition_map=Es:{Mg:14,Al:2},Fm:{Mg:2,Al:30};K=5;seed=42" \
---mix "composition_map=Es:{Mg:13,Al:3},Fm:{Mg:3,Al:29};K=5;seed=42" \
---mix "composition_map=Es:{Mg:12,Al:4},Fm:{Mg:4,Al:28};K=5;seed=42" \
---mix "composition_map=Es:{Mg:11,Al:5},Fm:{Mg:5,Al:27};K=5;seed=42" \
---mix "composition_map=Es:{Mg:10,Al:6},Fm:{Mg:6,Al:26};K=5;seed=42" \
---mix "composition_map=Es:{Mg:9,Al:7},Fm:{Mg:7,Al:25};K=5;seed=42" \
---mix "composition_map=Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24};K=5;seed=42" \
---mix "composition_map=Es:{Mg:7,Al:9},Fm:{Mg:9,Al:23};K=5;seed=42" \
---mix "composition_map=Es:{Mg:6,Al:10},Fm:{Mg:10,Al:22};K=5;seed=42" \
---mix "composition_map=Es:{Mg:5,Al:11},Fm:{Mg:11,Al:21};K=5;seed=42" \
---mix "composition_map=Es:{Mg:4,Al:12},Fm:{Mg:12,Al:20};K=5;seed=42" \
---mix "composition_map=Es:{Mg:3,Al:13},Fm:{Mg:13,Al:19};K=5;seed=42" \
---mix "composition_map=Es:{Mg:2,Al:14},Fm:{Mg:14,Al:18};K=5;seed=42" \
---mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=5;seed=42" \
---mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:14,Al:2},Fm:{Mg:2,Al:30};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:13,Al:3},Fm:{Mg:3,Al:29};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:12,Al:4},Fm:{Mg:4,Al:28};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:11,Al:5},Fm:{Mg:5,Al:27};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:10,Al:6},Fm:{Mg:6,Al:26};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:9,Al:7},Fm:{Mg:7,Al:25};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:7,Al:9},Fm:{Mg:9,Al:23};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:6,Al:10},Fm:{Mg:10,Al:22};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:5,Al:11},Fm:{Mg:11,Al:21};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:4,Al:12},Fm:{Mg:12,Al:20};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:3,Al:13},Fm:{Mg:13,Al:19};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:2,Al:14},Fm:{Mg:14,Al:18};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=30;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=30;seed=42" \
 --seed 42 \
 --calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
---basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu
@@ -32,25 +32,25 @@ pe-ensure-dopt-ce \
 --prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
 --endpoint "Es:{Mg:16},Fm:{Al:32}" \
---mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=5;seed=42" \
---mix "composition_map=Es:{Mg:14,Al:2},Fm:{Mg:2,Al:30};K=5;seed=42" \
---mix "composition_map=Es:{Mg:13,Al:3},Fm:{Mg:3,Al:29};K=5;seed=42" \
---mix "composition_map=Es:{Mg:12,Al:4},Fm:{Mg:4,Al:28};K=5;seed=42" \
---mix "composition_map=Es:{Mg:11,Al:5},Fm:{Mg:5,Al:27};K=5;seed=42" \
---mix "composition_map=Es:{Mg:10,Al:6},Fm:{Mg:6,Al:26};K=5;seed=42" \
---mix "composition_map=Es:{Mg:9,Al:7},Fm:{Mg:7,Al:25};K=5;seed=42" \
---mix "composition_map=Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24};K=5;seed=42" \
---mix "composition_map=Es:{Mg:7,Al:9},Fm:{Mg:9,Al:23};K=5;seed=42" \
---mix "composition_map=Es:{Mg:6,Al:10},Fm:{Mg:10,Al:22};K=5;seed=42" \
---mix "composition_map=Es:{Mg:5,Al:11},Fm:{Mg:11,Al:21};K=5;seed=42" \
---mix "composition_map=Es:{Mg:4,Al:12},Fm:{Mg:12,Al:20};K=5;seed=42" \
---mix "composition_map=Es:{Mg:3,Al:13},Fm:{Mg:13,Al:19};K=5;seed=42" \
---mix "composition_map=Es:{Mg:2,Al:14},Fm:{Mg:14,Al:18};K=5;seed=42" \
---mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=5;seed=42" \
---mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=5;seed=42" \
+--mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:14,Al:2},Fm:{Mg:2,Al:30};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:13,Al:3},Fm:{Mg:3,Al:29};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:12,Al:4},Fm:{Mg:4,Al:28};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:11,Al:5},Fm:{Mg:5,Al:27};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:10,Al:6},Fm:{Mg:6,Al:26};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:9,Al:7},Fm:{Mg:7,Al:25};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:8,Al:8},Fm:{Mg:8,Al:24};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:7,Al:9},Fm:{Mg:9,Al:23};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:6,Al:10},Fm:{Mg:10,Al:22};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:5,Al:11},Fm:{Mg:11,Al:21};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:4,Al:12},Fm:{Mg:12,Al:20};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:3,Al:13},Fm:{Mg:13,Al:19};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:2,Al:14},Fm:{Mg:14,Al:18};K=30;seed=42" \
+--mix "composition_map=Es:{Mg:1,Al:15},Fm:{Mg:15,Al:17};K=30;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Mg:16,Al:16};K=30;seed=42" \
 --seed 42 \
 --base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
---basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu \
@@ -59,12 +59,12 @@ pe-ensure-dopt-ce \
 --wl-seed 0 \
 --final-calculator "vasp-mp-24" \
 --reject-cross-sublattice-swaps \
---budget 150
+--budget 500
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 0bc859d8f855a49818267b926867ec9d4fe2f2e388fd9ad244d4d1d9039a8178 \
+--ce-key 25ae33c4abb83c7fffa4dc76b972b11b2fec3756b9bf72ab56edd4e70dc4013a \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
@@ -76,7 +76,7 @@ pe-extend-wl \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 0bc859d8f855a49818267b926867ec9d4fe2f2e388fd9ad244d4d1d9039a8178 \
+--ce-key 25ae33c4abb83c7fffa4dc76b972b11b2fec3756b9bf72ab56edd4e70dc4013a \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \

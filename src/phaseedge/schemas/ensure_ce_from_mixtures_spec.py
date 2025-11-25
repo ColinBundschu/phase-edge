@@ -72,11 +72,15 @@ class EnsureCEFromMixturesSpec(MSONable):
 
     @property
     def source(self) -> dict[str, Any]:
-        return {"type": "composition", "mixtures": self.mixtures}
+        return {
+            "type": "composition",
+            "mixtures": self.mixtures,
+            "algo_version": self.algo_version,
+        }
 
     @property
-    def algo(self) -> str:
-        return "randgen-3-comp-1"
+    def algo_version(self) -> str:
+        return "mixture-ce-v1"
 
     @property
     def ce_key(self) -> str:
@@ -87,6 +91,6 @@ class EnsureCEFromMixturesSpec(MSONable):
             calc_spec=self.calc_spec,
             basis_spec=self.basis_spec,
             regularization=self.regularization,
-            algo_version=self.algo,
+            algo_version=self.algo_version,
             weighting=self.weighting,
         )

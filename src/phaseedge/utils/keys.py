@@ -238,12 +238,12 @@ def compute_wl_key(
     check_period: int,
     update_period: int,
     seed: int,
-    algo_version: str = "wl-grid-v1",
+    algo_version: str,
 ) -> str:
     # (unchanged)
     payload = {
         "kind": "wl_key",
-        "algo": algo_version,
+        "algo_version": algo_version,
         "ce_key": str(ce_key),
         "ensemble": {
             "type": "canonical",

@@ -3,25 +3,25 @@ pe-ensure-ce-from-mixtures \
 --prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
 --mix "composition_map=Es:{Zn:16},Fm:{Al:32};K=1;seed=0" \
---mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=5;seed=42" \
---mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=5;seed=42" \
---mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=5;seed=42" \
---mix "composition_map=Es:{Zn:12,Al:4},Fm:{Zn:4,Al:28};K=5;seed=42" \
---mix "composition_map=Es:{Zn:11,Al:5},Fm:{Zn:5,Al:27};K=5;seed=42" \
---mix "composition_map=Es:{Zn:10,Al:6},Fm:{Zn:6,Al:26};K=5;seed=42" \
---mix "composition_map=Es:{Zn:9,Al:7},Fm:{Zn:7,Al:25};K=5;seed=42" \
---mix "composition_map=Es:{Zn:8,Al:8},Fm:{Zn:8,Al:24};K=5;seed=42" \
---mix "composition_map=Es:{Zn:7,Al:9},Fm:{Zn:9,Al:23};K=5;seed=42" \
---mix "composition_map=Es:{Zn:6,Al:10},Fm:{Zn:10,Al:22};K=5;seed=42" \
---mix "composition_map=Es:{Zn:5,Al:11},Fm:{Zn:11,Al:21};K=5;seed=42" \
---mix "composition_map=Es:{Zn:4,Al:12},Fm:{Zn:12,Al:20};K=5;seed=42" \
---mix "composition_map=Es:{Zn:3,Al:13},Fm:{Zn:13,Al:19};K=5;seed=42" \
---mix "composition_map=Es:{Zn:2,Al:14},Fm:{Zn:14,Al:18};K=5;seed=42" \
---mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=5;seed=42" \
---mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:12,Al:4},Fm:{Zn:4,Al:28};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:11,Al:5},Fm:{Zn:5,Al:27};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:10,Al:6},Fm:{Zn:6,Al:26};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:9,Al:7},Fm:{Zn:7,Al:25};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:8,Al:8},Fm:{Zn:8,Al:24};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:7,Al:9},Fm:{Zn:9,Al:23};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:6,Al:10},Fm:{Zn:10,Al:22};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:5,Al:11},Fm:{Zn:11,Al:21};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:4,Al:12},Fm:{Zn:12,Al:20};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:3,Al:13},Fm:{Zn:13,Al:19};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:2,Al:14},Fm:{Zn:14,Al:18};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=30;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=30;seed=42" \
 --seed 42 \
 --calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
---basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu
@@ -32,25 +32,25 @@ pe-ensure-dopt-ce \
 --prototype spinel_Q0O --a 8.08 \
 --supercell 2 2 2 \
 --endpoint "Es:{Zn:16},Fm:{Al:32}" \
---mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=5;seed=42" \
---mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=5;seed=42" \
---mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=5;seed=42" \
---mix "composition_map=Es:{Zn:12,Al:4},Fm:{Zn:4,Al:28};K=5;seed=42" \
---mix "composition_map=Es:{Zn:11,Al:5},Fm:{Zn:5,Al:27};K=5;seed=42" \
---mix "composition_map=Es:{Zn:10,Al:6},Fm:{Zn:6,Al:26};K=5;seed=42" \
---mix "composition_map=Es:{Zn:9,Al:7},Fm:{Zn:7,Al:25};K=5;seed=42" \
---mix "composition_map=Es:{Zn:8,Al:8},Fm:{Zn:8,Al:24};K=5;seed=42" \
---mix "composition_map=Es:{Zn:7,Al:9},Fm:{Zn:9,Al:23};K=5;seed=42" \
---mix "composition_map=Es:{Zn:6,Al:10},Fm:{Zn:10,Al:22};K=5;seed=42" \
---mix "composition_map=Es:{Zn:5,Al:11},Fm:{Zn:11,Al:21};K=5;seed=42" \
---mix "composition_map=Es:{Zn:4,Al:12},Fm:{Zn:12,Al:20};K=5;seed=42" \
---mix "composition_map=Es:{Zn:3,Al:13},Fm:{Zn:13,Al:19};K=5;seed=42" \
---mix "composition_map=Es:{Zn:2,Al:14},Fm:{Zn:14,Al:18};K=5;seed=42" \
---mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=5;seed=42" \
---mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=5;seed=42" \
+--mix "composition_map=Es:{Zn:15,Al:1},Fm:{Zn:1,Al:31};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:14,Al:2},Fm:{Zn:2,Al:30};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:13,Al:3},Fm:{Zn:3,Al:29};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:12,Al:4},Fm:{Zn:4,Al:28};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:11,Al:5},Fm:{Zn:5,Al:27};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:10,Al:6},Fm:{Zn:6,Al:26};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:9,Al:7},Fm:{Zn:7,Al:25};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:8,Al:8},Fm:{Zn:8,Al:24};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:7,Al:9},Fm:{Zn:9,Al:23};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:6,Al:10},Fm:{Zn:10,Al:22};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:5,Al:11},Fm:{Zn:11,Al:21};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:4,Al:12},Fm:{Zn:12,Al:20};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:3,Al:13},Fm:{Zn:13,Al:19};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:2,Al:14},Fm:{Zn:14,Al:18};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=30;seed=42" \
+--mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=30;seed=42" \
 --seed 42 \
 --base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
---basis sinusoid --cutoffs "2:8,3:6,4:4" \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
 --category gpu \
@@ -59,24 +59,24 @@ pe-ensure-dopt-ce \
 --wl-seed 0 \
 --final-calculator "vasp-mp-24" \
 --reject-cross-sublattice-swaps \
---budget 150
+--budget 500
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key ab038ffc02fd679d3675a23163a6b73aa715af816bde6f77c6bf274b956b0ff2 \
+--ce-key 83e3a96ca6f2e0683e1d343a57adb9c9d250b6e0fd92be83b733602655b18a48 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 10000000 \
---repeats 10 \
+--repeats 3 \
 --json
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key ab038ffc02fd679d3675a23163a6b73aa715af816bde6f77c6bf274b956b0ff2 \
+--ce-key 83e3a96ca6f2e0683e1d343a57adb9c9d250b6e0fd92be83b733602655b18a48 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Zn:16},Fm:{Al:32}' \
 --samples-per-bin 0 \

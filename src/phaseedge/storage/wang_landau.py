@@ -4,6 +4,7 @@ from pymongo.collection import Collection
 
 class WLBlockDoc(TypedDict, total=True):
     kind: str  # "WLBlockDoc"
+    algo_version: str
     wl_key: str
     wl_block_key: str
     parent_wl_block_key: str  # "GENESIS" for the first chunk

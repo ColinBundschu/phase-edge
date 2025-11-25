@@ -145,8 +145,7 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
         ce_key=spec.final_ce_key,
         prototype_spec=spec.ce_spec.prototype_spec,
         supercell_diag=spec.ce_spec.supercell_diag,
-        # Keep algo_version as-is for now; we can rename in a later cleanup step
-        algo_version="refined-wl-dopt-v2",
+        algo_version=spec.algo_version,
         sources=[spec.source],
         calc_spec=spec.calc_spec,
         basis_spec=spec.ce_spec.basis_spec,

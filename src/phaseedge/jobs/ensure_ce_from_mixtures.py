@@ -56,7 +56,7 @@ def ensure_ce_from_mixtures(spec: EnsureCEFromMixturesSpec) -> Any:
         ce_key=spec.ce_key,
         prototype_spec=spec.prototype_spec,
         supercell_diag=spec.supercell_diag,
-        algo_version=spec.algo,
+        algo_version=spec.algo_version,
         sources=[spec.source],
         calc_spec=spec.calc_spec,
         basis_spec=spec.basis_spec,

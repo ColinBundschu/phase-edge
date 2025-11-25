@@ -39,20 +39,20 @@ def ensure_dataset_selected(
         occ_key = occ_key_for_structure(pmg_struct)
 
         # Schedule relax
-        energy = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
-        if energy is None:
-            j_relax: Job = evaluate_structure(
+        energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
+        if energy_result is None or energy_result.max_force_eV_per_A > calc_spec.max_force_eV_per_A:
+            j_relax = evaluate_structure(
                 occ_key=occ_key,
                 structure=pmg_struct,
                 calc_spec=calc_spec,
                 category=category,
                 prototype_spec=prototype_spec,
                 supercell_diag=supercell_diag,
+                comp_map_sig=sig,
             )
             j_relax.name = f"relax_selected::{sig}::{occ_key[:12]}"
             j_relax.update_metadata({"_category": category})
             sub_jobs.append(j_relax)
-            energy = j_relax.output
 
         train_refs.append(
             CETrainRef(
