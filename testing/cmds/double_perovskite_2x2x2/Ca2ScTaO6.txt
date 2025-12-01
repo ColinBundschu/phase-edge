@@ -48,20 +48,20 @@ pe-ensure-dopt-ce \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 53aee8964307eefcf5032c0e4940664585ca86e5a79e28c5923b6f4b8d05d4f2 \
---bin-width 0.1 \
+--ce-key d0def1e30d2b3fcfff1b41f9e96cd0671c4398fd856919ad7cfc7d6ea547eee1 \
+--bin-width 0.02 \
 --initial-comp-map 'Es:{Sc:8},Fm:{Ta:8}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 10000000 \
---repeats 3 \
+--repeats 1 \
 --json
 
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 53aee8964307eefcf5032c0e4940664585ca86e5a79e28c5923b6f4b8d05d4f2 \
---bin-width 0.1 \
+--ce-key d0def1e30d2b3fcfff1b41f9e96cd0671c4398fd856919ad7cfc7d6ea547eee1 \
+--bin-width 0.02 \
 --initial-comp-map 'Es:{Sc:8},Fm:{Ta:8}' \
 --samples-per-bin 0 \
 --category cpu \
