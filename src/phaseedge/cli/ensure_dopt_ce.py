@@ -28,7 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # System / snapshot identity (prototype-only)
     p.add_argument("--prototype", required=True)
-    p.add_argument("--a", required=True, type=float)
+    p.add_argument("--a", required=True, type=float, help="Prototype lattice parameter (e.g., 4.3).")
+    p.add_argument("--c", required=False, type=float, help="Prototype lattice parameter c (e.g., 12.3).")
+    p.add_argument("--u", required=False, type=float, help="Prototype-specific parameter (e.g., oxygen u for spinels).")
+    p.add_argument("--x", required=False, type=float, help="Prototype-specific parameter (e.g., anion position for double perovskites).")
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
 
     # Composition input
@@ -42,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--final-calculator", required=True, choices=[r.value for r in CalcType])
     p.add_argument("--relax-type", required=True, choices=[r.value for r in RelaxType])
     p.add_argument("--spin-type", required=True, choices=[r.value for r in SpinType])
-    p.add_argument("--max-force-eV-per-A", type=float, required=True, help="Maximum force convergence criterion in eV/Å.")
+    p.add_argument("--base-max-force-eV-per-A", type=float, required=True, help="Maximum force convergence criterion in eV/Å.")
+    p.add_argument("--final-max-force-eV-per-A", type=float, required=True, help="Maximum force convergence criterion in eV/Å.")
     p.add_argument("--frozen-sublattices", default="")
 
     # CE hyperparameters
@@ -90,6 +94,12 @@ def main() -> int:
     
     # Optional early validation
     proto_params: dict[str, Any] = {"a": float(args.a)}
+    if args.c is not None:
+        proto_params["c"] = float(args.c)
+    if args.u is not None:
+        proto_params["u"] = float(args.u)
+    if args.x is not None:
+        proto_params["x"] = float(args.x)
     prototype_spec = PrototypeSpec(prototype=args.prototype, params=proto_params)
     for mixture in mixtures:
         validate_counts_for_sublattices(
@@ -110,7 +120,7 @@ def main() -> int:
         calculator=CalcType(args.base_calculator),
         relax_type=RelaxType(args.relax_type),
         spin_type=SpinType(args.spin_type),
-        max_force_eV_per_A=args.max_force_eV_per_A,
+        max_force_eV_per_A=args.base_max_force_eV_per_A,
         frozen_sublattices=args.frozen_sublattices,
     )
 
@@ -118,7 +128,7 @@ def main() -> int:
         calculator=CalcType(args.final_calculator),
         relax_type=RelaxType(args.relax_type),
         spin_type=SpinType(args.spin_type),
-        max_force_eV_per_A=args.max_force_eV_per_A,
+        max_force_eV_per_A=args.final_max_force_eV_per_A,
         frozen_sublattices=args.frozen_sublattices,
     )
 

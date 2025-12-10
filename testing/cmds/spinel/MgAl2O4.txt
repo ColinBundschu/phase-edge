@@ -1,6 +1,6 @@
 pe-ensure-ce-from-mixtures \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---prototype spinel_Q0O --a 8.08 \
+--prototype spinel_Q0O --a 8.08 --u 0.36 \
 --supercell 2 2 2 \
 --mix "composition_map=Es:{Mg:16},Fm:{Al:32};K=1;seed=0" \
 --mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=30;seed=42" \
@@ -29,7 +29,7 @@ pe-ensure-ce-from-mixtures \
 
 pe-ensure-dopt-ce \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---prototype spinel_Q0O --a 8.08 \
+--prototype spinel_Q0O --a 8.08 --u 0.36 \
 --supercell 2 2 2 \
 --endpoint "Es:{Mg:16},Fm:{Al:32}" \
 --mix "composition_map=Es:{Mg:15,Al:1},Fm:{Mg:1,Al:31};K=30;seed=42" \
@@ -64,7 +64,7 @@ pe-ensure-dopt-ce \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 25ae33c4abb83c7fffa4dc76b972b11b2fec3756b9bf72ab56edd4e70dc4013a \
+--ce-key 32a8d2615677477b4d5ce9cb1ae3f5723ec72d74540714a4c2ddcf79feb81852 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \
@@ -76,7 +76,7 @@ pe-extend-wl \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 25ae33c4abb83c7fffa4dc76b972b11b2fec3756b9bf72ab56edd4e70dc4013a \
+--ce-key 32a8d2615677477b4d5ce9cb1ae3f5723ec72d74540714a4c2ddcf79feb81852 \
 --bin-width 0.1 \
 --initial-comp-map 'Es:{Mg:16},Fm:{Al:32}' \
 --samples-per-bin 0 \

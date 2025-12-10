@@ -1,0 +1,87 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 --u 0.36 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Zn:16},Fm:{Sc:32};K=1;seed=0" \
+--mix "composition_map=Es:{Zn:15,Sc:1},Fm:{Zn:1,Sc:31};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:14,Sc:2},Fm:{Zn:2,Sc:30};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:13,Sc:3},Fm:{Zn:3,Sc:29};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:12,Sc:4},Fm:{Zn:4,Sc:28};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:11,Sc:5},Fm:{Zn:5,Sc:27};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:10,Sc:6},Fm:{Zn:6,Sc:26};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:9,Sc:7},Fm:{Zn:7,Sc:25};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:8,Sc:8},Fm:{Zn:8,Sc:24};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:7,Sc:9},Fm:{Zn:9,Sc:23};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:6,Sc:10},Fm:{Zn:10,Sc:22};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:5,Sc:11},Fm:{Zn:11,Sc:21};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:4,Sc:12},Fm:{Zn:12,Sc:20};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:3,Sc:13},Fm:{Zn:13,Sc:19};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:2,Sc:14},Fm:{Zn:14,Sc:18};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:1,Sc:15},Fm:{Zn:15,Sc:17};K=30;seed=42" \
+--mix "composition_map=Es:{Sc:16},Fm:{Zn:16,Sc:16};K=30;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype spinel_Q0O --a 8.08 --u 0.36 \
+--supercell 2 2 2 \
+--endpoint "Es:{Zn:16},Fm:{Sc:32}" \
+--mix "composition_map=Es:{Zn:15,Sc:1},Fm:{Zn:1,Sc:31};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:14,Sc:2},Fm:{Zn:2,Sc:30};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:13,Sc:3},Fm:{Zn:3,Sc:29};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:12,Sc:4},Fm:{Zn:4,Sc:28};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:11,Sc:5},Fm:{Zn:5,Sc:27};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:10,Sc:6},Fm:{Zn:6,Sc:26};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:9,Sc:7},Fm:{Zn:7,Sc:25};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:8,Sc:8},Fm:{Zn:8,Sc:24};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:7,Sc:9},Fm:{Zn:9,Sc:23};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:6,Sc:10},Fm:{Zn:10,Sc:22};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:5,Sc:11},Fm:{Zn:11,Sc:21};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:4,Sc:12},Fm:{Zn:12,Sc:20};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:3,Sc:13},Fm:{Zn:13,Sc:19};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:2,Sc:14},Fm:{Zn:14,Sc:18};K=30;seed=42" \
+--mix "composition_map=Es:{Zn:1,Sc:15},Fm:{Zn:15,Sc:17};K=30;seed=42" \
+--mix "composition_map=Es:{Sc:16},Fm:{Zn:16,Sc:16};K=30;seed=42" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:10,3:8,4:5" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 50 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" \
+--reject-cross-sublattice-swaps \
+--budget 500
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key aac22c66a0fd01be40fc2ae186c671a8df165b04105a15069e1e36f3f68835ff \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Zn:16},Fm:{Sc:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 3 \
+--json
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key aac22c66a0fd01be40fc2ae186c671a8df165b04105a15069e1e36f3f68835ff \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Zn:16},Fm:{Sc:32}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--collect-cation-stats \
+--production-mode \
+--json

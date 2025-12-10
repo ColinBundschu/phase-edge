@@ -48,7 +48,7 @@ pe-ensure-dopt-ce \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key a2ca21a50c31bbd31aee3ba76cc3f99ef6f3662cd6f25c5b9b99a8df8e176a9a \
+--ce-key a6076f656353ac0a2d129f850c11b13dee484dce453124e9d557a19749f9ec89 \
 --bin-width 0.02 \
 --initial-comp-map 'Es:{W:8},Fm:{Zn:8}' \
 --samples-per-bin 0 \
@@ -60,7 +60,7 @@ pe-extend-wl \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key a2ca21a50c31bbd31aee3ba76cc3f99ef6f3662cd6f25c5b9b99a8df8e176a9a \
+--ce-key a6076f656353ac0a2d129f850c11b13dee484dce453124e9d557a19749f9ec89 \
 --bin-width 0.02 \
 --initial-comp-map 'Es:{W:8},Fm:{Zn:8}' \
 --samples-per-bin 0 \

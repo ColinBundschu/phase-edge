@@ -1,0 +1,72 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype doubleperovskite_J0Ca_Q0O --a 7.86 \
+--supercell 2 2 2 \
+--mix "composition_map=Es:{Al:8},Fm:{Ta:8};K=1;seed=0" \
+--mix "composition_map=Es:{Al:7,Ta:1},Fm:{Al:1,Ta:7};K=50;seed=42" \
+--mix "composition_map=Es:{Al:6,Ta:2},Fm:{Al:2,Ta:6};K=50;seed=42" \
+--mix "composition_map=Es:{Al:5,Ta:3},Fm:{Al:3,Ta:5};K=50;seed=42" \
+--mix "composition_map=Es:{Al:4,Ta:4},Fm:{Al:4,Ta:4};K=50;seed=42" \
+--mix "composition_map=Es:{Al:3,Ta:5},Fm:{Al:5,Ta:3};K=50;seed=42" \
+--mix "composition_map=Es:{Al:2,Ta:6},Fm:{Al:6,Ta:2};K=50;seed=42" \
+--mix "composition_map=Es:{Al:1,Ta:7},Fm:{Al:7,Ta:1};K=50;seed=42" \
+--mix "composition_map=Es:{Ta:8},Fm:{Al:8};K=1;seed=0" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:12,3:12,4:9" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype doubleperovskite_J0Ca_Q0O --a 7.86 \
+--supercell 2 2 2 \
+--endpoint "Es:{Al:8},Fm:{Ta:8}" \
+--mix "composition_map=Es:{Al:7,Ta:1},Fm:{Al:1,Ta:7};K=50;seed=42" \
+--mix "composition_map=Es:{Al:6,Ta:2},Fm:{Al:2,Ta:6};K=50;seed=42" \
+--mix "composition_map=Es:{Al:5,Ta:3},Fm:{Al:3,Ta:5};K=50;seed=42" \
+--mix "composition_map=Es:{Al:4,Ta:4},Fm:{Al:4,Ta:4};K=50;seed=42" \
+--mix "composition_map=Es:{Al:3,Ta:5},Fm:{Al:5,Ta:3};K=50;seed=42" \
+--mix "composition_map=Es:{Al:2,Ta:6},Fm:{Al:6,Ta:2};K=50;seed=42" \
+--mix "composition_map=Es:{Al:1,Ta:7},Fm:{Al:7,Ta:1};K=50;seed=42" \
+--endpoint "Es:{Ta:8},Fm:{Al:8}" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.1 \
+--basis sinusoid --cutoffs "2:12,3:12,4:9" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 20 \
+--steps-to-run 1000000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" \
+--reject-cross-sublattice-swaps \
+--budget 200
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key 960bdbfc5b58fc1a867c1b188f5ec9a1dc8660622477a3151dd0a9506aac95b8 \
+--bin-width 0.02 \
+--initial-comp-map 'Es:{Al:8},Fm:{Ta:8}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 1 \
+--json
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key 960bdbfc5b58fc1a867c1b188f5ec9a1dc8660622477a3151dd0a9506aac95b8 \
+--bin-width 0.02 \
+--initial-comp-map 'Es:{Al:8},Fm:{Ta:8}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 1000000 \
+--collect-cation-stats \
+--production-mode \
+--json
+

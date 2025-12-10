@@ -2,15 +2,15 @@ pe-ensure-ce-from-mixtures \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
 --prototype doubleperovskite_J0Ca_Q0O --a 7.86 \
 --supercell 2 2 2 \
---mix "composition_map=Es:{Nb:8},Fm:{Sc:8};K=1;seed=0" \
---mix "composition_map=Es:{Nb:7,Sc:1},Fm:{Nb:1,Sc:7};K=50;seed=42" \
---mix "composition_map=Es:{Nb:6,Sc:2},Fm:{Nb:2,Sc:6};K=50;seed=42" \
---mix "composition_map=Es:{Nb:5,Sc:3},Fm:{Nb:3,Sc:5};K=50;seed=42" \
---mix "composition_map=Es:{Nb:4,Sc:4},Fm:{Nb:4,Sc:4};K=50;seed=42" \
---mix "composition_map=Es:{Nb:3,Sc:5},Fm:{Nb:5,Sc:3};K=50;seed=42" \
---mix "composition_map=Es:{Nb:2,Sc:6},Fm:{Nb:6,Sc:2};K=50;seed=42" \
---mix "composition_map=Es:{Nb:1,Sc:7},Fm:{Nb:7,Sc:1};K=50;seed=42" \
---mix "composition_map=Es:{Sc:8},Fm:{Nb:8};K=1;seed=0" \
+--mix "composition_map=Es:{Al:8},Fm:{Sb:8};K=1;seed=0" \
+--mix "composition_map=Es:{Al:7,Sb:1},Fm:{Al:1,Sb:7};K=50;seed=42" \
+--mix "composition_map=Es:{Al:6,Sb:2},Fm:{Al:2,Sb:6};K=50;seed=42" \
+--mix "composition_map=Es:{Al:5,Sb:3},Fm:{Al:3,Sb:5};K=50;seed=42" \
+--mix "composition_map=Es:{Al:4,Sb:4},Fm:{Al:4,Sb:4};K=50;seed=42" \
+--mix "composition_map=Es:{Al:3,Sb:5},Fm:{Al:5,Sb:3};K=50;seed=42" \
+--mix "composition_map=Es:{Al:2,Sb:6},Fm:{Al:6,Sb:2};K=50;seed=42" \
+--mix "composition_map=Es:{Al:1,Sb:7},Fm:{Al:7,Sb:1};K=50;seed=42" \
+--mix "composition_map=Es:{Sb:8},Fm:{Al:8};K=1;seed=0" \
 --seed 42 \
 --calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
 --basis sinusoid --cutoffs "2:12,3:12,4:9" \
@@ -23,15 +23,15 @@ pe-ensure-dopt-ce \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
 --prototype doubleperovskite_J0Ca_Q0O --a 7.86 \
 --supercell 2 2 2 \
---endpoint "Es:{Nb:8},Fm:{Sc:8}" \
---mix "composition_map=Es:{Nb:7,Sc:1},Fm:{Nb:1,Sc:7};K=50;seed=42" \
---mix "composition_map=Es:{Nb:6,Sc:2},Fm:{Nb:2,Sc:6};K=50;seed=42" \
---mix "composition_map=Es:{Nb:5,Sc:3},Fm:{Nb:3,Sc:5};K=50;seed=42" \
---mix "composition_map=Es:{Nb:4,Sc:4},Fm:{Nb:4,Sc:4};K=50;seed=42" \
---mix "composition_map=Es:{Nb:3,Sc:5},Fm:{Nb:5,Sc:3};K=50;seed=42" \
---mix "composition_map=Es:{Nb:2,Sc:6},Fm:{Nb:6,Sc:2};K=50;seed=42" \
---mix "composition_map=Es:{Nb:1,Sc:7},Fm:{Nb:7,Sc:1};K=50;seed=42" \
---endpoint "Es:{Sc:8},Fm:{Nb:8}" \
+--endpoint "Es:{Al:8},Fm:{Sb:8}" \
+--mix "composition_map=Es:{Al:7,Sb:1},Fm:{Al:1,Sb:7};K=50;seed=42" \
+--mix "composition_map=Es:{Al:6,Sb:2},Fm:{Al:2,Sb:6};K=50;seed=42" \
+--mix "composition_map=Es:{Al:5,Sb:3},Fm:{Al:3,Sb:5};K=50;seed=42" \
+--mix "composition_map=Es:{Al:4,Sb:4},Fm:{Al:4,Sb:4};K=50;seed=42" \
+--mix "composition_map=Es:{Al:3,Sb:5},Fm:{Al:5,Sb:3};K=50;seed=42" \
+--mix "composition_map=Es:{Al:2,Sb:6},Fm:{Al:6,Sb:2};K=50;seed=42" \
+--mix "composition_map=Es:{Al:1,Sb:7},Fm:{Al:7,Sb:1};K=50;seed=42" \
+--endpoint "Es:{Sb:8},Fm:{Al:8}" \
 --seed 42 \
 --base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.15 \
 --basis sinusoid --cutoffs "2:12,3:12,4:9" \
@@ -48,9 +48,9 @@ pe-ensure-dopt-ce \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 40d9f342907cdf59c3e847d7cf14e4c68659c5340560a35a0f2eacba240d5363 \
+--ce-key c8aef15c53f9d66e1e846a6c95fa6284c30d8e1b3b817b52b671bf103669fb7d \
 --bin-width 0.02 \
---initial-comp-map 'Es:{Nb:8},Fm:{Sc:8}' \
+--initial-comp-map 'Es:{Al:8},Fm:{Sb:8}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 10000000 \
@@ -60,9 +60,9 @@ pe-extend-wl \
 
 pe-extend-wl \
 --launchpad /home/cbu/fw_config/my_launchpad.yaml \
---ce-key 40d9f342907cdf59c3e847d7cf14e4c68659c5340560a35a0f2eacba240d5363 \
+--ce-key c8aef15c53f9d66e1e846a6c95fa6284c30d8e1b3b817b52b671bf103669fb7d \
 --bin-width 0.02 \
---initial-comp-map 'Es:{Nb:8},Fm:{Sc:8}' \
+--initial-comp-map 'Es:{Al:8},Fm:{Sb:8}' \
 --samples-per-bin 0 \
 --category cpu \
 --steps-to-run 1000000 \

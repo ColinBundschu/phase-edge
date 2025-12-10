@@ -14,7 +14,7 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Li:18,Ti:9,Mg:5};K=10;seed=42" \
 --mix "composition_map=Es:{Li:20,Ti:10,Mg:2};K=10;seed=42" \
 --seed 42 \
---calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.05 \
 --basis sinusoid --cutoffs "2:7,3:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -31,7 +31,7 @@ pe-ensure-ce-from-mixtures \
 --mix "composition_map=Es:{Li:18,Ti:9,Mg:5};K=400;seed=42" \
 --mix "composition_map=Es:{Li:20,Ti:10,Mg:2};K=400;seed=42" \
 --seed 42 \
---calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.05 \
 --basis sinusoid --cutoffs "2:6,3:6,4:6" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \

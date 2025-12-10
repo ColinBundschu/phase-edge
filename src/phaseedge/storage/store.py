@@ -110,6 +110,7 @@ class EnergyResult:
     structure: Structure
     total_energy_eV: float
     max_force_eV_per_A: float
+    dir_name: str
 
 
 # -------------------------
@@ -147,12 +148,14 @@ def lookup_total_energy_eV(
         ),
         "metadata.max_force_eV_per_A": {"$exists": True},
         "metadata.frozen_sublattices": calc_spec.frozen_sublattices,
+        "output.dir_name": {"$exists": True},
         "output.output.energy": {"$exists": True},
     }
     if calc_spec.calculator_info["calc_type"] == CalcType.MACE_MPA_0:
         criteria["output.is_force_converged"] = True
 
     projection = {
+        "output.dir_name": 1,
         "output.output.energy": 1,
         "output.output.structure": 1,
         "metadata.max_force_eV_per_A": 1,
@@ -185,12 +188,11 @@ def lookup_total_energy_eV(
             f"(minimal_max_force_eV_per_A={best_force})"
         )
 
-    energy = best_doc["output"]["output"]["energy"]
-    structure = Structure.from_dict(best_doc["output"]["output"]["structure"])
     return EnergyResult(
-        structure=structure,
-        total_energy_eV=float(energy),
+        structure=Structure.from_dict(best_doc["output"]["output"]["structure"]),
+        total_energy_eV=float(best_doc["output"]["output"]["energy"]),
         max_force_eV_per_A=best_force,
+        dir_name=best_doc["output"]["dir_name"],
     )
 
 

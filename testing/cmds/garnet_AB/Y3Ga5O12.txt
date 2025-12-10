@@ -1,0 +1,215 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype garnet_Q0O --a 12.0 \
+--supercell 1 1 1 \
+--mix "composition_map=Es:{Y:12},Fm:{Ga:8},Md:{Ga:12};K=1;seed=0" \
+--mix "composition_map=Es:{Y:11,Ga:1},Fm:{Y:1,Ga:7},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:11,Ga:1},Fm:{Ga:8},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Y:2,Ga:6},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Y:1,Ga:7},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Ga:8},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:3,Ga:5},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:2,Ga:6},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:1,Ga:7},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Ga:8},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:4,Ga:4},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:3,Ga:5},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:2,Ga:6},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:1,Ga:7},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Ga:8},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:5,Ga:3},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:4,Ga:4},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:3,Ga:5},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:2,Ga:6},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:1,Ga:7},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Ga:8},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:6,Ga:2},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:5,Ga:3},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:4,Ga:4},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:3,Ga:5},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:2,Ga:6},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:1,Ga:7},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Ga:8},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:7,Ga:1},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:6,Ga:2},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:5,Ga:3},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:4,Ga:4},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:3,Ga:5},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:2,Ga:6},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:1,Ga:7},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Ga:8},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:8},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:7,Ga:1},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:6,Ga:2},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:5,Ga:3},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:4,Ga:4},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:3,Ga:5},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:2,Ga:6},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:1,Ga:7},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Ga:8},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:8},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:7,Ga:1},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:6,Ga:2},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:5,Ga:3},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:4,Ga:4},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:3,Ga:5},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:2,Ga:6},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:1,Ga:7},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Ga:8},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:8},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:7,Ga:1},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:6,Ga:2},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:5,Ga:3},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:4,Ga:4},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:3,Ga:5},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:2,Ga:6},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:1,Ga:7},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Ga:8},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:8},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:7,Ga:1},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:6,Ga:2},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:5,Ga:3},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:4,Ga:4},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:3,Ga:5},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:2,Ga:6},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:1,Ga:7},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Ga:8},Md:{Y:11,Ga:1};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:8},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:7,Ga:1},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:6,Ga:2},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:5,Ga:3},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:4,Ga:4},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:3,Ga:5},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:2,Ga:6},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:1,Ga:7},Md:{Y:11,Ga:1};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Ga:8},Md:{Y:12};K=1;seed=0" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:14" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype garnet_Q0O --a 12.0 \
+--supercell 1 1 1 \
+--endpoint "Es:{Y:12},Fm:{Ga:8},Md:{Ga:12}" \
+--mix "composition_map=Es:{Y:11,Ga:1},Fm:{Y:1,Ga:7},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:11,Ga:1},Fm:{Ga:8},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Y:2,Ga:6},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Y:1,Ga:7},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:10,Ga:2},Fm:{Ga:8},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:3,Ga:5},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:2,Ga:6},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Y:1,Ga:7},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:9,Ga:3},Fm:{Ga:8},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:4,Ga:4},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:3,Ga:5},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:2,Ga:6},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Y:1,Ga:7},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:8,Ga:4},Fm:{Ga:8},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:5,Ga:3},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:4,Ga:4},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:3,Ga:5},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:2,Ga:6},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Y:1,Ga:7},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:7,Ga:5},Fm:{Ga:8},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:6,Ga:2},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:5,Ga:3},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:4,Ga:4},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:3,Ga:5},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:2,Ga:6},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Y:1,Ga:7},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:6,Ga:6},Fm:{Ga:8},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:7,Ga:1},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:6,Ga:2},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:5,Ga:3},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:4,Ga:4},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:3,Ga:5},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:2,Ga:6},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Y:1,Ga:7},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:5,Ga:7},Fm:{Ga:8},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:8},Md:{Ga:12};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:7,Ga:1},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:6,Ga:2},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:5,Ga:3},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:4,Ga:4},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:3,Ga:5},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:2,Ga:6},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Y:1,Ga:7},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:4,Ga:8},Fm:{Ga:8},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:8},Md:{Y:1,Ga:11};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:7,Ga:1},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:6,Ga:2},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:5,Ga:3},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:4,Ga:4},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:3,Ga:5},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:2,Ga:6},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Y:1,Ga:7},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:3,Ga:9},Fm:{Ga:8},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:8},Md:{Y:2,Ga:10};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:7,Ga:1},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:6,Ga:2},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:5,Ga:3},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:4,Ga:4},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:3,Ga:5},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:2,Ga:6},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Y:1,Ga:7},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:2,Ga:10},Fm:{Ga:8},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:8},Md:{Y:3,Ga:9};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:7,Ga:1},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:6,Ga:2},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:5,Ga:3},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:4,Ga:4},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:3,Ga:5},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:2,Ga:6},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Y:1,Ga:7},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Y:1,Ga:11},Fm:{Ga:8},Md:{Y:11,Ga:1};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:8},Md:{Y:4,Ga:8};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:7,Ga:1},Md:{Y:5,Ga:7};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:6,Ga:2},Md:{Y:6,Ga:6};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:5,Ga:3},Md:{Y:7,Ga:5};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:4,Ga:4},Md:{Y:8,Ga:4};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:3,Ga:5},Md:{Y:9,Ga:3};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:2,Ga:6},Md:{Y:10,Ga:2};K=10;seed=42" \
+--mix "composition_map=Es:{Ga:12},Fm:{Y:1,Ga:7},Md:{Y:11,Ga:1};K=10;seed=42" \
+--endpoint "Es:{Ga:12},Fm:{Ga:8},Md:{Y:12}" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --base-max-force-eV-per-A 0.02 \
+--basis sinusoid --cutoffs "2:14" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 50 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" --final-max-force-eV-per-A 0.1 \
+--reject-cross-sublattice-swaps \
+--budget 500
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key d128383ec44904b50d4a49961dfebcc1859251f2279060777df8bf75a60d69fb \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Ca:16},Fm:{Si:16}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 1 \
+--json
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key d128383ec44904b50d4a49961dfebcc1859251f2279060777df8bf75a60d69fb \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Ca:16},Fm:{Si:16}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--collect-cation-stats \
+--production-mode \
+--json

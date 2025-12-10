@@ -24,6 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     # System / snapshot identity (prototype-only)
     p.add_argument("--prototype", required=True)
     p.add_argument("--a", required=True, type=float, help="Prototype lattice parameter (e.g., 4.3).")
+    p.add_argument("--c", required=False, type=float, help="Prototype lattice parameter c (e.g., 12.3).")
+    p.add_argument("--u", required=False, type=float, help="Prototype-specific parameter (e.g., oxygen u for spinels).")
+    p.add_argument("--x", required=False, type=float, help="Prototype-specific parameter (e.g., anion position for double perovskites).")
     p.add_argument("--supercell", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"))
 
     # Composition input (repeatable)
@@ -66,7 +69,12 @@ def main() -> None:
     mixtures = tuple([parse_mix_item(s) for s in args.mix])
 
     proto_params: dict[str, Any] = {"a": float(args.a)}
-    
+    if args.c is not None:
+        proto_params["c"] = float(args.c)
+    if args.u is not None:
+        proto_params["u"] = float(args.u)
+    if args.x is not None:
+        proto_params["x"] = float(args.x)
     # Optional early validation
     prototype_spec = PrototypeSpec(prototype=args.prototype, params=proto_params)
     for mixture in mixtures:

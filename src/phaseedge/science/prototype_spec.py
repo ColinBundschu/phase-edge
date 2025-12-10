@@ -11,10 +11,12 @@ from monty.json import MSONable
 
 class PrototypeStructure(str, Enum):
     ROCKSALT = "rocksalt"
+    GARNET = "garnet"
     SPINEL = "spinel"
     SPINEL16c = "spinel16c"
     DOUBLE_PEROVSKITE = "doubleperovskite"
     PYROCHLORE = "pyrochlore"
+    ILMENITE = "ilmenite"
 
 
 # Matches tags like J0Sr, Q0O, etc.
@@ -178,6 +180,31 @@ def _build_primitive_cell(
         )
         active_sublattices = {"Es"}
 
+    elif structure is PrototypeStructure.GARNET:
+        # https://next-gen.materialsproject.org/materials/mp-5444
+        # Needs:
+        #   a : cubic lattice parameter
+        _require_exact_keys(spec, {"Q0"})
+        anion = spec["Q0"]
+
+        a = _pop_float(local_params, "a")
+        if a <= 0:
+            raise ValueError(f"Param 'a' must be > 0, got {a}.")
+
+        primitive_cell = crystal(
+            symbols=["Es", "Fm", "Md", anion],
+            basis=[
+                (1/4, 3/8, 1/2), # Es: dodecahedral A (conventional 24c)
+                (0, 1/2, 0), # Fm: octahedral B (conventional 16a)
+                (3/4, 1/8, 0), # Md: octahedral C (conventional 24d)
+                (0.350086, 0.472582, 0.055588), # anion (oxygen / halide)
+            ],
+            spacegroup=230,  # Ia-3d
+            cellpar=[a, a, a, 90, 90, 90],
+            primitive_cell=True,
+        )
+        active_sublattices = {"Es", "Fm", "Md"}
+
     elif structure is PrototypeStructure.SPINEL:
         # Needs:
         #   a : cubic lattice parameter
@@ -267,12 +294,11 @@ def _build_primitive_cell(
         active_sublattices = {"Es", "Fm"}
 
     elif structure is PrototypeStructure.PYROCHLORE:
-        # https://next-gen.materialsproject.org/materials/mp-757233
+        # https://next-gen.materialsproject.org/materials/mp-5373
         # In pyrochlores the 8a site is vacant, creating a 1/8 oxygen deficiency.
         # Needs:
         #   a : cubic lattice parameter
-        # Optional:
-        #   x : oxygen parameter (~0.713 default)
+        #   x : anion parameter (in (0, 1))
         _require_exact_keys(spec, {"Q0"})
         anion = spec["Q0"]
 
@@ -280,21 +306,53 @@ def _build_primitive_cell(
         if a <= 0:
             raise ValueError(f"Param 'a' must be > 0, got {a}.")
 
-        x = float(local_params.pop("x", 0.713))
+        x = _pop_float(local_params, "x")
+        if not (0 < x < 1):
+            raise ValueError(f"Param 'x' must be in (0, 1), got {x}.")
 
         primitive_cell = crystal(
             symbols=["Es", "Fm", anion, anion],
             basis=[
-                (1/8, 5/8, 1/8), # Es 16d
-                (3/8, 7/8, 5/8), # Fm 16c
+                (3/8, 7/8, 1/8), # Es 16d
+                (7/8, 7/8, 1/8), # Fm 16c
                 (1/4, 3/4, 1/4), # anion 8b
-                (1/2, 0, x),   # anion 48f
+                (1/4, x, 1/4),   # anion 48f
             ],
             spacegroup=227,  # Fd-3m
             cellpar=[a, a, a, 90, 90, 90],
+            primitive_cell=False,
+        )
+        active_sublattices = {"Es", "Fm"}
+
+    elif structure is PrototypeStructure.ILMENITE:
+        # https://next-gen.materialsproject.org/materials/mp-3771
+        # Needs:
+        #  a : hexagonal lattice parameter
+        #  c : hexagonal lattice parameter
+        _require_exact_keys(spec, {"Q0"})
+        anion = spec["Q0"]
+
+        a = _pop_float(local_params, "a")
+        if a <= 0:
+            raise ValueError(f"Param 'a' must be > 0, got {a}.")
+        
+        c = _pop_float(local_params, "c")
+        if c <= 0:
+            raise ValueError(f"Param 'c' must be > 0, got {c}.")
+        
+        primitive_cell = crystal(
+            symbols=["Es", "Fm", anion],
+            basis=[
+                (1/3, 2/3, 0.311558), # Es 6c
+                (2/3, 1/3, 0.188669), # Fm 6c
+                (0.315034, 0.294888, 0.246799), # anion 18f
+            ],
+            spacegroup=148, # R-3
+            cellpar=[a, a, c, 90, 90, 120],
             primitive_cell=True,
         )
         active_sublattices = {"Es", "Fm"}
+
 
     else:
         raise ValueError(f"Unknown prototype structure: {structure}")

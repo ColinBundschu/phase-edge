@@ -1,0 +1,87 @@
+pe-ensure-ce-from-mixtures \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype pyrochlore_Q0O --a 10.5 --x 0.045 \
+--supercell 1 1 1 \
+--mix "composition_map=Es:{Sr:16},Fm:{Ta:16};K=1;seed=0" \
+--mix "composition_map=Es:{Sr:15,Ta:1},Fm:{Sr:1,Ta:15};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:14,Ta:2},Fm:{Sr:2,Ta:14};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:13,Ta:3},Fm:{Sr:3,Ta:13};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:12,Ta:4},Fm:{Sr:4,Ta:12};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:11,Ta:5},Fm:{Sr:5,Ta:11};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:10,Ta:6},Fm:{Sr:6,Ta:10};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:9,Ta:7},Fm:{Sr:7,Ta:9};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:8,Ta:8},Fm:{Sr:8,Ta:8};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:7,Ta:9},Fm:{Sr:9,Ta:7};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:6,Ta:10},Fm:{Sr:10,Ta:6};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:5,Ta:11},Fm:{Sr:11,Ta:5};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:4,Ta:12},Fm:{Sr:12,Ta:4};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:3,Ta:13},Fm:{Sr:13,Ta:3};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:2,Ta:14},Fm:{Sr:14,Ta:2};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:1,Ta:15},Fm:{Sr:15,Ta:1};K=30;seed=42" \
+--mix "composition_map=Es:{Ta:16},Fm:{Sr:16};K=30;seed=42" \
+--seed 42 \
+--calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.1 \
+--basis sinusoid --cutoffs "2:10,3:7,4:6" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu
+
+
+pe-ensure-dopt-ce \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--prototype pyrochlore_Q0O --a 10.5 --x 0.045 \
+--supercell 1 1 1 \
+--endpoint "Es:{Sr:16},Fm:{Ta:16}" \
+--mix "composition_map=Es:{Sr:15,Ta:1},Fm:{Sr:1,Ta:15};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:14,Ta:2},Fm:{Sr:2,Ta:14};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:13,Ta:3},Fm:{Sr:3,Ta:13};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:12,Ta:4},Fm:{Sr:4,Ta:12};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:11,Ta:5},Fm:{Sr:5,Ta:11};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:10,Ta:6},Fm:{Sr:6,Ta:10};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:9,Ta:7},Fm:{Sr:7,Ta:9};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:8,Ta:8},Fm:{Sr:8,Ta:8};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:7,Ta:9},Fm:{Sr:9,Ta:7};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:6,Ta:10},Fm:{Sr:10,Ta:6};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:5,Ta:11},Fm:{Sr:11,Ta:5};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:4,Ta:12},Fm:{Sr:12,Ta:4};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:3,Ta:13},Fm:{Sr:13,Ta:3};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:2,Ta:14},Fm:{Sr:14,Ta:2};K=30;seed=42" \
+--mix "composition_map=Es:{Sr:1,Ta:15},Fm:{Sr:15,Ta:1};K=30;seed=42" \
+--endpoint "Es:{Ta:16},Fm:{Sr:16}" \
+--seed 42 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --base-max-force-eV-per-A 0.1 \
+--basis sinusoid --cutoffs "2:10,3:7,4:6" \
+--reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
+--balance-by-comp --weight-alpha 1.0 \
+--category gpu \
+--wl-bin-width 0.1 --samples-per-bin 50 \
+--steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
+--wl-seed 0 \
+--final-calculator "vasp-mp-24" --final-max-force-eV-per-A 0.1 \
+--reject-cross-sublattice-swaps \
+--budget 500
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key 6f9c37f699bf8bb2a42e0d9217f8fcf1b340fa9a0198846705ca42470922df75 \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Sr:16},Fm:{Ta:16}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--repeats 10 \
+--json
+
+
+pe-extend-wl \
+--launchpad /home/cbu/fw_config/my_launchpad.yaml \
+--ce-key 6f9c37f699bf8bb2a42e0d9217f8fcf1b340fa9a0198846705ca42470922df75 \
+--bin-width 0.1 \
+--initial-comp-map 'Es:{Sr:16},Fm:{Ta:16}' \
+--samples-per-bin 0 \
+--category cpu \
+--steps-to-run 10000000 \
+--collect-cation-stats \
+--production-mode \
+--json
