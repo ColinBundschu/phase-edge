@@ -184,7 +184,8 @@ def _build_primitive_cell(
         # https://next-gen.materialsproject.org/materials/mp-5444
         # Needs:
         #   a : cubic lattice parameter
-        _require_exact_keys(spec, {"Q0"})
+        _require_exact_keys(spec, {"J0", "Q0"})
+        inactive_cation = spec["J0"]
         anion = spec["Q0"]
 
         a = _pop_float(local_params, "a")
@@ -192,18 +193,18 @@ def _build_primitive_cell(
             raise ValueError(f"Param 'a' must be > 0, got {a}.")
 
         primitive_cell = crystal(
-            symbols=["Es", "Fm", "Md", anion],
+            symbols=["Es", "Fm", inactive_cation, anion],
             basis=[
-                (1/4, 3/8, 1/2), # Es: dodecahedral A (conventional 24c)
-                (0, 1/2, 0), # Fm: octahedral B (conventional 16a)
-                (3/4, 1/8, 0), # Md: octahedral C (conventional 24d)
+                (0, 1/2, 0), # Es: octahedral B (conventional 16a)
+                (3/4, 1/8, 0), # Fm: octahedral C (conventional 24d)
+                (1/4, 3/8, 1/2), # Inactive dodecahedral A (conventional 24c)
                 (0.350086, 0.472582, 0.055588), # anion (oxygen / halide)
             ],
             spacegroup=230,  # Ia-3d
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,
         )
-        active_sublattices = {"Es", "Fm", "Md"}
+        active_sublattices = {"Es", "Fm"}
 
     elif structure is PrototypeStructure.SPINEL:
         # Needs:
