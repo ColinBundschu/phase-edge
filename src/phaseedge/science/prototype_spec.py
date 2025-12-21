@@ -7,13 +7,13 @@ from typing import Iterable, Mapping, Any
 from ase.atoms import Atoms
 from ase.spacegroup import crystal
 from monty.json import MSONable
+import numpy as np
 
 
 class PrototypeStructure(str, Enum):
     ROCKSALT = "rocksalt"
     GARNET = "garnet"
     SPINEL = "spinel"
-    SPINEL16c = "spinel16c"
     DOUBLE_PEROVSKITE = "doubleperovskite"
     PYROCHLORE = "pyrochlore"
     ILMENITE = "ilmenite"
@@ -23,6 +23,41 @@ class PrototypeStructure(str, Enum):
 _SEGMENT_RE = re.compile(
     r"^(?P<prefix>[A-Z])(?P<index>\d+)(?P<element>[A-Z][a-z]{0,2})$"
 )
+
+
+def _annotate_atoms_with_metadata(
+    atoms: Atoms,
+    metadata_by_symbol: dict[str, dict[str, Any]],
+) -> None:
+    """
+    Attach per-site metadata arrays (e.g. sublattice, wyckoff, role) to an ASE Atoms
+    object based on its chemical symbols.
+
+    Parameters
+    ----------
+    atoms : Atoms
+        ASE atoms object to annotate in-place.
+    metadata_by_symbol : dict
+        Mapping from chemical symbol (e.g. "Es", "Fm", "O") to a dict of metadata,
+        e.g. {"sublattice": "A", "wyckoff": "8a", "role": "active_cation"}.
+        All keys that appear in any of the metadata dicts will become arrays.
+        Sites whose symbol is not present in metadata_by_symbol get value None
+        for those arrays.
+    """
+    symbols = atoms.get_chemical_symbols()
+    n_sites = len(symbols)
+
+    # Collect all metadata keys we’ll create arrays for
+    keys: set[str] = set()
+    for meta in metadata_by_symbol.values():
+        keys.update(meta.keys())
+
+    for key in sorted(keys):
+        vals: list[Any] = []
+        for sym in symbols:
+            meta = metadata_by_symbol.get(sym)
+            vals.append(meta.get(key) if meta is not None else None)
+        atoms.set_array(key, np.array(vals, dtype=object))
 
 
 def parse_prototype(
@@ -111,10 +146,7 @@ def _require_exact_keys(spec: dict[str, str], required: set[str]) -> None:
         )
 
 
-ParamValue = float | int | str
-
-
-def _pop_float(local_params: dict[str, ParamValue], key: str) -> float:
+def _pop_float(local_params: dict[str, float], key: str) -> float:
     """
     Pop a required numeric param from local_params and return it as float.
     Raises ValueError if missing or not castable.
@@ -139,12 +171,13 @@ def _pop_float(local_params: dict[str, ParamValue], key: str) -> float:
 def _build_primitive_cell(
     structure: PrototypeStructure,
     spec: dict[str, str],
-    params: dict[str, ParamValue],
+    params: dict[str, float],
 ) -> tuple[Atoms, set[str]]:
     """
     Internal helper used by PrototypeSpec to:
     - construct the primitive ASE cell
     - figure out which cation sublattices are "active"
+    - annotate sites with (sublattice, wyckoff, role) metadata
 
     Contract:
     - This function is ALSO the validator for 'params'. Each branch:
@@ -159,7 +192,7 @@ def _build_primitive_cell(
     """
 
     # Work on a copy so we don't mutate the original dict stored on the dataclass
-    local_params: dict[str, ParamValue] = dict(params)
+    local_params: dict[str, float] = dict(params)
 
     if structure is PrototypeStructure.ROCKSALT:
         # Needs:
@@ -180,6 +213,20 @@ def _build_primitive_cell(
         )
         active_sublattices = {"Es"}
 
+        symbol_metadata: dict[str, dict[str, str]] = {
+            "Es": {
+                "sublattice": "A",
+                "wyckoff": "4a",
+                "role": "active_cation",
+            },
+            anion: {
+                "sublattice": "X",
+                "wyckoff": "4b",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
+
     elif structure is PrototypeStructure.GARNET:
         # https://next-gen.materialsproject.org/materials/mp-5444
         # Needs:
@@ -195,16 +242,40 @@ def _build_primitive_cell(
         primitive_cell = crystal(
             symbols=["Es", "Fm", inactive_cation, anion],
             basis=[
-                (0, 1/2, 0), # Es: octahedral B (conventional 16a)
-                (3/4, 1/8, 0), # Fm: octahedral C (conventional 24d)
-                (1/4, 3/8, 1/2), # Inactive dodecahedral A (conventional 24c)
-                (0.350086, 0.472582, 0.055588), # anion (oxygen / halide)
+                (0, 1/2, 0),               # Es: octahedral B (16a)
+                (3/4, 1/8, 0),             # Fm: tetrahedral C (24d)
+                (1/4, 3/8, 1/2),           # inactive dodecahedral A (24c)
+                (0.350086, 0.472582, 0.055588),  # anion (96h)
             ],
             spacegroup=230,  # Ia-3d
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,
         )
         active_sublattices = {"Es", "Fm"}
+
+        symbol_metadata = {
+            "Es": {
+                "sublattice": "B",
+                "wyckoff": "16a",
+                "role": "active_cation",
+            },
+            "Fm": {
+                "sublattice": "C",
+                "wyckoff": "24d",
+                "role": "active_cation",
+            },
+            inactive_cation: {
+                "sublattice": "A",
+                "wyckoff": "24c",
+                "role": "inactive_cation",
+            },
+            anion: {
+                "sublattice": "X",
+                "wyckoff": "96h",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
 
     elif structure is PrototypeStructure.SPINEL:
         # Needs:
@@ -223,9 +294,9 @@ def _build_primitive_cell(
         primitive_cell = crystal(
             symbols=["Es", "Fm", anion],
             basis=[
-                (1 / 4, 3 / 4, 3 / 4),      # Es: tetra A (conventional 8a)
-                (5 / 8, 3 / 8, 3 / 8),      # Fm: octa B (conventional 16d)
-                (1 / 2 + u, u, u),          # anion (oxygen / halide)
+                (1 / 4, 3 / 4, 3 / 4),  # Es: tetra A (8a)
+                (5 / 8, 3 / 8, 3 / 8),  # Fm: octa B (16d)
+                (1 / 2 + u, u, u),      # anion (32e)
             ],
             spacegroup=227,  # Fd-3m
             cellpar=[a, a, a, 90, 90, 90],
@@ -233,33 +304,24 @@ def _build_primitive_cell(
         )
         active_sublattices = {"Es", "Fm"}
 
-    elif structure is PrototypeStructure.SPINEL16c:
-        # Needs:
-        #   a : cubic lattice parameter
-        # Optional:
-        #   u : oxygen parameter (~0.36 default)
-        _require_exact_keys(spec, {"Q0"})
-        anion = spec["Q0"]
-
-        a = _pop_float(local_params, "a")
-        if a <= 0:
-            raise ValueError(f"Param 'a' must be > 0, got {a}.")
-
-        u = float(local_params.pop("u", 0.36))
-
-        primitive_cell = crystal(
-            symbols=["Es", "Fm", "Md", anion],
-            basis=[
-                (1 / 4, 3 / 4, 3 / 4),      # Es: tetra A (8a)
-                (5 / 8, 3 / 8, 3 / 8),      # Fm: octa B normal (16d)
-                (1 / 8, 7 / 8, 7 / 8),      # Md: octa 16c sublattice
-                (1 / 2 + u, u, u),          # anion
-            ],
-            spacegroup=227,  # Fd-3m
-            cellpar=[a, a, a, 90, 90, 90],
-            primitive_cell=True,
-        )
-        active_sublattices = {"Es", "Fm", "Md"}
+        symbol_metadata = {
+            "Es": {
+                "sublattice": "A",
+                "wyckoff": "8a",
+                "role": "active_cation",
+            },
+            "Fm": {
+                "sublattice": "B",
+                "wyckoff": "16d",
+                "role": "active_cation",
+            },
+            anion: {
+                "sublattice": "X",
+                "wyckoff": "32e",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
 
     elif structure is PrototypeStructure.DOUBLE_PEROVSKITE:
         # https://next-gen.materialsproject.org/materials/mp-1205594
@@ -283,16 +345,40 @@ def _build_primitive_cell(
         primitive_cell = crystal(
             symbols=["Es", "Fm", inactive_cation, anion],
             basis=[
-                (0, 0, 0),              # Es (active)
-                (0, 0, 1 / 2),          # Fm (active)
-                (1 / 4, 3 / 4, 3 / 4),  # inactive A-site cation
-                (u, 0, 0),              # anion
+                (0, 0, 0),              # Es: B' (4a)
+                (0, 0, 1 / 2),          # Fm: B'' (4b)
+                (1 / 4, 3 / 4, 3 / 4),  # A-site (8c)
+                (u, 0, 0),              # anion (24e)
             ],
             spacegroup=225,  # Fm-3m
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=True,
         )
         active_sublattices = {"Es", "Fm"}
+
+        symbol_metadata = {
+            "Es": {
+                "sublattice": "B_prime",
+                "wyckoff": "4a",
+                "role": "active_cation",
+            },
+            "Fm": {
+                "sublattice": "B_double_prime",
+                "wyckoff": "4b",
+                "role": "active_cation",
+            },
+            inactive_cation: {
+                "sublattice": "A",
+                "wyckoff": "8c",
+                "role": "inactive_cation",
+            },
+            anion: {
+                "sublattice": "X",
+                "wyckoff": "24e",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
 
     elif structure is PrototypeStructure.PYROCHLORE:
         # https://next-gen.materialsproject.org/materials/mp-5373
@@ -311,19 +397,55 @@ def _build_primitive_cell(
         if not (0 < x < 1):
             raise ValueError(f"Param 'x' must be in (0, 1), got {x}.")
 
+        # Use Md / No as *placeholder* symbols for the two anion Wyckoff sets:
         primitive_cell = crystal(
-            symbols=["Es", "Fm", anion, anion],
+            symbols=["Es", "Fm", "Md", "No"],
             basis=[
-                (3/8, 7/8, 1/8), # Es 16d
-                (7/8, 7/8, 1/8), # Fm 16c
-                (1/4, 3/4, 1/4), # anion 8b
-                (1/4, x, 1/4),   # anion 48f
+                (3/8, 7/8, 1/8),  # Es 16d (A-site)
+                (7/8, 7/8, 1/8),  # Fm 16c (B-site)
+                (1/4, 3/4, 1/4),  # Md 8b anion
+                (1/4, x, 1/4),    # No 48f anion
             ],
             spacegroup=227,  # Fd-3m
             cellpar=[a, a, a, 90, 90, 90],
             primitive_cell=False,
         )
         active_sublattices = {"Es", "Fm"}
+
+        symbol_metadata = {
+            "Es": {
+                "sublattice": "A",
+                "wyckoff": "16d",
+                "role": "active_cation",
+            },
+            "Fm": {
+                "sublattice": "B",
+                "wyckoff": "16c",
+                "role": "active_cation",
+            },
+            "Md": {
+                "sublattice": "X",
+                "wyckoff": "8b",
+                "role": "anion",
+            },
+            "No": {
+                "sublattice": "X",
+                "wyckoff": "48f",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
+
+        # Now collapse Md/No back to the actual anion species so the chemistry
+        # is correct externally, while keeping per-site metadata distinct.
+        symbols = primitive_cell.get_chemical_symbols()
+        new_symbols: list[str] = []
+        for s in symbols:
+            if s in ("Md", "No"):
+                new_symbols.append(anion)
+            else:
+                new_symbols.append(s)
+        primitive_cell.set_chemical_symbols(new_symbols)
 
     elif structure is PrototypeStructure.ILMENITE:
         # https://next-gen.materialsproject.org/materials/mp-3771
@@ -344,16 +466,34 @@ def _build_primitive_cell(
         primitive_cell = crystal(
             symbols=["Es", "Fm", anion],
             basis=[
-                (1/3, 2/3, 0.311558), # Es 6c
-                (2/3, 1/3, 0.188669), # Fm 6c
+                (1/3, 2/3, 0.311558),           # Es 6c (A-site)
+                (2/3, 1/3, 0.188669),           # Fm 6c (B-site)
                 (0.315034, 0.294888, 0.246799), # anion 18f
             ],
-            spacegroup=148, # R-3
+            spacegroup=148,  # R-3
             cellpar=[a, a, c, 90, 90, 120],
             primitive_cell=True,
         )
         active_sublattices = {"Es", "Fm"}
 
+        symbol_metadata = {
+            "Es": {
+                "sublattice": "A",
+                "wyckoff": "6c",
+                "role": "active_cation",
+            },
+            "Fm": {
+                "sublattice": "B",
+                "wyckoff": "6c",
+                "role": "active_cation",
+            },
+            anion: {
+                "sublattice": "X",
+                "wyckoff": "18f",
+                "role": "anion",
+            },
+        }
+        _annotate_atoms_with_metadata(primitive_cell, symbol_metadata)
 
     else:
         raise ValueError(f"Unknown prototype structure: {structure}")
@@ -384,7 +524,7 @@ class PrototypeSpec(MSONable):
     """
     _: dataclasses.KW_ONLY
     prototype: str
-    params: dict[str, ParamValue]
+    params: dict[str, float]
 
     def __post_init__(self) -> None:
         # Validation is delegated entirely to _build_primitive_cell.

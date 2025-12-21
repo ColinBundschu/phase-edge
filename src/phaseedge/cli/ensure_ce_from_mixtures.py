@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Exponent alpha for inverse-count weighting (w ~ n_g^(-alpha)). Default: 1.0")
 
     # Routing
-    p.add_argument("--category", default="gpu")
+    p.add_argument("--category", help="FireWorks category for ALL jobs.")
     return p
 
 

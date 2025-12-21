@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--weight-alpha", type=float, default=1.0)
 
     # Unified routing
-    p.add_argument("--category", default="gpu", help="FireWorks category for ALL jobs.")
+    p.add_argument("--category", help="FireWorks category for ALL jobs.")
 
     # WL policy / schedule
     p.add_argument("--wl-bin-width", required=True, type=float)

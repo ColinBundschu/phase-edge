@@ -59,15 +59,15 @@ class EnsureDoptCESpec(MSONable):
 
     calc_spec: CalcSpec
 
+    # Single category for *everything* (wrapper, CE subflow, WL jobs)
+    category: str
+
     wl_step_type: str = "swap"
     wl_check_period: int = 5_000
     wl_update_period: int = 1
     wl_seed: int = 0
 
     budget: int = 64
-
-    # Single category for *everything* (wrapper, CE subflow, WL jobs)
-    category: str = "gpu"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -106,7 +106,7 @@ class EnsureDoptCESpec(MSONable):
             wl_seed=int(d["wl_seed"]),
             calc_spec=CalcSpec.from_dict(d["calc_spec"]),
             budget=int(d["budget"]),
-            category=str(d.get("category", "gpu")),
+            category=str(d["category"]),
         )
     
     @property

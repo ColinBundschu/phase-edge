@@ -22,7 +22,7 @@ def ensure_dataset_selected(
     calc_spec: CalcSpec,
     prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
-    category: str = "gpu",
+    category: str,
 ) -> Mapping[str, Any] | Response:
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
