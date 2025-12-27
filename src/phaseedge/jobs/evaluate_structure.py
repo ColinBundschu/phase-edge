@@ -237,8 +237,8 @@ def evaluate_structure(
     if calc_spec.calc_type == CalcType.VASP_MP_GGA or calc_spec.calc_type == CalcType.VASP_MP_24:
         ispin = 1 if calc_spec.spin_type == SpinType.NONMAGNETIC else 2
         j_evaluate = cast(Job, update_user_incar_settings(j_evaluate, incar_updates={
-            "NCORE": 1, "NSIM": 16, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -calc_spec.max_force_eV_per_A, "SYMPREC": 1E-7, "ISPIN": ispin, "NSW": 500,
-            "IBRION": 1, "ISYM": 0, "LWAVE": False, "LVTOT": False, "LEFLF": False,
+            "NCORE": 1, "NSIM": 64, "KPAR": 1, "EDIFF": 1e-6, "EDIFFG": -calc_spec.max_force_eV_per_A, "SYMPREC": 1E-7, "ISPIN": ispin, "NSW": 500,
+            "IBRION": 1, "ISYM": 0, "LWAVE": False, "LVTOT": False, "LEFLF": False, "POTIM": 0.7, "NELMIN": 8, "NFREE": 10, "NELM": 60,
             }))
         subflow = Flow([j_evaluate], name=f"evaluate_{calc_spec.calc_type}", output=j_evaluate.output.output.energy)
     elif calc_spec.calc_type == CalcType.MACE_MPA_0:
