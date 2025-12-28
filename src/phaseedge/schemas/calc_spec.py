@@ -19,6 +19,7 @@ class CalcType(str, Enum):
 class SpinType(str, Enum):
     NONMAGNETIC = "nonmagnetic"
     FERROMAGNETIC = "ferromagnetic"
+    ZERO_INIT_MAGNETIC = "zero-init-magnetic"
 
 @dataclass(frozen=True, slots=True)
 class CalcSpec(MSONable):

@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Iterable, cast, Mapping
 
 from jobflow.core.job import job, Job
@@ -141,6 +142,20 @@ def randomly_kick_unfrozen_atoms(
     return new_struct
 
 
+def zero_out_initial_magmoms(structure: Structure) -> Structure:
+    """
+    Return a copy of `structure` with site-wise initial magnetic moments set to 0.
+    """
+    new_struct = structure.copy()
+
+    if "magmom" not in new_struct.site_properties:
+        raise ValueError("Structure has no 'magmom' site property to zero out.")
+
+    new_struct.remove_site_property("magmom")
+    new_struct.add_site_property("magmom", [0.0] * len(new_struct))
+    return new_struct
+
+
 @job
 def _require_converged(is_force_converged: bool) -> None:
     if not is_force_converged:
@@ -166,6 +181,15 @@ def evaluate_structure(
             )
         # Frozen-ness of atoms is preserved in stored structure
         structure = energy_result.structure
+    elif calc_spec.spin_type == SpinType.ZERO_INIT_MAGNETIC:
+        fm_calc_spec = dataclasses.replace(calc_spec, spin_type=SpinType.FERROMAGNETIC)
+        energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=fm_calc_spec)
+        if energy_result is None:
+            raise RuntimeError(
+                "No existing ferromagnetic calculation found to initialize zero-init-magnetic structure."
+            )
+        structure = energy_result.structure
+        structure = zero_out_initial_magmoms(structure)
     else:
         structure = strip_placeholder_species(structure)
         sublattice_positions = build_sublattice_positions_for_struct(prototype_spec=prototype_spec, supercell_diag=supercell_diag)
@@ -188,8 +212,8 @@ def evaluate_structure(
         "algo_version": "eval-struct-v1",
     }
 
-    if calc_spec.spin_type not in [SpinType.NONMAGNETIC, SpinType.FERROMAGNETIC]:
-        raise NotImplementedError("Only nonmagnetic and ferromagnetic spin types are supported.")
+    if calc_spec.spin_type not in [SpinType.NONMAGNETIC, SpinType.FERROMAGNETIC, SpinType.ZERO_INIT_MAGNETIC]:
+        raise NotImplementedError("Only nonmagnetic, ferromagnetic, and zero-init-magnetic spin types are supported.")
 
     if calc_spec.calc_type == CalcType.VASP_MP_GGA:
         if calc_spec.relax_type != RelaxType.FULL:
