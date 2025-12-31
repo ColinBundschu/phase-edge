@@ -114,7 +114,7 @@ def assign_up_down_spins_to_prototype(
     return structure
 
 
-def _frac_key(frac: np.ndarray, *, decimals: int = 6) -> tuple[float, float, float]:
+def _frac_key(frac: np.ndarray, *, decimals: int) -> tuple[float, float, float]:
     """
     Canonical key for matching sites between structures when positions are identical.
     We mod into [0,1) then round.
@@ -213,7 +213,7 @@ def magnetize_structure(
     tol_zero = 1e-12
 
     for i, site in enumerate(out.sites):
-        k = _frac_key(np.array(site.frac_coords, dtype=float), decimals=8)
+        k = _frac_key(np.array(site.frac_coords, dtype=float), decimals=6)
         if k not in tmpl_map:
             missing.append(i)
             continue
