@@ -114,7 +114,7 @@ def assign_up_down_spins_to_prototype(
     return structure
 
 
-def _frac_key(frac: np.ndarray, *, decimals: int = 8) -> tuple[float, float, float]:
+def _frac_key(frac: np.ndarray, *, decimals: int = 6) -> tuple[float, float, float]:
     """
     Canonical key for matching sites between structures when positions are identical.
     We mod into [0,1) then round.
