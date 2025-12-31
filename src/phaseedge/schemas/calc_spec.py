@@ -19,6 +19,8 @@ class CalcType(str, Enum):
 class SpinType(str, Enum):
     NONMAGNETIC = "nonmagnetic"
     FERROMAGNETIC = "ferromagnetic"
+    SUBLATTICES_ANTIALIGNED = "sublattices-antialigned"
+    AFM_CHECKERBOARD_WITHIN_SUBLATTICE = "afm-checkerboard-within-sublattice"
     ZERO_INIT_MAGNETIC = "zero-init-magnetic"
 
 @dataclass(frozen=True, slots=True)

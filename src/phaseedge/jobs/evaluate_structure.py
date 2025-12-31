@@ -6,10 +6,12 @@ from jobflow.core.flow import Flow
 from atomate2.forcefields.jobs import ForceFieldRelaxMaker
 import numpy as np
 from pymatgen.core import Structure
+from pymatgen.util.coord import pbc_diff
 from atomate2.vasp.jobs.mp import MPGGARelaxMaker, MP24RelaxMaker
 from atomate2.vasp.powerups import update_user_incar_settings
 
 from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
+from phaseedge.science.magnetism import magnetize_structure
 from phaseedge.science.prototype_spec import PrototypeSpec
 from phaseedge.science.random_configs import build_sublattice_positions_for_struct
 from phaseedge.storage.store import lookup_total_energy_eV
@@ -52,15 +54,16 @@ def freeze_sublattices_on_structure(
     if not frozen_sublattices:
         return structure
     
-    frozen_indices = []
+    frozen_positions = []
     for label in frozen_sublattices:
-        frozen_indices.extend(sublattice_positions[label])
+        frozen_positions.extend(sublattice_positions[label])
 
     sd_array = []
     for site in structure.sites:
         frac_coords = tuple(site.frac_coords)
         is_frozen = any(
-            np.allclose(frac_coords, pos, atol=1e-5) for pos in frozen_indices
+            np.linalg.norm(pbc_diff(frac_coords, pos)) < 1e-5
+            for pos in frozen_positions
         )
         sd_array.append([False, False, False] if is_frozen else [True, True, True])
     new_struct = structure.copy()
@@ -181,16 +184,14 @@ def evaluate_structure(
             )
         # Frozen-ness of atoms is preserved in stored structure
         structure = energy_result.structure
-    elif calc_spec.spin_type == SpinType.ZERO_INIT_MAGNETIC:
-        fm_calc_spec = dataclasses.replace(calc_spec, spin_type=SpinType.FERROMAGNETIC)
-        energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=fm_calc_spec)
-        if energy_result is None:
-            raise RuntimeError(
-                "No existing ferromagnetic calculation found to initialize zero-init-magnetic structure."
-            )
-        structure = energy_result.structure
-        structure = zero_out_initial_magmoms(structure)
     else:
+        if calc_spec.spin_type != SpinType.NONMAGNETIC:
+            structure = magnetize_structure(
+                structure=structure,
+                prototype_spec=prototype_spec,
+                supercell_diag=supercell_diag,
+                spin_type=calc_spec.spin_type,
+            )
         structure = strip_placeholder_species(structure)
         sublattice_positions = build_sublattice_positions_for_struct(prototype_spec=prototype_spec, supercell_diag=supercell_diag)
         structure = freeze_sublattices_on_structure(
@@ -203,17 +204,14 @@ def evaluate_structure(
     metadata = {
         "occ_key": occ_key,
         "calculator": calc_spec.calculator,
-        "relax_type": calc_spec.relax_type,
-        "spin_type": SpinType.NONMAGNETIC.value if calc_spec.calc_type == CalcType.MACE_MPA_0 else calc_spec.spin_type,
+        "relax_type": calc_spec.relax_type.value,
+        "spin_type": SpinType.NONMAGNETIC.value if calc_spec.calc_type == CalcType.MACE_MPA_0 else calc_spec.spin_type.value,
         "max_force_eV_per_A": calc_spec.max_force_eV_per_A,
         "frozen_sublattices": calc_spec.frozen_sublattices,
         "prototype": prototype_spec.prototype,
         "comp_map_sig": comp_map_sig,
         "algo_version": "eval-struct-v1",
     }
-
-    if calc_spec.spin_type not in [SpinType.NONMAGNETIC, SpinType.FERROMAGNETIC, SpinType.ZERO_INIT_MAGNETIC]:
-        raise NotImplementedError("Only nonmagnetic, ferromagnetic, and zero-init-magnetic spin types are supported.")
 
     if calc_spec.calc_type == CalcType.VASP_MP_GGA:
         if calc_spec.relax_type != RelaxType.FULL:
