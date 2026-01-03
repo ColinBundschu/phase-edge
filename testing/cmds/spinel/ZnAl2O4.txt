@@ -49,7 +49,7 @@ pe-ensure-dopt-ce \
 --mix "composition_map=Es:{Zn:1,Al:15},Fm:{Zn:15,Al:17};K=30;seed=42" \
 --mix "composition_map=Es:{Al:16},Fm:{Zn:16,Al:16};K=30;seed=42" \
 --seed 42 \
---base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --max-force-eV-per-A 0.02 \
+--base-calculator "MACE-MPA-0" --relax-type full --spin-type nonmagnetic --base-max-force-eV-per-A 0.02 \
 --basis sinusoid --cutoffs "2:10,3:8,4:5" \
 --reg-type ridge --alpha 1e-3 --l1-ratio 0.5 \
 --balance-by-comp --weight-alpha 1.0 \
@@ -57,7 +57,7 @@ pe-ensure-dopt-ce \
 --wl-bin-width 0.1 --samples-per-bin 50 \
 --steps-to-run 100000 --step-type swap --check-period 5000 --update-period 1 \
 --wl-seed 0 \
---final-calculator "vasp-mp-24" \
+--final-calculator "vasp-mp-24" --final-max-force-eV-per-A 0.02 \
 --reject-cross-sublattice-swaps \
 --budget 500
 
