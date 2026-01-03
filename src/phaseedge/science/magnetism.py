@@ -124,6 +124,55 @@ def _frac_key(frac: np.ndarray, *, decimals: int) -> tuple[float, float, float]:
     return (float(f[0]), float(f[1]), float(f[2]))
 
 
+def _greedy_unique_nn_map_pbc(
+    *,
+    lattice,
+    a_frac: np.ndarray,  # shape (Na,3) sites to be mapped (e.g. out)
+    b_frac: np.ndarray,  # shape (Nb,3) reference sites (e.g. template)
+    tol_A: float,
+) -> np.ndarray:
+    """
+    Return mapping idx_b_of_a with length Na, assigning each row in a to a unique
+    nearest neighbor in b using PBC distances. Fails loudly if any a cannot be
+    matched within tol_A.
+    """
+    Na = a_frac.shape[0]
+    Nb = b_frac.shape[0]
+    if Na != Nb:
+        raise ValueError(f"NN map requires equal sizes; got {Na} vs {Nb}")
+
+    # PBC-aware distance matrix (Å)
+    dmat = lattice.get_all_distances(a_frac, b_frac)  # (Na, Nb)
+
+    # Greedy global assignment by smallest distances
+    pairs = [(float(dmat[i, j]), i, j) for i in range(Na) for j in range(Nb)]
+    pairs.sort(key=lambda x: x[0])
+
+    a2b = np.full(Na, -1, dtype=int)
+    used_b = np.zeros(Nb, dtype=bool)
+
+    for d, i, j in pairs:
+        if a2b[i] != -1 or used_b[j]:
+            continue
+        if d > tol_A:
+            break
+        a2b[i] = j
+        used_b[j] = True
+
+    bad = np.where(a2b == -1)[0]
+    if bad.size:
+        # diagnostic: nearest distance for each failed site
+        nearest = np.min(dmat[bad], axis=1)
+        worst = float(np.max(nearest))
+        example = bad[:10].tolist()
+        raise RuntimeError(
+            f"Nearest-neighbor PBC mapping failed for {bad.size}/{Na} sites within tol={tol_A} Å. "
+            f"Example indices={example}. Worst nearest distance among failures: {worst} Å."
+        )
+
+    return a2b
+
+
 def magnetize_structure(
     *,
     structure: Structure,
@@ -138,17 +187,10 @@ def magnetize_structure(
       2) transferring the sign to the actual element-occupied structure, using
          a hard-coded element->|moment| table (first pass).
 
-    Matching:
-      - We do NOT assume site ordering matches.
-      - We DO assume site positions (fractional coords) match exactly between
-        `structure` and the template (within rounding tolerance).
-
-    Rules:
-      - If template site magmom == 0:
-          require output site element to be non-magnetic, else raise.
-      - If template site magmom != 0:
-          if output element is magnetic, assign sign(template)*|moment(element)|
-          else assign 0 (non-magnetic elements remain 0 even if template says +/-).
+    Matching strategy:
+      - First try exact (rounded) fractional-coordinate key match (fast path).
+      - If any sites fail to map, fall back to a unique nearest-neighbor match
+        with PBC distances in Cartesian space (robust path).
     """
     # 1) Build sign template on the prototype supercell
     template = assign_up_down_spins_to_prototype(
@@ -164,11 +206,10 @@ def magnetize_structure(
             f"prototype={prototype_spec.prototype!r}, supercell_diag={supercell_diag}"
         )
 
-    # (Optional) quick lattice sanity check — same shape & orientation.
-    # We allow tiny numerical differences; if you expect exact identity, tighten tolerances.
+    # Lattice sanity check
     if not np.allclose(template.lattice.matrix, structure.lattice.matrix, atol=1e-6, rtol=0):
         raise ValueError(
-            "Template and structure lattices differ; cannot safely map magmoms by fractional coords.\n"
+            "Template and structure lattices differ; cannot safely map magmoms.\n"
             f"prototype={prototype_spec.prototype!r}, supercell_diag={supercell_diag}"
         )
 
@@ -177,52 +218,73 @@ def magnetize_structure(
 
     tmpl_mag = np.array(template.site_properties["magmom"], dtype=float)
 
-    # 2) Build mapping from fractional-coordinate key -> template magmom
-    tmpl_map: Dict[tuple[float, float, float], float] = {}
-    for site, m in zip(template.sites, tmpl_mag):
+    # 2) Build mapping from fractional-coordinate key -> template index
+    # (store index rather than magmom to support diagnostics / uniqueness)
+    tmpl_map: Dict[tuple[float, float, float], int] = {}
+    for j, site in enumerate(template.sites):
         k = _frac_key(np.array(site.frac_coords, dtype=float), decimals=8)
         if k in tmpl_map:
             raise RuntimeError(
                 "Duplicate fractional-coordinate key in template; rounding collision.\n"
-                f"Key={k}. Consider increasing decimals or using a KD-tree match."
+                f"Key={k}. Consider increasing decimals or using NN matching."
             )
-        tmpl_map[k] = float(m)
+        tmpl_map[k] = j
 
-    # 3) First-pass element -> moment magnitude table (tune as you like)
-    # Values are “reasonable” high-spin-ish seeds for oxides; exact oxidation state
-    # may differ, but these are just initial guesses.
+    # 3) First-pass element -> moment magnitude table
     moment_mag: Dict[str, float] = {
         "Cr": 3.0,
         "Mn": 5.0,
         "Fe": 5.0,
         "Co": 3.0,
         "Ni": 2.0,
-        # Add more here as you expand:
-        # "V": 3.0,
-        # "Cu": 1.0,
-        # "Ti": 1.0,
-        # "Ce": 1.0,
+        "V": 3.0,
+        "Cu": 1.0,
+        "Ti": 1.0,
+        "Ce": 1.0,
     }
     magnetic_elements = set(moment_mag.keys())
 
-    # 4) Transfer to output structure
-    out = structure.copy()
-    out_mag = np.zeros(len(out), dtype=float)
-
+    # 4) Try fast-path exact frac-key mapping
+    out_mag = np.zeros(len(structure), dtype=float)
     missing: list[int] = []
+    mapped_template_idx = np.full(len(structure), -1, dtype=int)
+
     tol_zero = 1e-12
 
-    for i, site in enumerate(out.sites):
-        k = _frac_key(np.array(site.frac_coords, dtype=float), decimals=6)
-        if k not in tmpl_map:
+    for i, site in enumerate(structure.sites):
+        k = _frac_key(np.array(site.frac_coords, dtype=float), decimals=8)
+        j = tmpl_map.get(k)
+        if j is None:
             missing.append(i)
             continue
+        mapped_template_idx[i] = j
 
-        m_t = tmpl_map[k]
+    # 5) If any missing, fall back to robust unique NN mapping in Å
+    if missing:
+        # Use frac coords + PBC distances. Because lattices match, either lattice is fine.
+        out_frac = np.array([s.frac_coords for s in structure.sites], dtype=float)
+        tmpl_frac = np.array([s.frac_coords for s in template.sites], dtype=float)
+
+        # Tight tolerance: if structures are "the same", nearest distances should be ~0
+        a2b = _greedy_unique_nn_map_pbc(
+            lattice=structure.lattice,
+            a_frac=out_frac,
+            b_frac=tmpl_frac,
+            tol_A=1e-3,  # adjust to 1e-2 if you suspect slightly perturbed coords
+        )
+        mapped_template_idx = a2b
+
+    # 6) Transfer with your rules
+    for i, site in enumerate(structure.sites):
+        j = int(mapped_template_idx[i])
+        if j < 0:
+            # Should not happen; NN fallback should have filled all.
+            raise RuntimeError(f"Internal error: unmapped site {i}")
+
+        m_t = float(tmpl_mag[j])
         elem = site.specie.symbol
 
         if abs(m_t) <= tol_zero:
-            # Template says "this site should be non-magnetic"
             if elem in magnetic_elements:
                 raise ValueError(
                     "Template indicates a non-magnetic site (magmom=0), but the target structure "
@@ -233,23 +295,12 @@ def magnetize_structure(
                 )
             out_mag[i] = 0.0
         else:
-            # Template provides sign; apply only if element is magnetic
             if elem in magnetic_elements:
                 sign = 1.0 if m_t > 0 else -1.0
                 out_mag[i] = sign * moment_mag[elem]
             else:
-                # Non-magnetic element: keep 0 even if template wants +/- here.
                 out_mag[i] = 0.0
 
-    if missing:
-        # Loud failure with useful diagnostics
-        example = missing[:5]
-        raise RuntimeError(
-            f"Failed to map {len(missing)}/{len(out)} sites by fractional coordinate. "
-            f"Example indices: {example}. "
-            "If the positions are not exactly identical (or rounding is too coarse), "
-            "switch to a nearest-neighbor match in Cartesian space with a tolerance."
-        )
-
+    out = structure.copy()
     out.add_site_property("magmom", out_mag.tolist())
     return out

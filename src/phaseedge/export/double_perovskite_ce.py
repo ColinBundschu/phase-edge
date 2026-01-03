@@ -20,6 +20,7 @@ def double_perovskite_ce(
     convergence: float,
     *,
     category: str,
+    spin_type: str,
     base_convergence: float = 0.05,
     launch: bool = False,
 ) -> str | None:
@@ -129,7 +130,7 @@ def double_perovskite_ce(
     final_calc_spec = CalcSpec(
         calculator=CalcType("vasp-mp-24"),
         relax_type=RelaxType("full"),
-        spin_type=SpinType("nonmagnetic"),
+        spin_type=SpinType(spin_type),
         max_force_eV_per_A=convergence,
         frozen_sublattices="",
     )
