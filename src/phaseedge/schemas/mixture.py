@@ -155,12 +155,17 @@ class Mixture(MSONable):
         )
 
 def sublattices_from_mixtures(mixtures: Sequence[Mixture]) -> dict[str, tuple[str, ...]]:
+    composition_maps = [m.composition_map for m in mixtures]
+    return sublattices_from_composition_maps(composition_maps)
+
+
+def sublattices_from_composition_maps(composition_maps: Sequence[dict[str, dict[str, int]]]) -> dict[str, tuple[str, ...]]:
     """
     Extract the sublattice dictionary from a list of Mixture objects.
     """
     sublattices: dict[str, set[str]] = {}
-    for mix in mixtures:
-        for site, comp in mix.composition_map.items():
+    for composition_map in composition_maps:
+        for site, comp in composition_map.items():
             if site not in sublattices:
                 sublattices[site] = set()
             sublattices[site].update(comp.keys())

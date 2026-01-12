@@ -1,7 +1,9 @@
 from jobflow.core.job import job, Job
 from jobflow.core.flow import Flow, JobOrder
 
-from phaseedge.storage.wang_landau import WLBlockDoc
+from phaseedge.jobs.store_ce_model import lookup_ce_by_key, rehydrate_ensemble_by_ce_key
+from phaseedge.science.prototype_spec import PrototypeSpec
+from phaseedge.storage.wang_landau import WLBlockDoc, fetch_wl_tip, verify_wl_output_indexes
 from phaseedge.schemas.wl_sampler_spec import WLSamplerSpec
 from phaseedge.sampling.wl_block_driver import run_wl_block
 
@@ -9,7 +11,18 @@ from phaseedge.sampling.wl_block_driver import run_wl_block
 @job(data=["bin_samples", "cation_counts"])
 def _add_wl_block_job(spec: WLSamplerSpec) -> WLBlockDoc:
     """Extend the WL chain by run_spec.steps, idempotently. Fails if not on tip."""
-    return run_wl_block(spec=spec)
+    verify_wl_output_indexes()
+    tip = fetch_wl_tip(spec.wl_key)
+    ensemble = rehydrate_ensemble_by_ce_key(spec.ce_key)
+    ce_doc = lookup_ce_by_key(spec.ce_key)
+    if not ce_doc:
+        raise RuntimeError(f"No CE found for ce_key={spec.ce_key}")
+
+    prototype_spec = PrototypeSpec.from_dict(ce_doc["prototype_spec"])
+    sx, sy, sz = (int(x) for x in ce_doc["supercell_diag"])
+    supercell_diag=(sx, sy, sz)
+    return run_wl_block(spec=spec, ensemble=ensemble, tip=tip, prototype_spec=prototype_spec, supercell_diag=supercell_diag)
+
 
 def add_wl_block(
     spec: WLSamplerSpec,
