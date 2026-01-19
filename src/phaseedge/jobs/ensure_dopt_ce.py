@@ -122,6 +122,7 @@ def ensure_dopt_ce(*, spec: EnsureDoptCESpec) -> Mapping[str, Any] | Response:
         category=spec.category,
         prototype_spec=spec.ce_spec.prototype_spec,
         supercell_diag=spec.ce_spec.supercell_diag,
+        skip_unrelaxed=spec.allow_partial,
     )
     j_relax.name = "ensure_dataset_selected"
     j_relax.update_metadata({"_category": spec.category})

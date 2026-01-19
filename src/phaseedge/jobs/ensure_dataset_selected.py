@@ -23,6 +23,7 @@ def ensure_dataset_selected(
     prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     category: str,
+    skip_unrelaxed: bool,
 ) -> Mapping[str, Any] | Response:
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
@@ -40,7 +41,11 @@ def ensure_dataset_selected(
 
         # Schedule relax
         energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
-        if energy_result is None or energy_result.max_force_eV_per_A > calc_spec.max_force_eV_per_A:
+        is_unrelaxed = energy_result is None or energy_result.max_force_eV_per_A > calc_spec.max_force_eV_per_A
+        if is_unrelaxed:
+            if skip_unrelaxed:
+                continue
+        
             j_relax = evaluate_structure(
                 occ_key=occ_key,
                 structure=pmg_struct,

@@ -93,4 +93,5 @@ class EnsureCEFromMixturesSpec(MSONable):
             regularization=self.regularization,
             algo_version=self.algo_version,
             weighting=self.weighting,
+            partial=False,
         )

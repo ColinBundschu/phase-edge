@@ -195,6 +195,7 @@ def compute_ce_key(
     algo_version: str,
     calc_spec: CalcSpec,
     basis_spec: Mapping[str, Any],
+    partial: bool,
     regularization: Mapping[str, Any] | None = None,
     weighting: Mapping[str, Any] | None = None,
 ) -> str:
@@ -205,7 +206,7 @@ def compute_ce_key(
     norm_sources = normalize_sources(sources)
 
     payload = {
-        "kind": "ce_key@sources",
+        "kind": "partial_ce_key@sources" if partial else "ce_key@sources",
         "system": {
             "prototype_spec": _json_canon(prototype_spec.as_dict()),
             "supercell": list(supercell_diag),

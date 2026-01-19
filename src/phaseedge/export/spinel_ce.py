@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 from fireworks import LaunchPad
 from jobflow.managers.fireworks import flow_to_workflow
@@ -21,6 +22,7 @@ def spinel_ce(
     category: str,
     spin_type: str,
     launch: bool = False,
+    partial: bool = False,
 ) -> str | None:
     """
     Look up (and optionally launch) the final CE for a spinel A(B)2O4 system
@@ -151,34 +153,44 @@ def spinel_ce(
         calc_spec=final_calc_spec,
         budget=500,
         category=category,
+        allow_partial=False,
     )
 
-    ce_key = spec.final_ce_key
-    existing_ce = lookup_ce_by_key(ce_key)
+    existing_ce = lookup_ce_by_key(spec.final_ce_key)
+    partial_spec = dataclasses.replace(spec, allow_partial=True)
+    existing_partial_ce = lookup_ce_by_key(partial_spec.final_ce_key)
 
     if not launch:
-        # Pure “check” mode: only return an existing key, else None.
-        result_key: str | None = ce_key if existing_ce is not None else None
-        print(f"A={a_cation} B={b_cation} ce_key={result_key}")
-        return result_key
+        if existing_ce:
+            print(f"A={a_cation} B={b_cation} ce_key={spec.final_ce_key}")
+            return spec.final_ce_key
+        if partial and existing_partial_ce:
+            print(f"A={a_cation} B={b_cation} partial CE key={partial_spec.final_ce_key}")
+            return partial_spec.final_ce_key
+        return None
 
-    # --- launch=True mode ---
-    if existing_ce is None:
-        # Hard-coded LaunchPad config path from your CLI.
-        launchpad_path = "/home/cbu/fw_config/my_launchpad.yaml"
+    if existing_ce:
+        print("Final complete CE already exists, no workflow submitted.")
+        print(f"A={a_cation} B={b_cation} ce_key={spec.final_ce_key}")
+        return spec.final_ce_key
+    
+    if partial and existing_partial_ce:
+        print("Final partial CE already exists, no workflow submitted.")
+        print(f"A={a_cation} B={b_cation} partial CE key={partial_spec.final_ce_key}")
+        return partial_spec.final_ce_key
+    
+    if partial:
+        spec = partial_spec
+    launchpad_path = "/home/cbu/fw_config/my_launchpad.yaml"
 
-        j = ensure_dopt_ce(spec=spec)
-        j.name = (
-            f"ensure_dopt_ce::{prototype}::{supercell_diag}::{final_calc_spec.calculator}"
-        )
-        j.update_metadata({"_category": spec.category})
+    j = ensure_dopt_ce(spec=spec)
+    j.name = (
+        f"ensure_dopt_ce::{prototype}::{supercell_diag}::{final_calc_spec.calculator}"
+    )
+    j.update_metadata({"_category": spec.category})
 
-        wf = flow_to_workflow(j)
-        lp = LaunchPad.from_file(launchpad_path)
-        _wf_id = lp.add_wf(wf)
-        # You said you only want to print A/B and CE key, so we
-        # deliberately don't print wf_id here.
-
-    # After launch (or if it already existed), we know the CE key.
-    print(f"A={a_cation} B={b_cation} ce_key={ce_key}")
-    return ce_key
+    wf = flow_to_workflow(j)
+    lp = LaunchPad.from_file(launchpad_path)
+    _wf_id = lp.add_wf(wf)
+    print(f"A={a_cation} B={b_cation} ce_key={spec.final_ce_key}")
+    return spec.final_ce_key

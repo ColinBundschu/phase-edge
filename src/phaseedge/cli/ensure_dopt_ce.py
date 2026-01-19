@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 from typing import Any
 import json
 
@@ -77,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Output
     p.add_argument("--json", action="store_true")
+
+    p.add_argument("--partial", action="store_true", help="Allow partial D-optimal basis if some calculations are unrelaxed.")
+
     return p
 
 
@@ -160,6 +164,7 @@ def main() -> int:
         calc_spec=final_calc_spec,
         budget=int(args.budget),
         category=str(args.category),
+        allow_partial=False,
     )
 
     planned_wl_runs: list[dict[str, Any]] = [{
@@ -173,8 +178,14 @@ def main() -> int:
         "seed_size_estimate": len(endpoints) + len(planned_wl_runs),
     } | spec.as_dict()
 
-    existing_ce = lookup_ce_by_key(spec.final_ce_key)
-    if existing_ce is None:
+    partial_spec = dataclasses.replace(spec, allow_partial=True)
+    if lookup_ce_by_key(spec.final_ce_key):
+        print("Final complete CE already exists, no workflow submitted.")
+    elif args.partial and lookup_ce_by_key(partial_spec.final_ce_key):
+        print("Final partial CE already exists, no workflow submitted.")
+    else:
+        if args.partial:
+            spec = partial_spec
         j = ensure_dopt_ce(spec=spec)
         j.name = f"ensure_dopt_ce::{args.prototype}::{tuple(args.supercell)}::{args.final_calculator}"
         j.update_metadata({"_category": spec.category})
@@ -189,9 +200,6 @@ def main() -> int:
         }
 
         print("Submitted workflow:", wf_id)
-    else:
-        print("Final CE already exists, no workflow submitted.")
-
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     else:

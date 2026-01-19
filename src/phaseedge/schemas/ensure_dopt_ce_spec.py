@@ -61,6 +61,7 @@ class EnsureDoptCESpec(MSONable):
 
     # Single category for *everything* (wrapper, CE subflow, WL jobs)
     category: str
+    allow_partial: bool
 
     wl_step_type: str = "swap"
     wl_check_period: int = 5_000
@@ -86,6 +87,7 @@ class EnsureDoptCESpec(MSONable):
             "calc_spec": self.calc_spec.as_dict(),
             "budget": self.budget,
             "category": self.category,
+            "allow_partial": self.allow_partial,
         }
 
     @classmethod
@@ -107,6 +109,7 @@ class EnsureDoptCESpec(MSONable):
             calc_spec=CalcSpec.from_dict(d["calc_spec"]),
             budget=int(d["budget"]),
             category=str(d["category"]),
+            allow_partial=bool(d["allow_partial"]),
         )
     
     @property
@@ -139,6 +142,7 @@ class EnsureDoptCESpec(MSONable):
             regularization=self.ce_spec.regularization,
             algo_version=self.algo_version,
             weighting=self.ce_spec.weighting,
+            partial=self.allow_partial,
         )
 
     @property
