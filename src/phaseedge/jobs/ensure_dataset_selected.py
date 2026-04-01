@@ -23,7 +23,7 @@ def ensure_dataset_selected(
     prototype_spec: PrototypeSpec,
     supercell_diag: tuple[int, int, int],
     category: str,
-    skip_unrelaxed: bool,
+    min_partial_frac: float,
 ) -> Mapping[str, Any] | Response:
     ensemble = rehydrate_ensemble_by_ce_key(ce_key)
 
@@ -43,7 +43,7 @@ def ensure_dataset_selected(
         energy_result = lookup_total_energy_eV(occ_key=occ_key, calc_spec=calc_spec)
         is_unrelaxed = energy_result is None or energy_result.max_force_eV_per_A > calc_spec.max_force_eV_per_A
         if is_unrelaxed:
-            if skip_unrelaxed:
+            if min_partial_frac < 1.0:
                 continue
         
             j_relax = evaluate_structure(
@@ -67,6 +67,9 @@ def ensure_dataset_selected(
                 structure=pmg_struct,
             )
         )
+
+    if len(train_refs) < min_partial_frac * len(selected):
+        raise RuntimeError(f"Not enough selected structures are relaxed to meet min_partial_frac={min_partial_frac} ({len(train_refs)}/{len(selected)}).")
 
     output = Dataset(train_refs).jobflow_output
     if not sub_jobs:

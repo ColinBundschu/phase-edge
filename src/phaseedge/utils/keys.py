@@ -195,7 +195,7 @@ def compute_ce_key(
     algo_version: str,
     calc_spec: CalcSpec,
     basis_spec: Mapping[str, Any],
-    partial: bool,
+    min_partial_frac: float,
     regularization: Mapping[str, Any] | None = None,
     weighting: Mapping[str, Any] | None = None,
 ) -> str:
@@ -206,7 +206,7 @@ def compute_ce_key(
     norm_sources = normalize_sources(sources)
 
     payload = {
-        "kind": "partial_ce_key@sources" if partial else "ce_key@sources",
+        "kind": "partial_ce_key@sources" if min_partial_frac < 1.0 else "ce_key@sources",
         "system": {
             "prototype_spec": _json_canon(prototype_spec.as_dict()),
             "supercell": list(supercell_diag),
@@ -222,6 +222,8 @@ def compute_ce_key(
             "weighting": _json_canon(weighting or {}),
         },
     }
+    if min_partial_frac < 1.0:
+        payload["sampling"]["min_partial_frac"] = min_partial_frac
 
     blob = json.dumps(_json_canon(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

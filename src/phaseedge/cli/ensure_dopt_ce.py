@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Output
     p.add_argument("--json", action="store_true")
 
-    p.add_argument("--partial", action="store_true", help="Allow partial D-optimal basis if some calculations are unrelaxed.")
+    p.add_argument("--min-partial-frac", type=float, default=1.0, help="Minimum fraction of D-optimal basis if some calculations are unrelaxed.")
 
     return p
 
@@ -164,7 +164,7 @@ def main() -> int:
         calc_spec=final_calc_spec,
         budget=int(args.budget),
         category=str(args.category),
-        allow_partial=False,
+        min_partial_frac=1.0,
     )
 
     planned_wl_runs: list[dict[str, Any]] = [{
@@ -178,13 +178,13 @@ def main() -> int:
         "seed_size_estimate": len(endpoints) + len(planned_wl_runs),
     } | spec.as_dict()
 
-    partial_spec = dataclasses.replace(spec, allow_partial=True)
+    partial_spec = dataclasses.replace(spec, min_partial_frac=float(args.min_partial_frac))
     if lookup_ce_by_key(spec.final_ce_key):
         print("Final complete CE already exists, no workflow submitted.")
-    elif args.partial and lookup_ce_by_key(partial_spec.final_ce_key):
+    elif float(args.min_partial_frac) < 1.0 and lookup_ce_by_key(partial_spec.final_ce_key):
         print("Final partial CE already exists, no workflow submitted.")
     else:
-        if args.partial:
+        if float(args.min_partial_frac) < 1.0:
             spec = partial_spec
         j = ensure_dopt_ce(spec=spec)
         j.name = f"ensure_dopt_ce::{args.prototype}::{tuple(args.supercell)}::{args.final_calculator}"

@@ -22,8 +22,9 @@ def garnet_ce(
     *,
     category: str,
     spin_type: str,
+    budget: int = 250,
     launch: bool = False,
-    partial: bool = False,
+    min_partial_frac: float = 1.0,
 ) -> str | None:
     """
     Look up (and optionally launch) the final CE for a garnet A3B2C3O12 system
@@ -167,20 +168,20 @@ def garnet_ce(
         wl_seed=0,
         reject_cross_sublattice_swaps=True,
         calc_spec=final_calc_spec,
-        budget=250,
+        budget=budget,
         category=category,
-        allow_partial=False,
+        min_partial_frac=1.0,
     )
 
     existing_ce = lookup_ce_by_key(spec.final_ce_key)
-    partial_spec = dataclasses.replace(spec, allow_partial=True)
+    partial_spec = dataclasses.replace(spec, min_partial_frac=min_partial_frac)
     existing_partial_ce = lookup_ce_by_key(partial_spec.final_ce_key)
 
     if not launch:
         if existing_ce:
             print(f"A={a_cation} B={b_cation} C={c_cation} ce_key={spec.final_ce_key}")
             return spec.final_ce_key
-        if partial and existing_partial_ce:
+        if min_partial_frac < 1.0 and existing_partial_ce:
             print(f"A={a_cation} B={b_cation} C={c_cation} partial CE key={partial_spec.final_ce_key}")
             return partial_spec.final_ce_key
         return None
@@ -190,12 +191,12 @@ def garnet_ce(
         print(f"A={a_cation} B={b_cation} C={c_cation} ce_key={spec.final_ce_key}")
         return spec.final_ce_key
     
-    if partial and existing_partial_ce:
+    if min_partial_frac < 1.0 and existing_partial_ce:
         print("Final partial CE already exists, no workflow submitted.")
         print(f"A={a_cation} B={b_cation} C={c_cation} partial CE key={partial_spec.final_ce_key}")
         return partial_spec.final_ce_key
     
-    if partial:
+    if min_partial_frac < 1.0:
         spec = partial_spec
     launchpad_path = "/home/cbu/fw_config/my_launchpad.yaml"
 
