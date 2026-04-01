@@ -8,7 +8,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from monty.serialization import loadfn
 from jobflow.core.store import JobStore
-from maggma.stores import MongoStore, GridFSStore
+from maggma.stores import MongoStore, GridFSStore, S3Store
 from pymatgen.core import Structure
 
 from phaseedge.schemas.calc_spec import CalcSpec, CalcType, SpinType
@@ -69,7 +69,12 @@ def _mk_store(conf: Mapping[str, Any]):
         return MongoStore(**params)
     if t == "GridFSStore":
         return GridFSStore(**params)
-    raise ValueError(f"Unsupported store type: {t!r}")
+    if t == "S3Store":
+        if params["index"]["type"] != "MongoStore":
+            raise ValueError(f"S3Store index must be a MongoStore, got {params['index']['type']}")
+        index_store = MongoStore(**{k: v for k, v in params["index"].items() if k != "type"})
+        return S3Store(index=index_store, **{k: v for k, v in params.items() if k != "index"})
+    raise ValueError(f"Unsupported store type: {t}")
 
 
 def _build_jobstore_once() -> JobStore:
