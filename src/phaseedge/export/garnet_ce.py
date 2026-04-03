@@ -1,12 +1,8 @@
-import dataclasses
 from typing import Any
-from fireworks import LaunchPad
-from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.cli.common import parse_cutoffs_arg
+from phaseedge.export._common import build_swap_mixtures, resolve_or_launch
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
-from phaseedge.jobs.ensure_dopt_ce import ensure_dopt_ce
-from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
 from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import Mixture, sorted_composition_maps
@@ -23,6 +19,7 @@ def garnet_ce(
     category: str,
     spin_type: str,
     budget: int = 250,
+    base_convergence: float = 0.05,
     launch: bool = False,
     min_partial_frac: float = 1.0,
 ) -> str | None:
@@ -44,7 +41,9 @@ def garnet_ce(
     c_cation : str
         Element on the C (tetrahedral) sublattice (Fm).
     convergence : float
-        Max force convergence criterion in eV/Å for both base and final CalcSpec.
+        Max force convergence criterion in eV/Å for the final CalcSpec.
+    base_convergence : float
+        Max force convergence criterion in eV/Å for the MACE base CalcSpec.
     launch : bool, keyword-only
         If False (default), only check whether the final CE already exists and
         return its key if present, else None.
@@ -61,8 +60,6 @@ def garnet_ce(
             - the final CE key (even if it did not exist prior to launching)
     """
     # --- Prototype and lattice parameters (hard-coded) ---
-    # Example CLI: --prototype garnet_J0Y_Q0O --a 12.0
-    # Here we generalize J0 to the requested A-site element.
     prototype = f"garnet_J0{a_cation}_Q0O"
     proto_params: dict[str, float] = {"a": 12.0}
     supercell_diag: tuple[int, int, int] = (1, 1, 1)
@@ -73,45 +70,22 @@ def garnet_ce(
         params=proto_params,
     )
 
-    # --- Endpoint composition (canonicalized the same way as CLI) ---
-    # Endpoint in your example:
-    #   Es:{Al:8}, Fm:{Ga:12}
-    # Generalized:
+    # --- Endpoint composition ---
     endpoint_cm: dict[str, dict[str, int]] = {
         "Es": {b_cation: 8},
         "Fm": {c_cation: 12},
     }
     endpoints = sorted_composition_maps([endpoint_cm])
 
-    # --- Mixture line: hard coded logic from your CLI path ---
-    # Example pattern (Al= B, Ga= C):
-    #   Es: Al^{8-k} Ga^k
-    #   Fm: Al^k   Ga^{12-k}   for k = 1..8
-    mixtures: list[Mixture] = []
-    for k in range(1, 9):
-        es_counts: dict[str, int] = {}
-        fm_counts: dict[str, int] = {}
-
-        # Es counts
-        if 8 - k > 0:
-            es_counts[b_cation] = 8 - k
-        if k > 0:
-            es_counts[c_cation] = es_counts.get(c_cation, 0) + k
-
-        # Fm counts
-        if k > 0:
-            fm_counts[b_cation] = fm_counts.get(b_cation, 0) + k
-        if 12 - k > 0:
-            fm_counts[c_cation] = fm_counts.get(c_cation, 0) + (12 - k)
-
-        cm = {"Es": es_counts, "Fm": fm_counts}
-        mixtures.append(Mixture(composition_map=cm, K=30, seed=seed))
-
-    # Add endpoint(s) as K=1 mixtures, just like the CLI helper does.
+    # --- Mixtures: sweep k = 1..8 (Es size), plus endpoints as K=1 ---
+    mixtures: list[Mixture] = build_swap_mixtures(
+        cation_a=b_cation, cation_b=c_cation,
+        es_size=8, fm_size=12, K=30, seed=seed,
+    )
     for ep in endpoints:
         mixtures.append(Mixture(composition_map=ep, K=1, seed=0))
 
-    # --- Optional early validation (same as CLI) ---
+    # --- Validation ---
     primitive_cell = prototype_spec.primitive_cell
     for mixture in mixtures:
         validate_counts_for_sublattices(
@@ -120,14 +94,14 @@ def garnet_ce(
             composition_map=mixture.composition_map,
         )
 
-    # --- CE hyperparameters (hard-coded from your garnet command) ---
+    # --- CE hyperparameters ---
     cutoffs = parse_cutoffs_arg("2:8,3:7,4:6")
 
     base_calc_spec = CalcSpec(
         calculator=CalcType("MACE-MPA-0"),
         relax_type=RelaxType("full"),
         spin_type=SpinType("nonmagnetic"),
-        max_force_eV_per_A=convergence,
+        max_force_eV_per_A=base_convergence,
         frozen_sublattices="",
     )
 
@@ -173,41 +147,8 @@ def garnet_ce(
         min_partial_frac=1.0,
     )
 
-    existing_ce = lookup_ce_by_key(spec.final_ce_key)
-    partial_spec = dataclasses.replace(spec, min_partial_frac=min_partial_frac)
-    existing_partial_ce = lookup_ce_by_key(partial_spec.final_ce_key)
-
-    if not launch:
-        if existing_ce:
-            print(f"A={a_cation} B={b_cation} C={c_cation} ce_key={spec.final_ce_key}")
-            return spec.final_ce_key
-        if min_partial_frac < 1.0 and existing_partial_ce:
-            print(f"A={a_cation} B={b_cation} C={c_cation} partial CE key={partial_spec.final_ce_key}")
-            return partial_spec.final_ce_key
-        return None
-
-    if existing_ce:
-        print("Final complete CE already exists, no workflow submitted.")
-        print(f"A={a_cation} B={b_cation} C={c_cation} ce_key={spec.final_ce_key}")
-        return spec.final_ce_key
-    
-    if min_partial_frac < 1.0 and existing_partial_ce:
-        print("Final partial CE already exists, no workflow submitted.")
-        print(f"A={a_cation} B={b_cation} C={c_cation} partial CE key={partial_spec.final_ce_key}")
-        return partial_spec.final_ce_key
-    
-    if min_partial_frac < 1.0:
-        spec = partial_spec
-    launchpad_path = "/home/cbu/fw_config/my_launchpad.yaml"
-
-    j = ensure_dopt_ce(spec=spec)
-    j.name = (
-        f"ensure_dopt_ce::{prototype}::{supercell_diag}::{final_calc_spec.calculator}"
+    label = f"A={a_cation} B={b_cation} C={c_cation}"
+    return resolve_or_launch(
+        spec, label, prototype, supercell_diag,
+        launch=launch, min_partial_frac=min_partial_frac,
     )
-    j.update_metadata({"_category": spec.category})
-
-    wf = flow_to_workflow(j)
-    lp = LaunchPad.from_file(launchpad_path)
-    _wf_id = lp.add_wf(wf)
-    print(f"A={a_cation} B={b_cation} C={c_cation} ce_key={spec.final_ce_key}")
-    return spec.final_ce_key

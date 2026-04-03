@@ -1,12 +1,8 @@
-import dataclasses
 from typing import Any
-from fireworks import LaunchPad
-from jobflow.managers.fireworks import flow_to_workflow
 
 from phaseedge.cli.common import parse_cutoffs_arg
+from phaseedge.export._common import resolve_or_launch
 from phaseedge.jobs.ensure_ce_from_mixtures import EnsureCEFromMixturesSpec
-from phaseedge.jobs.ensure_dopt_ce import ensure_dopt_ce
-from phaseedge.jobs.store_ce_model import lookup_ce_by_key
 from phaseedge.schemas.calc_spec import CalcSpec, CalcType, RelaxType, SpinType
 from phaseedge.schemas.ensure_dopt_ce_spec import EnsureDoptCESpec
 from phaseedge.schemas.mixture import Mixture, sorted_composition_maps
@@ -72,7 +68,7 @@ def double_perovskite_ce(
         params=proto_params,
     )
 
-    # --- Endpoints (two, as in your CLI) ---
+    # --- Endpoints (two symmetric swaps) ---
     endpoint_1: dict[str, dict[str, int]] = {
         "Es": {bprime_cation: 8},
         "Fm": {bdblprime_cation: 8},
@@ -84,25 +80,18 @@ def double_perovskite_ce(
     endpoints = sorted_composition_maps([endpoint_1, endpoint_2])
 
     # --- Mixtures: k = 1..7 (K=50), plus endpoints as K=1 ---
-    # Pattern from your CLI (Al/Ta example):
-    #   Es: Al^{8-k} Ta^k
-    #   Fm: Al^k   Ta^{8-k}
     mixtures: list[Mixture] = []
     for k in range(1, 8):
         es_counts: dict[str, int] = {}
         fm_counts: dict[str, int] = {}
 
-        # Es: B'^(8-k) + B''^k
         if 8 - k > 0:
             es_counts[bprime_cation] = 8 - k
-        if k > 0:
-            es_counts[bdblprime_cation] = es_counts.get(bdblprime_cation, 0) + k
+        es_counts[bdblprime_cation] = k
 
-        # Fm: B'^k + B''^(8-k)
-        if k > 0:
-            fm_counts[bprime_cation] = fm_counts.get(bprime_cation, 0) + k
+        fm_counts[bprime_cation] = k
         if 8 - k > 0:
-            fm_counts[bdblprime_cation] = fm_counts.get(bdblprime_cation, 0) + (8 - k)
+            fm_counts[bdblprime_cation] = 8 - k
 
         cm = {"Es": es_counts, "Fm": fm_counts}
         mixtures.append(Mixture(composition_map=cm, K=50, seed=seed))
@@ -110,7 +99,7 @@ def double_perovskite_ce(
     for ep in endpoints:
         mixtures.append(Mixture(composition_map=ep, K=1, seed=0))
 
-    # --- Optional early validation (same as CLI) ---
+    # --- Validation ---
     primitive_cell = prototype_spec.primitive_cell
     for mixture in mixtures:
         validate_counts_for_sublattices(
@@ -119,7 +108,7 @@ def double_perovskite_ce(
             composition_map=mixture.composition_map,
         )
 
-    # --- CE hyperparameters (hard-coded from your command) ---
+    # --- CE hyperparameters ---
     cutoffs = parse_cutoffs_arg("2:12,3:12,4:9")
 
     base_calc_spec = CalcSpec(
@@ -172,41 +161,8 @@ def double_perovskite_ce(
         min_partial_frac=1.0,
     )
 
-    existing_ce = lookup_ce_by_key(spec.final_ce_key)
-    partial_spec = dataclasses.replace(spec, min_partial_frac=min_partial_frac)
-    existing_partial_ce = lookup_ce_by_key(partial_spec.final_ce_key)
-
-    if not launch:
-        if existing_ce:
-            print(f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation} ce_key={spec.final_ce_key}")
-            return spec.final_ce_key
-        if min_partial_frac < 1.0 and existing_partial_ce:
-            print(f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation} partial CE key={partial_spec.final_ce_key}")
-            return partial_spec.final_ce_key
-        return None
-
-    if existing_ce:
-        print("Final complete CE already exists, no workflow submitted.")
-        print(f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation} ce_key={spec.final_ce_key}")
-        return spec.final_ce_key
-    
-    if min_partial_frac < 1.0 and existing_partial_ce:
-        print("Final partial CE already exists, no workflow submitted.")
-        print(f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation} partial CE key={partial_spec.final_ce_key}")
-        return partial_spec.final_ce_key
-    
-    if min_partial_frac < 1.0:
-        spec = partial_spec
-    launchpad_path = "/home/cbu/fw_config/my_launchpad.yaml"
-
-    j = ensure_dopt_ce(spec=spec)
-    j.name = (
-        f"ensure_dopt_ce::{prototype}::{supercell_diag}::{final_calc_spec.calculator}"
+    label = f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation}"
+    return resolve_or_launch(
+        spec, label, prototype, supercell_diag,
+        launch=launch, min_partial_frac=min_partial_frac,
     )
-    j.update_metadata({"_category": spec.category})
-
-    wf = flow_to_workflow(j)
-    lp = LaunchPad.from_file(launchpad_path)
-    _wf_id = lp.add_wf(wf)
-    print(f"A={a_cation} Bp={bprime_cation} Bpp={bdblprime_cation} ce_key={spec.final_ce_key}")
-    return spec.final_ce_key
